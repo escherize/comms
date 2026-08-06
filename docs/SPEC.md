@@ -1,6 +1,6 @@
 # Spec: agent_comms
 
-Companion documents: `DESIGN.md` (architecture, nine-pass reviewed), `CONTEXT.md` (ubiquitous language), `docs/adr/` (decisions 0001–0010). This spec uses that language throughout and adds nothing that contradicts an ADR.
+Companion documents: `docs/ARCHITECTURE.md` (architecture, nine-pass reviewed), `CONTEXT.md` (ubiquitous language), `docs/adr/` (decisions 0001–0010). This spec uses that language throughout and adds nothing that contradicts an ADR.
 
 ## Test Seams
 
@@ -130,7 +130,7 @@ A self-hosted coordination hub — one binary, one SQLite file, one browser page
 - Hosting git — GitHub/Linear remain sources of truth for code and issues.
 - Mobile clients; the browser page is responsive but phone-first UX is not a goal.
 - Trackers other than Linear (the outbox pattern generalizes; only Linear ships).
-- Per-person attention overrides and escalation-budget accrual — open questions in `DESIGN.md`, decided after real usage.
+- Per-person attention overrides and escalation-budget accrual — open questions in `docs/ARCHITECTURE.md`, decided after real usage.
 
 ## Further Notes
 

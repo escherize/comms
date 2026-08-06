@@ -1,0 +1,8 @@
+# build artifacts
+agent_comms
+*.db
+*.db-wal
+*.db-shm
+
+# scratch
+.scratch/tmp/
