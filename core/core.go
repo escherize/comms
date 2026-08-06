@@ -56,28 +56,38 @@ func (a Actor) IsAgent() bool {
 	return len(a) > 6 && a[:6] == "agent:"
 }
 
+// Attachment references stored content by hash. Artifacts are content
+// addressed, so an event carries a pointer, never a payload — a 100KB report
+// does not become a 100KB row.
+type Attachment struct {
+	Hash  string
+	Title string
+}
+
 // Command is a request that may be refused. Commands never appear in the log.
 type Command struct {
-	Room      string
-	Author    Actor
-	Kind      Kind
-	Body      map[string]any
-	Refs      []string
-	Idem      string
-	Recipient Actor // required when LaneOf(Kind) == Addressed
+	Room        string
+	Author      Actor
+	Kind        Kind
+	Body        map[string]any
+	Refs        []string
+	Idem        string
+	Recipient   Actor // required when LaneOf(Kind) == Addressed
+	Attachments []Attachment
 }
 
 // Event is an accepted fact awaiting a seq from the shell. The shell assigns
 // seq and server_ts; the core never invents either, because it has no clock and
 // no counter.
 type Event struct {
-	Room      string
-	Author    Actor
-	Kind      Kind
-	Body      map[string]any
-	Refs      []string
-	Recipient Actor
-	Lane      Lane
+	Room        string
+	Author      Actor
+	Kind        Kind
+	Body        map[string]any
+	Refs        []string
+	Recipient   Actor
+	Lane        Lane
+	Attachments []Attachment
 }
 
 // Rejection names the invariant that failed. An agent self-corrects against
@@ -97,6 +107,8 @@ type State struct {
 	RoomExists func(room string) bool
 	// EventKind returns the kind of a prior event by its ref, and whether it exists.
 	EventKind func(ref string) (Kind, bool)
+	// ArtifactExists reports whether content is stored under this hash.
+	ArtifactExists func(hash string) bool
 }
 
 // Decide is the whole domain. state × command → events | rejection.
@@ -146,15 +158,37 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		}
 	}
 
+	if r := checkAttachments(s, c); r != nil {
+		return nil, r
+	}
+
 	return []Event{{
-		Room:      c.Room,
-		Author:    c.Author,
-		Kind:      c.Kind,
-		Body:      c.Body,
-		Refs:      c.Refs,
-		Recipient: c.Recipient,
-		Lane:      lane,
+		Room:        c.Room,
+		Author:      c.Author,
+		Kind:        c.Kind,
+		Body:        c.Body,
+		Refs:        c.Refs,
+		Recipient:   c.Recipient,
+		Lane:        lane,
+		Attachments: c.Attachments,
 	}}, nil
+}
+
+// checkAttachments refuses an event that points at content nobody stored. A
+// dangling attachment would render as a broken link forever, and the log is
+// append-only, so there is no later repair.
+func checkAttachments(s State, c Command) *Rejection {
+	for _, a := range c.Attachments {
+		if a.Title == "" {
+			return &Rejection{"attachment.title.required",
+				"each attachment needs a title; the row shows the title, not the content"}
+		}
+		if s.ArtifactExists != nil && !s.ArtifactExists(a.Hash) {
+			return &Rejection{"attachment.unknown",
+				"no artifact stored under hash " + a.Hash + "; POST /artifacts first"}
+		}
+	}
+	return nil
 }
 
 func knownKind(k Kind) bool {

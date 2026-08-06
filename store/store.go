@@ -42,6 +42,7 @@ type Record struct {
 	BodyHash   string
 	PrevHash   string
 	BodyErased bool
+	Attach     []core.Attachment
 }
 
 // Text returns the body's text field, or "" when the body is absent.
@@ -102,7 +103,8 @@ CREATE TABLE IF NOT EXISTS envelope (
   refs       TEXT    NOT NULL DEFAULT '[]',
   idem       TEXT    NOT NULL UNIQUE,
   body_hash  TEXT    NOT NULL,
-  prev_hash  TEXT    NOT NULL
+  prev_hash  TEXT    NOT NULL,
+  attach     TEXT    NOT NULL DEFAULT '[]'
 );
 
 -- The body: droppable without touching the chain.
@@ -137,6 +139,27 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- Artifacts: content-addressed GFM, deduped by hash, referenced by events.
+-- Stored beside the log so litestream covers them with no second backup path.
+CREATE TABLE IF NOT EXISTS artifact (
+  hash    TEXT PRIMARY KEY,
+  bytes   BLOB NOT NULL,
+  size    INTEGER NOT NULL,
+  created TEXT NOT NULL
+);
+
+-- Progress: a decision projection folding the latest status per author, so the
+-- room can show where an agent is without replaying its status events.
+CREATE TABLE IF NOT EXISTS progress (
+  room      TEXT NOT NULL,
+  author    TEXT NOT NULL,
+  step      INTEGER NOT NULL DEFAULT 0,
+  of        INTEGER NOT NULL DEFAULT 0,
+  note      TEXT NOT NULL DEFAULT '',
+  server_ts TEXT NOT NULL,
+  PRIMARY KEY (room, author)
+);
 `
 
 // Open prepares the store and advances seq past any live fencing tokens lost to
@@ -275,13 +298,17 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 	if err != nil {
 		return 0, err
 	}
+	attachJSON, err := json.Marshal(ev.Attachments)
+	if err != nil {
+		return 0, err
+	}
 
 	ts := now.UTC().Format(time.RFC3339Nano)
 	_, err = tx.Exec(
-		`INSERT INTO envelope(seq, server_ts, room, author, kind, recipient, lane, refs, idem, body_hash, prev_hash)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO envelope(seq, server_ts, room, author, kind, recipient, lane, refs, idem, body_hash, prev_hash, attach)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 		next, ts, ev.Room, string(ev.Author), string(ev.Kind), string(ev.Recipient),
-		int(ev.Lane), string(refsJSON), idem, bodyHash, chainPrev)
+		int(ev.Lane), string(refsJSON), idem, bodyHash, chainPrev, string(attachJSON))
 	if err != nil {
 		return 0, err
 	}
@@ -291,11 +318,36 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 
 	// Derived projection, updated in the same transaction: read-your-writes for
 	// lexical search means an event is findable the millisecond it is posted.
+	// Artifact text is indexed alongside the event, so searching a report's
+	// contents finds the event that carries it — the point of storing markdown.
 	text, _ := ev.Body["text"].(string)
+	indexed := text
+	for _, a := range ev.Attachments {
+		indexed += "\n" + a.Title
+		var blob []byte
+		if err := tx.QueryRow(`SELECT bytes FROM artifact WHERE hash = ?`, a.Hash).Scan(&blob); err == nil {
+			indexed += "\n" + string(blob)
+		}
+	}
 	if _, err := tx.Exec(
 		`INSERT INTO search(text, author, kind, room, seq) VALUES(?,?,?,?,?)`,
-		text, string(ev.Author), string(ev.Kind), ev.Room, next); err != nil {
+		indexed, string(ev.Author), string(ev.Kind), ev.Room, next); err != nil {
 		return 0, err
+	}
+
+	// Decision projection, same transaction: a status event folds into the
+	// author's current progress rather than being replayed to reconstruct it.
+	if ev.Kind == core.KindStatus {
+		step, _ := ev.Body["step"].(float64)
+		of, _ := ev.Body["of"].(float64)
+		if _, err := tx.Exec(
+			`INSERT INTO progress(room, author, step, of, note, server_ts) VALUES(?,?,?,?,?,?)
+			 ON CONFLICT(room, author) DO UPDATE SET
+			   step = excluded.step, of = excluded.of,
+			   note = excluded.note, server_ts = excluded.server_ts`,
+			ev.Room, string(ev.Author), int(step), int(of), text, ts); err != nil {
+			return 0, err
+		}
 	}
 
 	if _, err := tx.Exec(`UPDATE meta SET value = ? WHERE key = 'next_seq'`, next+1); err != nil {
@@ -322,7 +374,7 @@ func (s *Store) seqForIdem(idem string) (int64, bool) {
 func (s *Store) Since(room string, after int64, limit int) ([]Record, error) {
 	rows, err := s.db.Query(`
 		SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,
-		       e.refs, e.body_hash, e.prev_hash, b.json
+		       e.refs, e.body_hash, e.prev_hash, b.json, e.attach
 		FROM envelope e LEFT JOIN body b ON b.seq = e.seq
 		WHERE e.room = ? AND e.seq > ?
 		ORDER BY e.seq
@@ -378,7 +430,7 @@ func (s *Store) Search(query, room, kind, author string, limit int) ([]Record, e
 
 	rows, err := s.db.Query(`
 		SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,
-		       e.refs, e.body_hash, e.prev_hash, b.json
+		       e.refs, e.body_hash, e.prev_hash, b.json, e.attach
 		FROM search s
 		JOIN envelope e ON e.seq = s.seq
 		LEFT JOIN body b ON b.seq = e.seq
@@ -403,11 +455,13 @@ func scanRecords(rows *sql.Rows) ([]Record, error) {
 			recip    string
 			lane     int
 			bodyJSON sql.NullString
+			attach   string
 		)
 		if err := rows.Scan(&r.Seq, &ts, &r.Room, &author, &kind, &recip, &lane,
-			&refs, &r.BodyHash, &r.PrevHash, &bodyJSON); err != nil {
+			&refs, &r.BodyHash, &r.PrevHash, &bodyJSON, &attach); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(attach), &r.Attach)
 		r.ServerTS, _ = time.Parse(time.RFC3339Nano, ts)
 		r.Author = core.Actor(author)
 		r.Kind = core.Kind(kind)
@@ -428,12 +482,35 @@ func scanRecords(rows *sql.Rows) ([]Record, error) {
 // survive, so the log still verifies and now attests: a body with this hash was
 // here and is gone.
 func (s *Store) Purge(seq int64) error {
-	_, err := s.db.Exec(`DELETE FROM body WHERE seq = ?`, seq)
-	if err != nil {
+	// Attachments die with the body. A secret pasted into a report must not
+	// outlive the redaction that erased the message carrying it.
+	if recs, err := s.bySeq(seq); err == nil {
+		for _, r := range recs {
+			for _, a := range r.Attach {
+				if err := s.PurgeArtifact(a.Hash); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if _, err := s.db.Exec(`DELETE FROM body WHERE seq = ?`, seq); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`DELETE FROM search WHERE seq = ?`, seq)
+	_, err := s.db.Exec(`DELETE FROM search WHERE seq = ?`, seq)
 	return err
+}
+
+func (s *Store) bySeq(seq int64) ([]Record, error) {
+	rows, err := s.db.Query(`
+		SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,
+		       e.refs, e.body_hash, e.prev_hash, b.json, e.attach
+		FROM envelope e LEFT JOIN body b ON b.seq = e.seq
+		WHERE e.seq = ?`, seq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRecords(rows)
 }
 
 // Verify walks the chain by prev_hash. It deliberately does not check seq

@@ -5,6 +5,7 @@ import (
 	"html"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/bcm/agent_comms/core"
 	"github.com/bcm/agent_comms/store"
@@ -62,6 +63,11 @@ func renderRow(r store.Record) string {
 		if r.Recipient != "" {
 			body.WriteString(`<span class="to">` + html.EscapeString(string(r.Recipient)) + `</span> `)
 		}
+		if r.Kind == core.KindStatus {
+			if step, of := r.Step(), r.Of(); of > 0 {
+				body.WriteString(fmt.Sprintf(`<span class="step">%d/%d</span> `, step, of))
+			}
+		}
 		if txt := r.Text(); txt != "" {
 			body.WriteString(html.EscapeString(txt))
 		} else if u := r.URL(); u != "" {
@@ -70,6 +76,14 @@ func renderRow(r store.Record) string {
 			body.WriteString(`<a href="` + html.EscapeString(u) + `">` +
 				html.EscapeString(u) + `</a>`)
 		}
+	}
+
+	// Attachments render as titles, never as content: a 100KB report must not
+	// become a 100KB row.
+	for _, a := range r.Attach {
+		body.WriteString(fmt.Sprintf(
+			` <a class="att" href="/a/%s">▤ %s</a>`,
+			html.EscapeString(a.Hash), html.EscapeString(a.Title)))
 	}
 
 	tick := `<div class="tick">✓</div>`
@@ -176,6 +190,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		"{{AMBIENT}}", fmt.Sprint(ambient),
 		"{{ADDRESSED}}", fmt.Sprint(addressed),
 		"{{HEAD}}", fmt.Sprint(head),
+		"{{PROGRESS}}", s.renderProgress(room),
 	).Replace(roomHTML)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -185,6 +200,59 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 // carryThreshold is how many consecutive ambient entries collapse. Below it the
 // rows are cheap enough to show; above it they are a flood.
 const carryThreshold = 3
+
+// stallWindow is how long an actor may go quiet before the room says so.
+// Evaluated against the server clock, never a client timestamp.
+const stallWindow = 15 * time.Minute
+
+// renderProgress folds each working actor's latest status into one live line
+// for the balance foot, so a human can see where the agents are without
+// expanding anything. Progress is a projection: the room shows current state,
+// not the status events that produced it. It belongs to the room, not to any
+// one run of collapsed rows, so it renders once.
+func (s *Server) renderProgress(room string) string {
+	ps, err := s.st.ProgressFor(room)
+	if err != nil || len(ps) == 0 {
+		return ""
+	}
+	now := s.now()
+	var parts []string
+	for _, p := range ps {
+		label := shortActor(core.Actor(p.Author))
+		switch {
+		case p.Stalled(now, stallWindow):
+			parts = append(parts, fmt.Sprintf(
+				`<span class="stall">%s stalled %s</span>`,
+				html.EscapeString(label), since(now, p.Updated)))
+		case p.Of > 0:
+			parts = append(parts, fmt.Sprintf(`%s step %d/%d (%s)`,
+				html.EscapeString(label), p.Step, p.Of, since(now, p.Updated)))
+		default:
+			parts = append(parts, fmt.Sprintf(`%s %s (%s)`,
+				html.EscapeString(label), html.EscapeString(truncate(p.Note, 40)),
+				since(now, p.Updated)))
+		}
+	}
+	return `<span>working <b>` + strings.Join(parts, "</b></span> <span><b>") + `</b></span>`
+}
+
+func since(now, then time.Time) string {
+	d := now.Sub(then)
+	if d < time.Minute {
+		return "just now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh", int(d.Hours()))
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
 
 func tally(recs []store.Record) (ambient, addressed int, head int64) {
 	for _, r := range recs {

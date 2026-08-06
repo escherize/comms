@@ -115,6 +115,9 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
 .row.addressed .folio { color: var(--accent-ink); }
 .to { color: var(--accent-ink); }
 
+.att { color: var(--accent-ink); margin-left:.35rem; white-space:nowrap; }
+.step { color: var(--ink-mute); font-variant-numeric: tabular-nums; }
+.stall { color: var(--sev-lo); }
 .sev { font-size:.68rem; letter-spacing:.06em; }
 .sev-p0, .sev-p1 { color: var(--sev-hi); }
 .sev-p2 { color: var(--sev-lo); }
@@ -269,6 +272,7 @@ finish review, the verdict, and DESIGN.md.
     <span>addressed open <b>{{ADDRESSED}}</b></span>
     <span>index current <b>read-your-writes</b></span>
     <span>balance at folio <b>{{HEAD}}</b></span>
+    {{PROGRESS}}
   </div>
   <form class="composer" id="composer">
     <select name="kind" id="ckind">
@@ -346,3 +350,39 @@ const searchHTML = `<!doctype html>
 ` + themeScript + `
 </body>
 </html>`
+
+// artifactPage frames rendered markdown. It is a standalone document served
+// under a strict CSP, not an inclusion into the room, so a rendering surprise
+// cannot reach the room's DOM.
+func artifactPage(hash string, body []byte) string {
+	return `<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>artifact ` + hash[:12] + ` · agent_comms</title>
+<style>` + baseCSS + `
+body { display:block; padding:0; }
+.art { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+.art h1,.art h2,.art h3 { color: var(--ink-strong); margin: 1.6rem 0 .5rem; line-height:1.25; }
+.art h1 { font-size:1.35rem; } .art h2 { font-size:1.1rem; } .art h3 { font-size:.95rem; }
+.art p, .art li { line-height:1.6; }
+.art table { border-collapse:collapse; width:100%; margin:.8rem 0; }
+.art th, .art td { border:1px solid var(--rule); padding:.3rem .55rem; text-align:left; }
+.art th { background: var(--band); color: var(--ink-mute); font-weight:500; }
+.art pre { background: var(--panel); border:1px solid var(--rule); padding:.6rem .75rem; overflow-x:auto; }
+.art code { background: var(--panel); padding:.05rem .3rem; }
+.art pre code { background:none; padding:0; }
+.art blockquote { border-left:2px solid var(--rule-strong); margin:.8rem 0; padding-left:.9rem; color: var(--ink-mute); }
+.art hr { border:0; border-top:1px solid var(--rule); margin:1.5rem 0; }
+.artfoot { border-top:1px solid var(--rule); margin-top:2rem; padding-top:.6rem;
+           color: var(--ink-faint); font-size:.72rem; }
+</style>
+</head>
+<body>
+<div class="art">` + string(body) + `
+<div class="artfoot">artifact ` + hash + ` · stored as GitHub-Flavored Markdown, rendered sanitized</div>
+</div>
+</body>
+</html>`
+}

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -43,10 +44,81 @@ func New(st *store.Store, now Clock) *Server {
 func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /commands", s.postCommand)
+	mux.HandleFunc("POST /artifacts", s.postArtifact)
+	mux.HandleFunc("GET /a/{hash}", s.getArtifact)
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
+}
+
+// postArtifact stores GFM content-addressed and returns its hash. Only markdown
+// is accepted: a stored HTML blob would be markup noise in the search index and,
+// far worse, agent-authored script one render away from a human's session
+// (ADR-0011).
+func (s *Server) postArtifact(w http.ResponseWriter, r *http.Request) {
+	if ct := r.Header.Get("Content-Type"); ct != "" &&
+		!strings.HasPrefix(ct, "text/markdown") && !strings.HasPrefix(ct, "text/plain") {
+		writeJSON(w, http.StatusUnsupportedMediaType, rejectedResponse{
+			"media_type.unsupported",
+			"artifacts are stored as GitHub-Flavored Markdown; got " + ct,
+			"Content-Type: text/markdown",
+		})
+		return
+	}
+
+	content, err := readLimited(r.Body, 4<<20)
+	if err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge,
+			rejectedResponse{"artifact.too_large", err.Error(), ""})
+		return
+	}
+	if len(content) == 0 {
+		writeJSON(w, http.StatusBadRequest,
+			rejectedResponse{"artifact.empty", "an artifact needs content", ""})
+		return
+	}
+
+	hash, err := s.st.PutArtifact(content, s.now())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			rejectedResponse{"artifact.store_failed", err.Error(), ""})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hash": hash, "size": len(content)})
+}
+
+// getArtifact renders stored markdown as sanitized HTML. The stored bytes are
+// never served raw.
+func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
+	hash := r.PathValue("hash")
+	content, ok := s.st.GetArtifact(hash)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Defence in depth behind the sanitizer: even if something slipped through
+	// the allowlist, the page may not load or execute anything external.
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	fmt.Fprint(w, artifactPage(hash, RenderMarkdown(content)))
+}
+
+func readLimited(rc io.Reader, max int) ([]byte, error) {
+	buf := make([]byte, 0, 8192)
+	chunk := make([]byte, 8192)
+	for {
+		n, err := rc.Read(chunk)
+		buf = append(buf, chunk[:n]...)
+		if len(buf) > max {
+			return nil, fmt.Errorf("content exceeds %d bytes", max)
+		}
+		if err != nil {
+			return buf, nil
+		}
+	}
 }
 
 // ---------------------------------------------------------------- parse
@@ -54,13 +126,17 @@ func (s *Server) Routes() *http.ServeMux {
 // wireCommand is the untrusted shape. It becomes a core.Command exactly once,
 // here, via a total function returning an error rather than a boolean.
 type wireCommand struct {
-	Room      string         `json:"room"`
-	Author    string         `json:"author"`
-	Kind      string         `json:"kind"`
-	Body      map[string]any `json:"body"`
-	Refs      []string       `json:"refs"`
-	Idem      string         `json:"idem"`
-	Recipient string         `json:"recipient"`
+	Room        string         `json:"room"`
+	Author      string         `json:"author"`
+	Kind        string         `json:"kind"`
+	Body        map[string]any `json:"body"`
+	Refs        []string       `json:"refs"`
+	Idem        string         `json:"idem"`
+	Recipient   string         `json:"recipient"`
+	Attachments []struct {
+		Hash  string `json:"hash"`
+		Title string `json:"title"`
+	} `json:"attachments"`
 }
 
 func parseCommand(raw []byte) (core.Command, error) {
@@ -73,14 +149,26 @@ func parseCommand(raw []byte) (core.Command, error) {
 	if w.Body == nil {
 		w.Body = map[string]any{}
 	}
+	// Attachment hashes are shape-checked here, at the parse boundary, so a
+	// malformed reference is a typed parse failure rather than a DB miss later.
+	var atts []core.Attachment
+	for _, a := range w.Attachments {
+		if !store.ValidHash(a.Hash) {
+			return core.Command{}, fmt.Errorf(
+				"attachment hash must be 64 lowercase hex chars, got %q", a.Hash)
+		}
+		atts = append(atts, core.Attachment{Hash: a.Hash, Title: a.Title})
+	}
+
 	return core.Command{
-		Room:      w.Room,
-		Author:    core.Actor(w.Author),
-		Kind:      core.Kind(w.Kind),
-		Body:      w.Body,
-		Refs:      w.Refs,
-		Idem:      w.Idem,
-		Recipient: core.Actor(w.Recipient),
+		Room:        w.Room,
+		Author:      core.Actor(w.Author),
+		Kind:        core.Kind(w.Kind),
+		Body:        w.Body,
+		Refs:        w.Refs,
+		Idem:        w.Idem,
+		Recipient:   core.Actor(w.Recipient),
+		Attachments: atts,
 	}, nil
 }
 
@@ -120,7 +208,11 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := core.State{RoomExists: s.st.RoomExists, EventKind: s.st.EventKind}
+	state := core.State{
+		RoomExists:     s.st.RoomExists,
+		EventKind:      s.st.EventKind,
+		ArtifactExists: s.st.ArtifactExists,
+	}
 	events, rej := core.Decide(state, cmd)
 	if rej != nil {
 		writeJSON(w, http.StatusUnprocessableEntity,
@@ -157,7 +249,9 @@ func schemaFor(k core.Kind) string {
 		return `{"url": string}`
 	case core.KindQuestion, core.KindAnswer, core.KindHandoff:
 		return `{"text": string} + recipient required`
-	case core.KindChat, core.KindTIL, core.KindStatus, core.KindDigest:
+	case core.KindStatus:
+		return `{"text": string, "step": int?, "of": int?}`
+	case core.KindChat, core.KindTIL, core.KindDigest:
 		return `{"text": string}`
 	case core.KindRedact:
 		return `{"text": string} + refs must name exactly one event`
