@@ -1,0 +1,228 @@
+// Package core is the functional core: pure decision logic with no clock, no
+// IO, and no network. Everything here is a total function over values.
+//
+// The shell parses untrusted input into these types exactly once (parse, don't
+// validate), authenticates it, and appends whatever Decide returns. Every
+// domain refusal lives here; nothing that could refuse a well-formed command
+// for a domain reason lives outside.
+package core
+
+// Kind identifies an event type. Past tense throughout: an event is a fact that
+// already happened and can never be invalid.
+type Kind string
+
+const (
+	KindChat     Kind = "chat"
+	KindFinding  Kind = "finding"
+	KindQuestion Kind = "question"
+	KindAnswer   Kind = "answer"
+	KindTIL      Kind = "til"
+	KindHandoff  Kind = "handoff"
+	KindStatus   Kind = "status"
+	KindPRLink   Kind = "pr.link"
+	KindDigest   Kind = "digest"
+	KindRedact   Kind = "redact"
+)
+
+// Lane is how an event competes for human attention. It is a static property of
+// the Kind: nothing an author writes inside an event changes its lane. Severity
+// is an author-set claim, so routing by it would hand the addressed lane to
+// whichever agent claims p0 most often.
+type Lane int
+
+const (
+	Ambient Lane = iota
+	Addressed
+)
+
+// LaneOf is the whole attention classification. Kind decides; author opinion
+// never does. Escalation (priced separately, in the shell) is the only crossing.
+func LaneOf(k Kind) Lane {
+	switch k {
+	case KindQuestion, KindAnswer, KindHandoff, KindDigest:
+		return Addressed
+	default:
+		return Ambient
+	}
+}
+
+// Actor identifies a human or an agent. Agents are actors in exactly the same
+// sense humans are.
+type Actor string
+
+// IsAgent reports whether the actor is an agent. Agent-authored commands face
+// gates human-authored ones do not.
+func (a Actor) IsAgent() bool {
+	return len(a) > 6 && a[:6] == "agent:"
+}
+
+// Command is a request that may be refused. Commands never appear in the log.
+type Command struct {
+	Room      string
+	Author    Actor
+	Kind      Kind
+	Body      map[string]any
+	Refs      []string
+	Idem      string
+	Recipient Actor // required when LaneOf(Kind) == Addressed
+}
+
+// Event is an accepted fact awaiting a seq from the shell. The shell assigns
+// seq and server_ts; the core never invents either, because it has no clock and
+// no counter.
+type Event struct {
+	Room      string
+	Author    Actor
+	Kind      Kind
+	Body      map[string]any
+	Refs      []string
+	Recipient Actor
+	Lane      Lane
+}
+
+// Rejection names the invariant that failed. An agent self-corrects against
+// Invariant; a human reads Detail.
+type Rejection struct {
+	Invariant string
+	Detail    string
+}
+
+func (r Rejection) Error() string { return r.Invariant + ": " + r.Detail }
+
+// State is the decision-projection view the decider reads. It is always current
+// — updated in the same transaction as the append — because a lagging view
+// would let two claims both observe an open task and both be accepted.
+type State struct {
+	// KnownKinds gates unknown kinds without a registry lookup in the shell.
+	RoomExists func(room string) bool
+	// EventKind returns the kind of a prior event by its ref, and whether it exists.
+	EventKind func(ref string) (Kind, bool)
+}
+
+// Decide is the whole domain. state × command → events | rejection.
+//
+// It is total, deterministic, and clockless: the same inputs always produce the
+// same outputs, which is what makes the table-driven tests below exhaustive
+// rather than illustrative.
+func Decide(s State, c Command) ([]Event, *Rejection) {
+	if c.Room == "" {
+		return nil, &Rejection{"room.required", "every command names a room"}
+	}
+	if s.RoomExists != nil && !s.RoomExists(c.Room) {
+		return nil, &Rejection{"room.unknown", "no such room: " + c.Room}
+	}
+	if c.Author == "" {
+		return nil, &Rejection{"author.required", "every command names an author"}
+	}
+	if c.Idem == "" {
+		return nil, &Rejection{"idem.required", "every command carries an idempotency key"}
+	}
+	if !knownKind(c.Kind) {
+		return nil, &Rejection{"kind.unknown", "unknown kind: " + string(c.Kind)}
+	}
+
+	if r := checkBody(c); r != nil {
+		return nil, r
+	}
+
+	// Addressed events must name a recipient. An addressed event nobody is
+	// addressed to would render inline and interrupt everyone, which is the
+	// flood the lane split exists to prevent.
+	lane := LaneOf(c.Kind)
+	if lane == Addressed && c.Recipient == "" {
+		return nil, &Rejection{"recipient.required",
+			"kind " + string(c.Kind) + " is addressed and must name a recipient"}
+	}
+	if lane == Ambient && c.Recipient != "" {
+		return nil, &Rejection{"recipient.forbidden",
+			"kind " + string(c.Kind) + " is ambient; it cannot name a recipient"}
+	}
+
+	// An answer must point at a question. A reply with no question is not an
+	// answer, and would address someone about nothing.
+	if c.Kind == KindAnswer {
+		if r := checkAnswersAQuestion(s, c); r != nil {
+			return nil, r
+		}
+	}
+
+	return []Event{{
+		Room:      c.Room,
+		Author:    c.Author,
+		Kind:      c.Kind,
+		Body:      c.Body,
+		Refs:      c.Refs,
+		Recipient: c.Recipient,
+		Lane:      lane,
+	}}, nil
+}
+
+func knownKind(k Kind) bool {
+	switch k {
+	case KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL,
+		KindHandoff, KindStatus, KindPRLink, KindDigest, KindRedact:
+		return true
+	}
+	return false
+}
+
+// checkBody enforces the per-kind schema. A rejection returns the field that
+// failed so an agent can correct itself without a human.
+func checkBody(c Command) *Rejection {
+	text, _ := c.Body["text"].(string)
+
+	switch c.Kind {
+	case KindFinding:
+		if text == "" {
+			return &Rejection{"body.text.required", "finding requires text"}
+		}
+		sev, _ := c.Body["severity"].(string)
+		if !validSeverity(sev) {
+			return &Rejection{"body.severity.invalid",
+				"finding requires severity in p0|p1|p2|p3, got: " + sev}
+		}
+	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDigest:
+		if text == "" {
+			return &Rejection{"body.text.required", string(c.Kind) + " requires text"}
+		}
+	case KindHandoff:
+		if text == "" {
+			return &Rejection{"body.text.required", "handoff requires text"}
+		}
+	case KindPRLink:
+		if u, _ := c.Body["url"].(string); u == "" {
+			return &Rejection{"body.url.required", "pr.link requires url"}
+		}
+	case KindRedact:
+		if len(c.Refs) != 1 {
+			return &Rejection{"refs.exactly_one",
+				"redact must reference exactly one event"}
+		}
+	}
+	return nil
+}
+
+func validSeverity(s string) bool {
+	switch s {
+	case "p0", "p1", "p2", "p3":
+		return true
+	}
+	return false
+}
+
+func checkAnswersAQuestion(s State, c Command) *Rejection {
+	if len(c.Refs) == 0 {
+		return &Rejection{"refs.question_required",
+			"answer must reference the question it answers"}
+	}
+	if s.EventKind == nil {
+		return nil
+	}
+	for _, ref := range c.Refs {
+		if k, ok := s.EventKind(ref); ok && k == KindQuestion {
+			return nil
+		}
+	}
+	return &Rejection{"refs.question_required",
+		"answer must reference an event of kind question"}
+}

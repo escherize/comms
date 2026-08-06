@@ -1,0 +1,389 @@
+package shell
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/bcm/agent_comms/store"
+)
+
+// newServer drives the real system through its highest seam: HTTP in, SSE out,
+// a real store on a temp file. Nothing is mocked past the interface.
+func newServer(t *testing.T) (*httptest.Server, *store.Store) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "shell.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.EnsureRoom("core"); err != nil {
+		t.Fatal(err)
+	}
+
+	fixed := time.Date(2026, 8, 6, 14, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(New(st, func() time.Time { return fixed }).Routes())
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+func post(t *testing.T, srv *httptest.Server, body string) (int, map[string]any) {
+	t.Helper()
+	resp, err := http.Post(srv.URL+"/commands", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+func cmd(kind, text, idem string) string {
+	return `{"room":"core","author":"bcm","kind":"` + kind +
+		`","body":{"text":"` + text + `"},"idem":"` + idem + `"}`
+}
+
+func TestPostChatIsAcceptedAndReturnsSeq(t *testing.T) {
+	srv, _ := newServer(t)
+
+	code, out := post(t, srv, cmd("chat", "morning", "i1"))
+	if code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%v)", code, out)
+	}
+	if seq, _ := out["seq"].(float64); seq <= 0 {
+		t.Errorf("expected a positive seq, got %v", out["seq"])
+	}
+	if applied, _ := out["applied"].(bool); !applied {
+		t.Error("first post must report applied")
+	}
+}
+
+// Malformed JSON is refused at the parse boundary, before the decider sees it.
+func TestMalformedCommandIsRejectedAtParse(t *testing.T) {
+	srv, _ := newServer(t)
+
+	code, out := post(t, srv, `{"room":"core",`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", code)
+	}
+	if out["invariant"] != "parse.failed" {
+		t.Errorf("want parse.failed, got %v", out["invariant"])
+	}
+
+	// Unknown fields are a parse failure too: an agent guessing at the shape
+	// should hear about it rather than have the field silently dropped.
+	code, out = post(t, srv,
+		`{"room":"core","author":"bcm","kind":"chat","body":{"text":"x"},"idem":"i1","urgency":"high"}`)
+	if code != http.StatusBadRequest {
+		t.Errorf("unknown field must fail parse, got %d (%v)", code, out)
+	}
+}
+
+// A rejection must carry the invariant and the schema so an agent self-corrects
+// without a human.
+func TestRejectionCarriesInvariantAndSchema(t *testing.T) {
+	srv, _ := newServer(t)
+
+	code, out := post(t, srv,
+		`{"room":"core","author":"agent:c1","kind":"finding","body":{"text":"x"},"idem":"i1"}`)
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d (%v)", code, out)
+	}
+	if out["invariant"] != "body.severity.invalid" {
+		t.Errorf("want body.severity.invalid, got %v", out["invariant"])
+	}
+	if s, _ := out["schema"].(string); !strings.Contains(s, "severity") {
+		t.Errorf("rejection must carry the schema, got %q", s)
+	}
+	if d, _ := out["detail"].(string); d == "" {
+		t.Error("rejection must carry detail")
+	}
+}
+
+func TestUnknownRoomIsRejected(t *testing.T) {
+	srv, _ := newServer(t)
+	code, out := post(t, srv,
+		`{"room":"ghost","author":"bcm","kind":"chat","body":{"text":"x"},"idem":"i1"}`)
+	if code != http.StatusUnprocessableEntity || out["invariant"] != "room.unknown" {
+		t.Errorf("want 422 room.unknown, got %d %v", code, out)
+	}
+}
+
+// The retry contract: same idem key twice yields one event and the original seq.
+func TestIdempotentRetryReturnsSameSeqAndOneEvent(t *testing.T) {
+	srv, st := newServer(t)
+
+	_, first := post(t, srv, cmd("chat", "hello", "same"))
+	code, second := post(t, srv, cmd("chat", "hello", "same"))
+
+	if code != http.StatusOK {
+		t.Fatalf("retry must succeed, got %d", code)
+	}
+	if first["seq"] != second["seq"] {
+		t.Errorf("retry must return the original seq: %v vs %v", first["seq"], second["seq"])
+	}
+	if applied, _ := second["applied"].(bool); applied {
+		t.Error("a replayed idempotency key must report applied=false")
+	}
+
+	recs, _ := st.Since("core", 0, 100)
+	if len(recs) != 1 {
+		t.Errorf("retry created a duplicate: %d events", len(recs))
+	}
+}
+
+// The room page must render the ledger grammar the direction commits to.
+func TestRoomPageRendersLedgerGrammar(t *testing.T) {
+	srv, _ := newServer(t)
+	post(t, srv, cmd("chat", "first entry", "i1"))
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+		`"body":{"text":"safe to reorder?"},"recipient":"bcm","idem":"i2"}`)
+
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	html := buf.String()
+
+	for _, want := range []string{
+		`class="folio"`,    // the ledger's left margin
+		`class="kind"`,     // posting reference column
+		`addressed`,        // the addressed row breaks the band
+		`balance at folio`, // the running balance foot
+		"first entry",
+		"safe to reorder?",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("room page missing %q", want)
+		}
+	}
+	// The direction refuses avatars and bubbles. Assert on markup, not on the
+	// words — the direction contract in the page comment names them precisely
+	// because it is rejecting them.
+	body := html[strings.Index(html, `id="ledger-body"`):]
+	for _, banned := range []string{`class="avatar`, `class="av`, `class="bubble`, `<img`} {
+		if strings.Contains(body, banned) {
+			t.Errorf("ledger body must not contain %q", banned)
+		}
+	}
+}
+
+// Consecutive ambient entries collapse; the addressed one never does. This is
+// the attention model rendered.
+func TestAmbientRunCollapsesAddressedDoesNot(t *testing.T) {
+	srv, _ := newServer(t)
+	for i, txt := range []string{"a", "b", "c", "d", "e"} {
+		post(t, srv, cmd("chat", txt, "amb"+string(rune('0'+i))))
+	}
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"handoff",`+
+		`"body":{"text":"retry path is yours"},"recipient":"agent:c3","idem":"h1"}`)
+
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	html := buf.String()
+
+	if !strings.Contains(html, "carried forward — 5 entries") {
+		t.Error("a run of 5 ambient entries must collapse to a carried-forward row")
+	}
+	if !strings.Contains(html, "retry path is yours") {
+		t.Error("an addressed entry must always render inline, never collapse")
+	}
+}
+
+// SSE: a subscriber sees a post that happens after it connected.
+func TestStreamDeliversNewEvents(t *testing.T) {
+	srv, _ := newServer(t)
+
+	req, _ := http.NewRequest("GET", srv.URL+"/stream?room=core", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("want text/event-stream, got %q", ct)
+	}
+
+	go func() {
+		time.Sleep(40 * time.Millisecond)
+		http.Post(srv.URL+"/commands", "application/json",
+			strings.NewReader(cmd("chat", "live delivery", "live1")))
+	}()
+
+	if !scanFor(t, resp, "live delivery", 3*time.Second) {
+		t.Error("subscriber did not receive the posted event")
+	}
+}
+
+// Resume: reconnecting with Last-Event-ID replays what was missed, with no gaps
+// and no duplicates. This is the everyday failure the seq contract prevents.
+func TestStreamResumesFromLastEventID(t *testing.T) {
+	srv, _ := newServer(t)
+
+	_, a := post(t, srv, cmd("chat", "alpha", "r1"))
+	post(t, srv, cmd("chat", "bravo", "r2"))
+	post(t, srv, cmd("chat", "charlie", "r3"))
+
+	seqA := int64(a["seq"].(float64))
+
+	req, _ := http.NewRequest("GET", srv.URL+"/stream?room=core", nil)
+	req.Header.Set("Last-Event-ID", itoa(seqA))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	got := readAvailable(t, resp, 600*time.Millisecond)
+	if strings.Contains(got, "alpha") {
+		t.Error("resume must not replay the event the client already had")
+	}
+	if !strings.Contains(got, "bravo") || !strings.Contains(got, "charlie") {
+		t.Errorf("resume must replay everything after Last-Event-ID; got:\n%s", got)
+	}
+}
+
+// Every SSE frame carries id: <seq>, which is what makes resume possible.
+func TestStreamFramesCarrySeqAsEventID(t *testing.T) {
+	srv, _ := newServer(t)
+	_, out := post(t, srv, cmd("chat", "tagged", "t1"))
+	seq := itoa(int64(out["seq"].(float64)))
+
+	req, _ := http.NewRequest("GET", srv.URL+"/stream?room=core", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	got := readAvailable(t, resp, 600*time.Millisecond)
+	if !strings.Contains(got, "id: "+seq) {
+		t.Errorf("frame must carry id: %s; got:\n%s", seq, got)
+	}
+	if !strings.Contains(got, "event: datastar-patch-elements") {
+		t.Error("frame must use the datastar patch protocol")
+	}
+}
+
+// Search is read-your-writes: an event is findable the moment it is posted.
+func TestSearchFindsEventImmediately(t *testing.T) {
+	srv, _ := newServer(t)
+	post(t, srv, cmd("til", "sqlite-vec rejects long bodies", "s1"))
+
+	resp, err := http.Get(srv.URL + "/search?q=sqlite-vec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	html := buf.String()
+
+	if !strings.Contains(html, "sqlite-vec rejects long bodies") {
+		t.Error("posted event must be searchable immediately")
+	}
+	if !strings.Contains(html, `class="rank"`) {
+		t.Error("search must show rank columns per the spec")
+	}
+}
+
+func TestThemeTokensAreTheOnlyColourSource(t *testing.T) {
+	srv, _ := newServer(t)
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	css := buf.String()
+
+	// Every theme the app ships must define the same token set.
+	for _, theme := range []string{`:root {`, `:root[data-theme="light"]`, `:root[data-theme="slate"]`} {
+		if !strings.Contains(css, theme) {
+			t.Errorf("missing theme block %q", theme)
+		}
+	}
+	// Components reference tokens, never literals: no hex outside the token blocks.
+	body := css[strings.Index(css, "* { box-sizing"):]
+	if i := strings.Index(body, "#"); i != -1 && !strings.Contains(body[:i], "id=") {
+		for _, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, ":") && strings.Contains(line, "#") &&
+				!strings.Contains(line, "id=") && !strings.Contains(line, "href") &&
+				!strings.Contains(line, "ledger-body") && !strings.Contains(line, "composer") {
+				t.Errorf("colour literal outside token block: %q", strings.TrimSpace(line))
+			}
+		}
+	}
+}
+
+// ---- helpers ----
+
+func scanFor(t *testing.T, resp *http.Response, want string, within time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	sc := bufio.NewScanner(resp.Body)
+	for time.Now().Before(deadline) && sc.Scan() {
+		if strings.Contains(sc.Text(), want) {
+			return true
+		}
+	}
+	return false
+}
+
+// readAvailable collects whatever the stream has produced within a window. An
+// SSE body never EOFs, so reading to completion would block forever; the shared
+// buffer is what lets the timeout still return real content.
+func readAvailable(t *testing.T, resp *http.Response, within time.Duration) string {
+	t.Helper()
+	var (
+		mu sync.Mutex
+		sb strings.Builder
+	)
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				sb.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	time.Sleep(within)
+	mu.Lock()
+	defer mu.Unlock()
+	return sb.String()
+}
+
+func itoa(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
+}
