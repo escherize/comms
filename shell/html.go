@@ -67,6 +67,9 @@ header nav { display:flex; gap:.15rem; }
 header nav a { padding:.12rem .5rem; border-radius:3px; color: var(--ink-mute); }
 header nav a.sel { background: var(--raised); color: var(--ink-strong); }
 header .spacer { flex:1; }
+header .who { display:flex; align-items:center; gap:.3rem; color: var(--ink-faint); font-size:.72rem; }
+header select { background: var(--ground); color: var(--ink);
+  border:1px solid var(--rule-strong); border-radius:3px; padding:.15rem .3rem; font:inherit; font-size:.75rem; }
 header form { display:flex; gap:.3rem; }
 header input, .composer input, .composer select {
   background: var(--ground); color: var(--ink);
@@ -200,6 +203,12 @@ const liveScript = `
 const themeScript = `
 <script>
 (function(){
+  var ak='agent_comms.actor', a=document.getElementById('actor');
+  if(a){
+    var saved=localStorage.getItem(ak);
+    if(saved){ a.value=saved; }
+    a.addEventListener('change', function(){ localStorage.setItem(ak, a.value); });
+  }
   var k='agent_comms.theme', s=localStorage.getItem(k);
   if(s) document.documentElement.setAttribute('data-theme', s);
   window.cycleTheme=function(){
@@ -255,6 +264,15 @@ finish review, the verdict, and DESIGN.md.
   <form action="/search" method="get">
     <input id="q" name="q" placeholder="search  /" autocomplete="off">
   </form>
+  <span class="who" id="whoami" title="who you are posting as — identity, not authentication">
+    <label for="actor">as</label>
+    <select id="actor">
+      <option value="bcm">bcm</option>
+      <option value="sarah">sarah</option>
+      <option value="agent:claude-1">claude-1</option>
+      <option value="agent:codex-3">codex-3</option>
+    </select>
+  </span>
   <button type="button" onclick="cycleTheme()" title="cycle theme (t)">theme</button>
 </header>
 
@@ -304,7 +322,8 @@ const composeScript = `
     if(kind.value==='finding') body.severity='p2';
     fetch('/commands',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({room:document.body.getAttribute('data-room'),
-        author:'bcm', kind:kind.value, body:body,
+        author:(document.getElementById('actor')||{value:'bcm'}).value,
+        kind:kind.value, body:body,
         idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))})
     }).then(function(r){return r.json()}).then(function(j){
       if(j.invariant){ text.setAttribute('title', j.invariant+': '+j.detail); text.style.borderColor='var(--sev-hi)'; }
