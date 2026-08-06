@@ -6,3 +6,6 @@ agent_comms
 
 # scratch
 .scratch/tmp/
+
+# session cruft
+.claude/
