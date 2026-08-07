@@ -272,8 +272,8 @@ func TestActorIsAgent(t *testing.T) {
 	cases := map[Actor]bool{
 		"agent:claude-1": true,
 		"agent:codex-3":  true,
-		"human:bcm":            false,
-		"human:sarah":          false,
+		"human:bcm":      false,
+		"human:sarah":    false,
 		"agent":          false,
 		"":               false,
 	}
