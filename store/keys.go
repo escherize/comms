@@ -140,23 +140,58 @@ func (s *Store) FlaggedEvents(actor string) ([]Record, error) {
 // they post and the server verifies what it received.
 func SignedBytes(raw []byte) []byte { return raw }
 
+// AuthFailure names which of the four conditions refused a command. They were
+// one string, which made "stop forever, this seat is revoked" and "the client
+// has a bug" indistinguishable to the agent that had to decide what to do next.
+type AuthFailure struct {
+	Invariant string
+	Detail    string
+}
+
+func (a AuthFailure) Error() string { return a.Invariant + ": " + a.Detail }
+
 // VerifySignature checks a detached signature over the posted bytes for an actor whose
 // key is registered, unrevoked, and uncompromised as of now.
 func (s *Store) VerifySignature(actor core.Actor, raw, sig []byte, now time.Time) error {
 	k, ok := s.KeyFor(string(actor))
 	if !ok {
-		return errors.New("no key registered for " + string(actor))
+		return AuthFailure{"key.unknown",
+			"no key registered for " + string(actor) + "; a human must enrol this seat"}
+	}
+	// Compromise is checked before revocation. A key can be both, and the two
+	// verdicts differ: revoked means "a human re-enrols this seat", compromised
+	// means "stop and tell a human now". Reporting the milder one would send an
+	// agent to re-enrol a key that is known to be in someone else's hands.
+	if k.Compromised(now) {
+		return AuthFailure{"key.compromised",
+			"the key for " + string(actor) + " is marked compromised; stop and tell a human"}
 	}
 	if k.Revoked(now) {
-		return errors.New("key revoked for " + string(actor))
-	}
-	if k.Compromised(now) {
-		return errors.New("key marked compromised for " + string(actor))
+		return AuthFailure{"key.revoked",
+			"the key for " + string(actor) + " was revoked; a human must re-enrol this seat"}
 	}
 	if !ed25519.Verify(k.PublicKey, SignedBytes(raw), sig) {
-		return errors.New("signature does not verify")
+		return AuthFailure{"signature.invalid",
+			"the signature does not verify against the bytes received; this is a client bug, not a key problem"}
 	}
 	return nil
+}
+
+// KeyStatus reports a key's state for the read lane, so an event written by a
+// since-compromised key does not read exactly like any other.
+func (s *Store) KeyStatus(actor string, at time.Time) (status string, flagged bool) {
+	k, ok := s.KeyFor(actor)
+	if !ok {
+		return "unknown", false
+	}
+	// Same precedence as VerifySignature: compromised outranks revoked.
+	switch {
+	case k.Compromised(at):
+		return "compromised", true
+	case !k.RevokedAt.IsZero():
+		return "revoked", false
+	}
+	return "active", false
 }
 
 const inviteSchema = `

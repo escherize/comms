@@ -56,6 +56,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /artifacts", s.postArtifact)
 	mux.HandleFunc("GET /a/{hash}", s.getArtifact)
 	mux.HandleFunc("GET /stream", s.stream)
+	mux.HandleFunc("GET /rooms", s.roomsList)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
@@ -294,6 +295,12 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.st.VerifySignature(cmd.Author, raw, sig, s.now()); err != nil {
+			var af store.AuthFailure
+			if errors.As(err, &af) {
+				writeJSON(w, http.StatusUnauthorized,
+					rejectedResponse{af.Invariant, af.Detail, ""})
+				return
+			}
 			writeJSON(w, http.StatusUnauthorized,
 				rejectedResponse{"signature.invalid", err.Error(), ""})
 			return
@@ -403,15 +410,52 @@ func (s *Server) fanout(room string, seq int64) {
 		}
 		select {
 		case ch <- recs[0]:
-		default: // a slow subscriber resumes by Last-Event-ID rather than blocking the writer
+		default:
+			// A full channel means this subscriber is behind. Dropping the
+			// event silently is the one thing we must not do: seq is gappy by
+			// design, so the client cannot detect the hole, which would
+			// falsify the no-gaps guarantee. Close it instead — the reader
+			// reports "lagged" and reconnects with Last-Event-ID to replay.
+			close(ch)
+			delete(s.subs, ch)
 		}
 	}
+}
+
+// bootID identifies one run of this process. A client learns a restart as a
+// fact rather than inferring it from a seq delta, which ADR-0010 forbids —
+// seq is gappy by design, so a delta means nothing.
+var bootID = fmt.Sprintf("%d", time.Now().UnixNano())
+
+// backlogCeiling is how much history one connection replays. Past it the client
+// is told where it stopped, because a silent truncation is indistinguishable
+// from a quiet room.
+const backlogCeiling = 500
+
+func (s *Server) roomsList(w http.ResponseWriter, r *http.Request) {
+	rooms, err := s.st.Rooms()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			rejectedResponse{"rooms.failed", err.Error(), ""})
+		return
+	}
+	if !wantsJSON(r) {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": "read", "rooms": rooms, "count": len(rooms),
+	})
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
 	if room == "" {
 		room = "core"
+	}
+	if wantsJSON(r) {
+		s.streamJSON(w, r, room)
+		return
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -452,7 +496,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case rec := <-ch:
+		case rec, open := <-ch:
+			if !open {
+				// Closed because this subscriber fell behind. The browser
+				// reconnects on its own and replays from Last-Event-ID.
+				return
+			}
 			writeSSE(w, rec)
 			flusher.Flush()
 		case <-ping.C:
@@ -460,6 +509,136 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// streamJSON is the read lane for a non-browser client. It carries the same
+// id: {seq} and the same Last-Event-ID resume as the datastar lane, which is
+// left byte-unchanged.
+func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	recipient := r.URL.Query().Get("recipient")
+	kindFilter := r.URL.Query().Get("kind")
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+
+	// The opening frame states the boot id, so a restart is a fact the client
+	// is told rather than one it guesses from a gap.
+	writeFrame(w, "hello", 0, map[string]any{
+		"type": "hello", "boot": bootID, "room": room,
+		"backlog_ceiling": backlogCeiling,
+	})
+	flusher.Flush()
+
+	after := lastEventID(r)
+	backlog, err := s.st.Since(room, after, backlogCeiling+1)
+	if err != nil {
+		writeFrame(w, "error", 0, map[string]any{
+			"type": "error", "invariant": "read.failed", "detail": err.Error()})
+		flusher.Flush()
+		return
+	}
+
+	truncated := len(backlog) > backlogCeiling
+	if truncated {
+		backlog = backlog[:backlogCeiling]
+	}
+	var lastSeq int64 = after
+	for _, rec := range backlog {
+		if !matchesFilter(rec, recipient, kindFilter) {
+			lastSeq = rec.Seq
+			continue
+		}
+		writeFrame(w, "event", rec.Seq, s.eventFrame(rec))
+		lastSeq = rec.Seq
+	}
+	if truncated {
+		// Name where the client stopped. Without this the ceiling is a hole
+		// the client cannot see, because seq is gappy by design.
+		writeFrame(w, "truncated", lastSeq, map[string]any{
+			"type": "truncated", "first_undelivered_seq": lastSeq,
+			"detail": "backlog stopped at the ceiling; reconnect with Last-Event-ID to continue",
+		})
+	}
+
+	// Exactly one caught-up frame, between backlog and live, on every
+	// connection including an empty room. It is the only way a process that
+	// must exit can tell "I have read the history" from "the room is quiet".
+	writeFrame(w, "caught-up", lastSeq, map[string]any{
+		"type": "caught-up", "seq": lastSeq, "room": room,
+	})
+	flusher.Flush()
+
+	ch := make(chan store.Record, 64)
+	s.mu.Lock()
+	s.subs[ch] = room
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.subs, ch)
+		s.mu.Unlock()
+	}()
+
+	ping := time.NewTicker(25 * time.Second)
+	defer ping.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case rec, open := <-ch:
+			if !open {
+				// The writer closed us because we fell behind. Say so, and let
+				// the client reconnect and replay rather than lose events.
+				writeFrame(w, "lagged", 0, map[string]any{
+					"type": "lagged",
+					"detail": "this subscriber fell behind and was closed; " +
+						"reconnect with Last-Event-ID to replay what was missed",
+				})
+				flusher.Flush()
+				return
+			}
+			if !matchesFilter(rec, recipient, kindFilter) {
+				continue
+			}
+			writeFrame(w, "event", rec.Seq, s.eventFrame(rec))
+			flusher.Flush()
+		case <-ping.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+func matchesFilter(rec store.Record, recipient, kind string) bool {
+	if recipient != "" && string(rec.Recipient) != recipient {
+		return false
+	}
+	if kind != "" && string(rec.Kind) != kind {
+		return false
+	}
+	return true
+}
+
+// eventFrame adds the key status the read lane owes its reader.
+func (s *Server) eventFrame(rec store.Record) eventJSON {
+	ev := toEventJSON(rec)
+	ev.AuthorKeyStatus, ev.Flagged = s.st.KeyStatus(string(rec.Author), rec.ServerTS)
+	return ev
+}
+
+func writeFrame(w http.ResponseWriter, event string, seq int64, payload any) {
+	if seq > 0 {
+		fmt.Fprintf(w, "id: %d\n", seq)
+	}
+	fmt.Fprintf(w, "event: %s\n", event)
+	b, _ := json.Marshal(payload)
+	fmt.Fprintf(w, "data: %s\n\n", b)
 }
 
 func lastEventID(r *http.Request) int64 {

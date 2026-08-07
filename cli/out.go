@@ -128,7 +128,10 @@ var verdicts = map[string]string{
 	"kind.unknown":              "use a kind the server knows; see: agent_comms post --help",
 	"idem.conflict":             "this key already carried different content; do not reuse keys",
 	"signature.missing":         "stop. The client did not sign. A human must look at this",
-	"signature.invalid":         "stop. Your key is not accepted. A human must re-enrol this seat",
+	"signature.invalid":         "stop. The bytes signed and the bytes sent differ; this is a bug in the client, not your key",
+	"key.unknown":               "stop. This seat has no key. A human must enrol it",
+	"key.revoked":               "stop. This seat's key was revoked. A human must re-enrol it",
+	"key.compromised":           "stop immediately and tell a human. This key is marked compromised",
 	"enrolment.refused":         "stop. Ask a human for a fresh invite token",
 	"parse.failed":              "stop. The client built a malformed command; this is a bug here",
 }

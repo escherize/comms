@@ -2,6 +2,7 @@ package store
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -197,5 +198,30 @@ func TestRevokeAndCompromiseNeedARegisteredKey(t *testing.T) {
 	}
 	if err := s.MarkCompromised("ghost", kt0); err == nil {
 		t.Error("flagging an unregistered actor must error")
+	}
+}
+
+// A key can be both revoked and compromised, and the two verdicts differ:
+// revoked sends a human to re-enrol the seat, compromised says stop now.
+// Reporting the milder one would send someone to re-enrol a key that is
+// known to be in another party's hands.
+func TestCompromiseOutranksRevocation(t *testing.T) {
+	s, priv, pub := keyStore(t)
+	s.RegisterKey("agent:both", pub, kt0)
+	s.RevokeKey("agent:both", kt0.Add(time.Hour))
+	s.MarkCompromised("agent:both", kt0)
+
+	raw := []byte(`{"a":1}`)
+	err := s.VerifySignature("agent:both", raw, ed25519.Sign(priv, raw), kt0.Add(2*time.Hour))
+	var af AuthFailure
+	if !errors.As(err, &af) {
+		t.Fatalf("expected an AuthFailure, got %v", err)
+	}
+	if af.Invariant != "key.compromised" {
+		t.Errorf("compromise must outrank revocation, got %s", af.Invariant)
+	}
+
+	if status, flagged := s.KeyStatus("agent:both", kt0.Add(2*time.Hour)); status != "compromised" || !flagged {
+		t.Errorf("KeyStatus must agree: got %s flagged=%v", status, flagged)
 	}
 }

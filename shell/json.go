@@ -39,6 +39,11 @@ type eventJSON struct {
 	Redacted  bool             `json:"redacted"`
 	Rank      float64          `json:"rank,omitempty"`
 	Prov      *provenanceJSON  `json:"provenance,omitempty"`
+
+	// AuthorKeyStatus and Flagged travel with every event because a TIL written
+	// by a since-compromised key reads exactly like any other one.
+	AuthorKeyStatus string `json:"author_key_status,omitempty"`
+	Flagged         bool   `json:"flagged,omitempty"`
 }
 
 type attachmentJSON struct {
