@@ -1,0 +1,294 @@
+package cli
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// readDeadline bounds a single read. The stream sends a `: ping` comment every
+// 25s, so any of them resets this — a healthy idle stream must not trip it.
+const readDeadline = 60 * time.Second
+
+// maxWait caps --wait so a stuck agent surfaces instead of silently occupying a
+// tool slot for an hour.
+const maxWait = 30 * time.Minute
+
+// frame is one thing the read lane sent us.
+type frame struct {
+	Event string
+	Data  map[string]any
+	Seq   int64
+}
+
+// readOpts is what both verbs need. They differ only in lane and filter.
+type readOpts struct {
+	Actor     string
+	Room      string
+	Lane      Lane
+	Recipient string
+	Kind      string
+	Author    string
+	Full      bool
+	Peek      bool
+	Wait      time.Duration
+	UntilKind string
+	UntilRefs string
+}
+
+// drain reads until the caught-up sentinel, or until wait expires. It never
+// hangs on a quiet room: caught-up always arrives, on an empty room too.
+func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) {
+	q := url.Values{}
+	q.Set("room", o.Room)
+	if o.Recipient != "" {
+		q.Set("recipient", o.Recipient)
+	}
+	if o.Kind != "" {
+		q.Set("kind", o.Kind)
+	}
+	after := Cursor(o.Actor, o.Room, o.Lane)
+
+	req, err := http.NewRequest("GET", e.Server+"/stream?"+q.Encode(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	if after > 0 {
+		req.Header.Set("Last-Event-ID", fmt.Sprint(after))
+	}
+
+	// No client timeout: the deadline is enforced per-read below, so a ping
+	// counts toward liveness and a long --wait is not cut short by the client.
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+
+	meta = map[string]any{}
+	deadline := time.Now().Add(readDeadline)
+	hardStop := time.Time{}
+	if o.Wait > 0 {
+		hardStop = time.Now().Add(o.Wait)
+	}
+
+	type parsed struct {
+		f  frame
+		ok bool
+	}
+	lines := make(chan string, 64)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+
+	var event string
+	var seq int64
+	caughtUp := false
+
+	for {
+		remaining := time.Until(deadline)
+		if !hardStop.IsZero() {
+			if untilStop := time.Until(hardStop); untilStop < remaining {
+				remaining = untilStop
+			}
+		}
+		if remaining <= 0 {
+			if !caughtUp {
+				return events, meta, fmt.Errorf("no response within %s", readDeadline)
+			}
+			return events, meta, nil
+		}
+
+		select {
+		case line, open := <-lines:
+			if !open {
+				meta["gap_possible"] = true
+				return events, meta, nil
+			}
+			switch {
+			case strings.HasPrefix(line, ": "):
+				// A ping proves the stream is alive.
+				deadline = time.Now().Add(readDeadline)
+			case strings.HasPrefix(line, "id: "):
+				fmt.Sscanf(strings.TrimPrefix(line, "id: "), "%d", &seq)
+			case strings.HasPrefix(line, "event: "):
+				event = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				deadline = time.Now().Add(readDeadline)
+				var d map[string]any
+				if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &d) != nil {
+					continue
+				}
+				switch event {
+				case "hello":
+					meta["boot"] = d["boot"]
+				case "truncated":
+					// Surfaced as a fact, never inferred from a seq delta.
+					meta["truncated"] = true
+					meta["first_undelivered_seq"] = d["first_undelivered_seq"]
+				case "lagged":
+					meta["gap_possible"] = true
+					return events, meta, nil
+				case "caught-up":
+					caughtUp = true
+					meta["caught_up_seq"] = d["seq"]
+					if o.Wait == 0 {
+						return events, meta, nil
+					}
+					// Under --wait we keep listening for the thing we are
+					// waiting on, past the history.
+				case "event":
+					f := frame{Event: event, Data: d, Seq: seq}
+					if !matchesLocal(f, o) {
+						continue
+					}
+					events = append(events, f)
+					if o.Wait > 0 && satisfiesWait(f, o) {
+						return events, meta, nil
+					}
+				}
+			}
+		case <-time.After(remaining):
+			if !caughtUp {
+				return events, meta, fmt.Errorf("no response within %s", readDeadline)
+			}
+			return events, meta, nil
+		}
+	}
+}
+
+// matchesLocal applies the filters the server does not: author is a client-side
+// cut, which is why it implies --peek.
+func matchesLocal(f frame, o readOpts) bool {
+	if o.Author != "" && f.Data["author"] != o.Author {
+		return false
+	}
+	return true
+}
+
+func satisfiesWait(f frame, o readOpts) bool {
+	if o.UntilKind != "" && f.Data["kind"] != o.UntilKind {
+		return false
+	}
+	if o.UntilRefs != "" {
+		refs, _ := f.Data["refs"].([]any)
+		var hit bool
+		for _, r := range refs {
+			if fmt.Sprint(r) == o.UntilRefs {
+				hit = true
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	return true
+}
+
+// emit prints the events and the terminal object, and advances the cursor
+// unless this was a peek.
+func emit(e *Env, o readOpts, events []frame, meta map[string]any) int {
+	var highest int64
+	for _, f := range events {
+		if o.Full {
+			e.Out.Line(f.Data)
+		} else {
+			e.Out.Line(compact(f))
+		}
+		if f.Seq > highest {
+			highest = f.Seq
+		}
+	}
+
+	// A filtered read must not advance a cursor past events it did not print,
+	// or the unprinted ones are lost silently.
+	advanced := int64(0)
+	if !o.Peek {
+		if seq, ok := meta["caught_up_seq"].(float64); ok && int64(seq) > highest {
+			highest = int64(seq)
+		}
+		if highest > 0 {
+			if err := SaveCursor(o.Actor, o.Room, o.Lane, highest); err != nil {
+				return e.Out.Fail(ExitInternal, "internal", "cursor.unwritable", err.Error())
+			}
+			advanced = highest
+		}
+	}
+
+	r := Result{Outcome: "read", Count: len(events)}
+	term := map[string]any{
+		"ok": true, "outcome": r.Outcome, "count": r.Count,
+		"room": o.Room, "lane": string(o.Lane),
+	}
+	if advanced > 0 {
+		term["cursor"] = advanced
+	}
+	if o.Peek {
+		term["peek"] = true
+		term["detail"] = "a filtered read does not advance the cursor"
+	}
+	if meta["truncated"] == true {
+		term["truncated"] = true
+		term["first_undelivered_seq"] = meta["first_undelivered_seq"]
+		term["next"] = "read again to continue from where the backlog stopped"
+	}
+	if meta["gap_possible"] == true {
+		term["gap_possible"] = true
+		term["next"] = "read again; the stream ended early and events may be unread"
+	}
+	if boot, ok := meta["boot"]; ok {
+		term["boot"] = boot
+	}
+	e.Out.Line(term)
+	e.Out.Note("%d event(s) in %s", len(events), o.Room)
+	return ExitOK
+}
+
+// compact is one line per event: enough to decide whether to fetch the body.
+func compact(f frame) map[string]any {
+	out := map[string]any{
+		"type": "event", "seq": f.Data["seq"], "author": f.Data["author"],
+		"kind": f.Data["kind"], "lane": f.Data["lane"],
+	}
+	if r, ok := f.Data["recipient"]; ok && r != "" {
+		out["recipient"] = r
+	}
+	if body, ok := f.Data["body"].(map[string]any); ok {
+		if txt, ok := body["text"].(string); ok {
+			out["preview"] = truncateText(txt, 120)
+		}
+		if sev, ok := body["severity"]; ok {
+			out["severity"] = sev
+		}
+	}
+	if f.Data["redacted"] == true {
+		out["redacted"] = true
+	}
+	if ks, ok := f.Data["author_key_status"]; ok && ks != "active" && ks != "" {
+		out["author_key_status"] = ks
+	}
+	if f.Data["flagged"] == true {
+		out["flagged"] = true
+	}
+	if att, ok := f.Data["attach"].([]any); ok && len(att) > 0 {
+		out["attachments"] = len(att)
+	}
+	return out
+}
+
+func truncateText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}

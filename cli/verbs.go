@@ -53,7 +53,11 @@ func Run(e *Env, args []string) int {
 		return runRedact(e, args[1:])
 	case "escalate":
 		return runEscalate(e, args[1:])
-	case "ask", "answer", "attach", "read", "inbox", "search", "room":
+	case "read":
+		return runRead(e, args[1:])
+	case "inbox":
+		return runInbox(e, args[1:])
+	case "ask", "answer", "attach", "search", "room":
 		return e.Out.Fail(ExitUsage, "usage", "verb.not_built",
 			args[0]+" is designed but not built yet; see docs/CLI.md and .scratch/core/issues/")
 	case "-h", "--help", "help":
@@ -381,6 +385,115 @@ event; someone else's is an operator action.`)
 	e.Out.Note("redacted %s; body and attachments are gone, the event remains", seqArg)
 	applied := sent.Body.Applied
 	return e.Out.Succeed(Result{Outcome: "accepted", Seq: sent.Body.Seq, Applied: &applied})
+}
+
+// ---------------------------------------------------------------- read / inbox
+
+func runRead(e *Env, args []string) int {
+	fs, sink := newFlags("read")
+	actor := fs.String("as", "", "the seat reading")
+	room := fs.String("room", "core", "room to read")
+	full := fs.Bool("full", false, "print whole bodies rather than one line per event")
+	peek := fs.Bool("peek", false, "do not advance the cursor")
+	kind := fs.String("kind", "", "only this kind (implies --peek)")
+	author := fs.String("author", "", "only this author (implies --peek)")
+	reset := fs.Bool("reset", false, "rewind this lane's cursor and read from the start")
+	fs.Usage = func() {
+		e.Out.Note(`agent_comms read --as <seat> [--room core]
+
+Prints what is new since you last read, then exits. It does not hang: a quiet
+room returns count 0 in one round trip.
+
+  agent_comms read --as agent:bcm/claude-1
+  agent_comms read --as agent:bcm/claude-1 --full        # whole bodies
+  agent_comms read --as agent:bcm/claude-1 --kind finding  # filtered, does not advance
+
+read and inbox keep separate cursors, so draining one never hides the other.`)
+	}
+	if err := fs.Parse(args); err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	if *reset {
+		if err := ResetCursor(seat, *room, LaneAll); err != nil {
+			return e.Out.Fail(ExitInternal, "internal", "cursor.unwritable", err.Error())
+		}
+	}
+
+	o := readOpts{
+		Actor: seat, Room: *room, Lane: LaneAll,
+		Kind: *kind, Author: *author, Full: *full,
+		// A filter means the read did not see everything, so it must not claim
+		// the cursor did.
+		Peek: *peek || *kind != "" || *author != "",
+	}
+	events, meta, err := drain(e, o)
+	if err != nil {
+		return e.Out.Fail(ExitRefused, "refused", "read.failed", err.Error())
+	}
+	return emit(e, o, events, meta)
+}
+
+func runInbox(e *Env, args []string) int {
+	fs, sink := newFlags("inbox")
+	actor := fs.String("as", "", "the seat reading")
+	room := fs.String("room", "core", "room to read")
+	full := fs.Bool("full", false, "print whole bodies")
+	peek := fs.Bool("peek", false, "do not advance the cursor")
+	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
+	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
+	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
+	fs.Usage = func() {
+		e.Out.Note(`agent_comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
+
+Prints only what is addressed to you, then exits.
+
+  agent_comms inbox --as agent:bcm/claude-1
+  agent_comms inbox --as agent:bcm/claude-1 --wait 15m --until-kind answer --refs 20014
+
+--wait blocks against a deadline and exits 0 either way. Waiting out the clock
+is the flag doing its job, not a failure — you get a handoff suggestion.`)
+	}
+	if err := fs.Parse(args); err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+	if *wait > maxWait {
+		return e.Out.Fail(ExitUsage, "usage", "wait.too_long",
+			fmt.Sprintf("--wait is capped at %s so a stuck agent surfaces; got %s", maxWait, *wait))
+	}
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+
+	o := readOpts{
+		Actor: seat, Room: *room, Lane: LaneAddressed,
+		Recipient: seat, Full: *full, Peek: *peek,
+		Wait: *wait, UntilKind: *untilKind, UntilRefs: *untilRefs,
+	}
+	events, meta, err := drain(e, o)
+	if err != nil {
+		// A drop mid-wait must leave the cursor where it was, so nothing is
+		// skipped on the next read.
+		return e.Out.Fail(ExitRefused, "refused", "read.failed", err.Error())
+	}
+
+	if *wait > 0 && len(events) == 0 {
+		// Waiting out the clock is the flag working. Exit 0, and say what to
+		// do instead of waiting again.
+		e.Out.Line(map[string]any{
+			"ok": true, "outcome": "waited", "count": 0, "room": *room,
+			"waited": wait.String(),
+			"next": "nobody answered; hand off with: agent_comms post handoff --to <human> " +
+				"--text \"blocked on " + orDefault(*untilRefs, "an unanswered question") + "\"",
+		})
+		e.Out.Note("waited %s, nothing arrived", *wait)
+		return ExitOK
+	}
+	return emit(e, o, events, meta)
 }
 
 // ---------------------------------------------------------------- whoami
