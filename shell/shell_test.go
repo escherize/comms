@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/bcm/agent_comms/core"
 	"github.com/bcm/agent_comms/store"
 )
 
@@ -69,7 +71,7 @@ func post(t *testing.T, srv *httptest.Server, body string) (int, map[string]any)
 }
 
 func cmd(kind, text, idem string) string {
-	return `{"room":"core","author":"bcm","kind":"` + kind +
+	return `{"room":"core","author":"human:bcm","kind":"` + kind +
 		`","body":{"text":"` + text + `"},"idem":"` + idem + `"}`
 }
 
@@ -103,7 +105,7 @@ func TestMalformedCommandIsRejectedAtParse(t *testing.T) {
 	// Unknown fields are a parse failure too: an agent guessing at the shape
 	// should hear about it rather than have the field silently dropped.
 	code, out = post(t, srv,
-		`{"room":"core","author":"bcm","kind":"chat","body":{"text":"x"},"idem":"i1","urgency":"high"}`)
+		`{"room":"core","author":"human:bcm","kind":"chat","body":{"text":"x"},"idem":"i1","urgency":"high"}`)
 	if code != http.StatusBadRequest {
 		t.Errorf("unknown field must fail parse, got %d (%v)", code, out)
 	}
@@ -133,7 +135,7 @@ func TestRejectionCarriesInvariantAndSchema(t *testing.T) {
 func TestUnknownRoomIsRejected(t *testing.T) {
 	srv, _ := newServer(t)
 	code, out := post(t, srv,
-		`{"room":"ghost","author":"bcm","kind":"chat","body":{"text":"x"},"idem":"i1"}`)
+		`{"room":"ghost","author":"human:bcm","kind":"chat","body":{"text":"x"},"idem":"i1"}`)
 	if code != http.StatusUnprocessableEntity || out["invariant"] != "room.unknown" {
 		t.Errorf("want 422 room.unknown, got %d %v", code, out)
 	}
@@ -167,7 +169,7 @@ func TestRoomPageRendersLedgerGrammar(t *testing.T) {
 	srv, _ := newServer(t)
 	post(t, srv, cmd("chat", "first entry", "i1"))
 	post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
-		`"body":{"text":"safe to reorder?"},"recipient":"bcm","idem":"i2"}`)
+		`"body":{"text":"safe to reorder?"},"recipient":"human:bcm","idem":"i2"}`)
 
 	resp, err := http.Get(srv.URL + "/?room=core")
 	if err != nil {
@@ -204,10 +206,11 @@ func TestRoomPageRendersLedgerGrammar(t *testing.T) {
 // Consecutive ambient entries collapse; the addressed one never does. This is
 // the attention model rendered.
 func TestAmbientRunCollapsesAddressedDoesNot(t *testing.T) {
-	srv, _ := newServer(t)
+	srv, st := newServer(t)
 	for i, txt := range []string{"a", "b", "c", "d", "e"} {
 		post(t, srv, cmd("chat", txt, "amb"+string(rune('0'+i))))
 	}
+	seedActor(t, st, "agent:c3")
 	post(t, srv, `{"room":"core","author":"agent:c2","kind":"handoff",`+
 		`"body":{"text":"retry path is yours"},"recipient":"agent:c3","idem":"h1"}`)
 
@@ -472,4 +475,26 @@ func TestComposerPlaceholderListsEverySlashVerb(t *testing.T) {
 			t.Errorf("the composer placeholder does not offer /%s", verb)
 		}
 	}
+}
+
+// seedActor makes a seat addressable the way the hub does: by having it post.
+// recipient.unknown is checked against the roster, and the roster is what has
+// been seen.
+func seedActor(t *testing.T, st *store.Store, actor string) {
+	t.Helper()
+	// Into a side room, so making a seat addressable does not add a row to the
+	// ledger under test.
+	if err := st.EnsureRoom("roster"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Append(core.Event{Room: "roster", Author: core.Actor(actor),
+		Kind: core.KindChat, Body: map[string]any{"text": "here"},
+		Lane: core.LaneOf(core.KindChat)}, "seed-"+actor, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readFile(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	return string(b), err
 }

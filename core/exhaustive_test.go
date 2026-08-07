@@ -52,7 +52,7 @@ func TestEveryKindIsPostable(t *testing.T) {
 
 	for _, k := range AllKinds {
 		t.Run(string(k), func(t *testing.T) {
-			cmd := Command{Room: "core", Author: "bcm", Kind: k, Idem: "i-" + string(k),
+			cmd := Command{Room: "core", Author: "human:bcm", Kind: k, Idem: "i-" + string(k),
 				Body: map[string]any{"text": "x"}}
 
 			switch k {

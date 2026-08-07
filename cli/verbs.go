@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -64,7 +65,9 @@ func Run(e *Env, args []string) int {
 		return runAnswer(e, args[1:])
 	case "attach":
 		return runAttach(e, args[1:])
-	case "search", "room":
+	case "room":
+		return runRoom(e, args[1:])
+	case "search":
 		return e.Out.Fail(ExitUsage, "usage", "verb.not_built",
 			args[0]+" is designed but not built yet; see docs/CLI.md and .scratch/core/issues/")
 	case "-h", "--help", "help":
@@ -83,6 +86,10 @@ func usage(e *Env) int {
 
 // newFlags builds a flag set that reports errors through our contract rather
 // than printing to stderr and exiting.
+// isHelp reports whether a parse failed only because help was asked for.
+// Asking for help is not a usage error.
+func isHelp(err error) bool { return errors.Is(err, flag.ErrHelp) }
+
 func newFlags(name string) (*flag.FlagSet, *strings.Builder) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var sink strings.Builder
@@ -183,7 +190,7 @@ func readToken(r io.Reader) (string, error) {
 func runPost(e *Env, args []string) int {
 	fs, sink := newFlags("post")
 	actor := fs.String("as", "", "the seat posting")
-	room := fs.String("room", "core", "room to post in")
+	room := fs.String("room", "", "room to post in")
 	text := fs.String("text", "", "the entry")
 	severity := fs.String("severity", "", "p0|p1|p2|p3, findings only")
 	url := fs.String("url", "", "pr.link only")
@@ -242,6 +249,7 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	if code != 0 {
 		return code
 	}
+	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
@@ -317,7 +325,7 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	}
 
 	cmd := map[string]any{
-		"room": *room, "author": seat, "kind": string(kind),
+		"room": inRoom, "author": seat, "kind": string(kind),
 		"body": body, "idem": newIdem(),
 	}
 	if len(atts) > 0 {
@@ -396,7 +404,7 @@ func retryFor(invariant string, kind core.Kind, args []string) string {
 func runRedact(e *Env, args []string) int {
 	fs, sink := newFlags("redact")
 	actor := fs.String("as", "", "the seat redacting")
-	room := fs.String("room", "core", "the room the event is in")
+	room := fs.String("room", "", "the room the event is in")
 	why := fs.String("why", "", "why it is being suppressed")
 	fs.Usage = func() {
 		e.Out.Help(`agent_comms redact <seq> --as <seat> --why "<reason>"
@@ -437,6 +445,7 @@ event; someone else's is an operator action.`)
 	if code != 0 {
 		return code
 	}
+	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
@@ -444,7 +453,7 @@ event; someone else's is an operator action.`)
 
 	c := NewClient(e.Server, seat, priv)
 	sent, err := c.Post(map[string]any{
-		"room": *room, "author": seat, "kind": "redact",
+		"room": inRoom, "author": seat, "kind": "redact",
 		"body": map[string]any{"text": *why},
 		"refs": []string{seqArg}, "idem": newIdem(),
 	})
@@ -469,7 +478,7 @@ event; someone else's is an operator action.`)
 func runAsk(e *Env, args []string) int {
 	fs, sink := newFlags("ask")
 	actor := fs.String("as", "", "the seat asking")
-	room := fs.String("room", "core", "room to ask in")
+	room := fs.String("room", "", "room to ask in")
 	to := fs.String("to", "", "who to ask")
 	text := fs.String("text", "", "the question, or - to read stdin")
 	textFile := fs.String("text-file", "", "read the question from a file")
@@ -509,6 +518,7 @@ question can tell in a glance whether it is new.`)
 	if code != 0 {
 		return code
 	}
+	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
@@ -518,7 +528,7 @@ question can tell in a glance whether it is new.`)
 	if !*noSearch {
 		terms := distinctiveTerms(question)
 		if len(terms) > 0 {
-			for _, h := range searchFor(e, *room, strings.Join(terms, " "), 3) {
+			for _, h := range searchFor(e, inRoom, strings.Join(terms, " "), 3) {
 				refs = append(refs, fmt.Sprint(h.Seq))
 				preview, _ := h.Body["text"].(string)
 				e.Out.Line(map[string]any{
@@ -532,7 +542,7 @@ question can tell in a glance whether it is new.`)
 	}
 
 	cmd := map[string]any{
-		"room": *room, "author": seat, "kind": "question",
+		"room": inRoom, "author": seat, "kind": "question",
 		"body":      map[string]any{"text": question},
 		"recipient": *to, "idem": newIdem(),
 	}
@@ -547,7 +557,7 @@ question can tell in a glance whether it is new.`)
 func runAnswer(e *Env, args []string) int {
 	fs, sink := newFlags("answer")
 	actor := fs.String("as", "", "the seat answering")
-	room := fs.String("room", "core", "room the question is in")
+	room := fs.String("room", "", "room the question is in")
 	toQuestion := fs.String("to-question", "", "the seq of the question you are answering")
 	text := fs.String("text", "", "the answer, or - to read stdin")
 	textFile := fs.String("text-file", "", "read the answer from a file")
@@ -581,6 +591,7 @@ always reaches whoever asked.
 	if code != 0 {
 		return code
 	}
+	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
@@ -588,7 +599,7 @@ always reaches whoever asked.
 
 	// No recipient is sent: the core derives it from the question's author.
 	return send(e, NewClient(e.Server, seat, priv), map[string]any{
-		"room": *room, "author": seat, "kind": "answer",
+		"room": inRoom, "author": seat, "kind": "answer",
 		"body": map[string]any{"text": body},
 		"refs": []string{*toQuestion}, "idem": newIdem(),
 	}, "answer", nil)
@@ -642,7 +653,7 @@ you already consumed.
 func runRead(e *Env, args []string) int {
 	fs, sink := newFlags("read")
 	actor := fs.String("as", "", "the seat reading")
-	room := fs.String("room", "core", "room to read")
+	room := fs.String("room", "", "room to read")
 	full := fs.Bool("full", false, "print whole bodies rather than one line per event")
 	peek := fs.Bool("peek", false, "do not advance the cursor")
 	kind := fs.String("kind", "", "only this kind (implies --peek)")
@@ -670,14 +681,15 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 	if code != 0 {
 		return code
 	}
+	inRoom := resolveRoom(seat, *room)
 	if *reset {
-		if err := ResetCursor(seat, *room, LaneAll); err != nil {
+		if err := ResetCursor(seat, inRoom, LaneAll); err != nil {
 			return e.Out.Fail(ExitInternal, "internal", "cursor.unwritable", err.Error())
 		}
 	}
 
 	o := readOpts{
-		Actor: seat, Room: *room, Lane: LaneAll,
+		Actor: seat, Room: inRoom, Lane: LaneAll,
 		Kind: *kind, Author: *author, Full: *full,
 		// A filter means the read did not see everything, so it must not claim
 		// the cursor did.
@@ -693,7 +705,7 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 func runInbox(e *Env, args []string) int {
 	fs, sink := newFlags("inbox")
 	actor := fs.String("as", "", "the seat reading")
-	room := fs.String("room", "core", "room to read")
+	room := fs.String("room", "", "room to read")
 	full := fs.Bool("full", false, "print whole bodies")
 	peek := fs.Bool("peek", false, "do not advance the cursor")
 	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
@@ -724,9 +736,10 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 	if code != 0 {
 		return code
 	}
+	inRoom := resolveRoom(seat, *room)
 
 	o := readOpts{
-		Actor: seat, Room: *room, Lane: LaneAddressed,
+		Actor: seat, Room: inRoom, Lane: LaneAddressed,
 		Recipient: seat, Full: *full, Peek: *peek,
 		Wait: *wait, UntilKind: *untilKind, UntilRefs: *untilRefs,
 	}
@@ -741,7 +754,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 		// Waiting out the clock is the flag working. Exit 0, and say what to
 		// do instead of waiting again.
 		e.Out.Line(map[string]any{
-			"ok": true, "outcome": "waited", "count": 0, "room": *room,
+			"ok": true, "outcome": "waited", "count": 0, "room": inRoom,
 			"waited": wait.String(),
 			"next": "nobody answered; hand off with: agent_comms post handoff --to <human> " +
 				"--text \"blocked on " + orDefault(*untilRefs, "an unanswered question") + "\"",
@@ -785,10 +798,28 @@ key, and no verb, flag or environment variable does.
 	}
 	pub := priv.Public().(ed25519.PublicKey)
 
-	e.Out.Note("%s on %s → %s", seat, e.Host, e.Server)
+	room := SelectedRoom(seat)
+	if room == "" {
+		room = "core"
+	}
+	cursors := map[string]int64{}
+	for _, lane := range []Lane{LaneAll, LaneAddressed} {
+		cursors[string(lane)] = Cursor(seat, room, lane)
+	}
+	status := "unknown"
+	if body, code, err := fetchJSON(e, "/actors"); err == nil && code == http.StatusOK {
+		for _, a := range asList(body["actors"]) {
+			if m, ok := a.(map[string]any); ok && m["actor"] == seat {
+				status = str(m["key_status"], "unknown")
+			}
+		}
+	}
+
+	e.Out.Note("%s on %s → %s (room %s, key %s)", seat, e.Host, e.Server, room, status)
 	return e.Out.Succeed(Result{
 		Outcome: "whoami", Actor: seat, Host: e.Host,
 		Server: e.Server, PubKey: hex.EncodeToString(pub),
+		Room: room, KeyStatus: status, Cursors: cursors,
 	})
 }
 

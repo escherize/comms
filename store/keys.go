@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/bcm/agent_comms/core"
@@ -47,7 +48,88 @@ func (k KeyState) Compromised(ts time.Time) bool {
 
 // RegisterKey records an actor's public key. Rotation is register-then-revoke,
 // so the same actor re-registering replaces the key and clears revocation.
+// ValidActor reports whether a seat carries a namespace. Actor.IsAgent decides
+// which provenance banner a reader sees and which lane budgets apply, so a seat
+// enrolled as "sarah-ops" would be treated as neither agent nor human by a rule
+// that only checks the prefix.
+func ValidActor(actor string) error {
+	switch {
+	case strings.HasPrefix(actor, "agent:") && len(actor) > len("agent:"):
+		return nil
+	case strings.HasPrefix(actor, "human:") && len(actor) > len("human:"):
+		return nil
+	}
+	return errors.New("seat " + actor + " has no namespace; enrol as agent:<name> or " +
+		"human:<name>, because whether a seat is an agent decides how its posts are read")
+}
+
+// ActorEnrolled reports whether a seat has ever held a key. Revoked seats stay
+// addressable: someone offboarded can still be the recipient of a handoff
+// already in flight, and rejecting that would lose the record of who held it.
+func (s *Store) ActorEnrolled(actor string) bool {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM actor WHERE actor = ?`, actor).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
+}
+
+// Actors lists every enrolled seat with its key status, newest enrolment first.
+func (s *Store) Actors() ([]ActorRow, error) {
+	rows, err := s.db.Query(
+		`SELECT a.actor, a.first_seen,
+		        COALESCE(k.revoked_at, ''), COALESCE(k.compromised, ''),
+		        CASE WHEN k.actor IS NULL THEN 0 ELSE 1 END
+		   FROM actor a LEFT JOIN actor_key k ON k.actor = a.actor
+		  ORDER BY a.first_seen, a.actor`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ActorRow
+	for rows.Next() {
+		var a ActorRow
+		var revoked, compromised string
+		var hasKey int
+		if err := rows.Scan(&a.Actor, &a.EnrolledAt, &revoked, &compromised, &hasKey); err != nil {
+			return nil, err
+		}
+		switch {
+		case compromised != "":
+			a.KeyStatus = "compromised"
+		case revoked != "":
+			a.KeyStatus = "revoked"
+		case hasKey == 0:
+			// Seen posting on an -insecure hub, never enrolled. Addressable, but
+			// nothing it posted was ever proven to come from it.
+			a.KeyStatus = "unsigned"
+		default:
+			a.KeyStatus = "active"
+		}
+		a.IsAgent = strings.HasPrefix(a.Actor, "agent:")
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ActorRow is one seat on the roster.
+type ActorRow struct {
+	Actor      string `json:"actor"`
+	KeyStatus  string `json:"key_status"`
+	EnrolledAt string `json:"enrolled_at"`
+	IsAgent    bool   `json:"is_agent"`
+}
+
 func (s *Store) RegisterKey(actor string, pub ed25519.PublicKey, now time.Time) error {
+	if err := ValidActor(actor); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO actor(actor, first_seen, source) VALUES(?,?,'enrolment')
+		 ON CONFLICT(actor) DO UPDATE SET source = 'enrolment'`,
+		actor, now.UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO actor_key(actor, public_key, active_from, revoked_at, compromised)
 		 VALUES(?,?,?,'','')
@@ -208,6 +290,11 @@ CREATE TABLE IF NOT EXISTS invite (
 // MintInvite creates a one-time enrolment token for an actor. The operator
 // hands it over out of band; it is the only way to register a key over HTTP.
 func (s *Store) MintInvite(actor string, now time.Time) (string, error) {
+	// Refuse at mint time, not at redeem: the operator is here now, and the
+	// agent that would hit it is not.
+	if err := ValidActor(actor); err != nil {
+		return "", err
+	}
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
@@ -249,8 +336,20 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 		return errors.New("enrolment token was issued for a different actor")
 	}
 
+	if err := ValidActor(actor); err != nil {
+		return err
+	}
+
 	ts := now.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.Exec(`UPDATE invite SET used_at = ? WHERE token = ?`, ts, token); err != nil {
+		return err
+	}
+	// The roster, same transaction as the key. An enrolled seat that is not
+	// addressable would make recipient.unknown reject the people who did
+	// everything right.
+	if _, err := tx.Exec(
+		`INSERT INTO actor(actor, first_seen, source) VALUES(?,?,'enrolment')
+		 ON CONFLICT(actor) DO UPDATE SET source = 'enrolment'`, actor, ts); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
@@ -277,3 +376,29 @@ CREATE TABLE IF NOT EXISTS redacted (
   server_ts  TEXT NOT NULL
 );
 `
+
+// ResolveActor expands a namespace-less shorthand against the roster, so
+// `--to sarah` and the browser's `/ask @sarah` mean the same seat without each
+// client inventing its own rule. It returns every candidate: one match is the
+// answer, several are an ambiguity the caller must report rather than pick.
+func (s *Store) ResolveActor(name string) []string {
+	if name == "" || ValidActor(name) == nil {
+		return []string{name}
+	}
+	rows, err := s.db.Query(
+		`SELECT actor FROM actor WHERE actor = 'agent:' || ? OR actor = 'human:' || ?
+		 ORDER BY actor`, name, name)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil
+		}
+		out = append(out, a)
+	}
+	return out
+}

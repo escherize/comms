@@ -20,7 +20,7 @@ func signedServer(t *testing.T) (*httptest.Server, *store.Store, ed25519.Private
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RegisterKey("bcm", pub, time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)); err != nil {
+	if err := st.RegisterKey("human:bcm", pub, time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	return srv, st, priv
@@ -67,7 +67,7 @@ func TestSignatureDoesNotTransferToAnotherPayload(t *testing.T) {
 	original := cmd("chat", "benign", "t1")
 	sig := hex.EncodeToString(ed25519.Sign(priv, []byte(original)))
 
-	forged := `{"room":"core","author":"bcm","kind":"redact","body":{"text":"x"},"refs":["10000"],"idem":"t2"}`
+	forged := `{"room":"core","author":"human:bcm","kind":"redact","body":{"text":"x"},"refs":["10000"],"idem":"t2"}`
 	req, _ := http.NewRequest("POST", srv.URL+"/commands", strings.NewReader(forged))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature", sig)
@@ -88,11 +88,11 @@ func TestSignatureDoesNotTransferToAnotherPayload(t *testing.T) {
 func TestCannotPostAsAnotherActor(t *testing.T) {
 	srv, st, priv := signedServer(t)
 	otherPub, _, _ := ed25519.GenerateKey(nil)
-	if err := st.RegisterKey("sarah", otherPub, time.Now()); err != nil {
+	if err := st.RegisterKey("human:sarah", otherPub, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
-	impersonation := `{"room":"core","author":"sarah","kind":"chat","body":{"text":"not me"},"idem":"i1"}`
+	impersonation := `{"room":"core","author":"human:sarah","kind":"chat","body":{"text":"not me"},"idem":"i1"}`
 	req, _ := http.NewRequest("POST", srv.URL+"/commands", strings.NewReader(impersonation))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature", hex.EncodeToString(ed25519.Sign(priv, []byte(impersonation))))
@@ -140,7 +140,7 @@ func TestRevokedKeyStopsPosting(t *testing.T) {
 
 	// Before the signing server's fixed clock (12:30), so the revocation is in
 	// effect by the time the next command is verified.
-	if err := st.RevokeKey("bcm", time.Date(2026, 8, 6, 12, 15, 0, 0, time.UTC)); err != nil {
+	if err := st.RevokeKey("human:bcm", time.Date(2026, 8, 6, 12, 15, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -168,7 +168,7 @@ func TestEnrolmentRequiresAValidInvite(t *testing.T) {
 	srv, st := newSigningServer(t)
 	pub, _, _ := ed25519.GenerateKey(nil)
 	body := func(tok string) string {
-		return `{"actor":"newbie","public_key":"` + hex.EncodeToString(pub) + `","token":"` + tok + `"}`
+		return `{"actor":"agent:newbie","public_key":"` + hex.EncodeToString(pub) + `","token":"` + tok + `"}`
 	}
 
 	// No token, and a made-up token, are both refused.
@@ -184,7 +184,7 @@ func TestEnrolmentRequiresAValidInvite(t *testing.T) {
 	}
 
 	// A real token works exactly once.
-	tok, err := st.MintInvite("newbie", time.Now())
+	tok, err := st.MintInvite("agent:newbie", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestEnrolmentRequiresAValidInvite(t *testing.T) {
 func TestInviteIsBoundToItsActor(t *testing.T) {
 	srv, st := newSigningServer(t)
 	pub, _, _ := ed25519.GenerateKey(nil)
-	tok, _ := st.MintInvite("sarah", time.Now())
+	tok, _ := st.MintInvite("human:sarah", time.Now())
 
 	body := `{"actor":"mallory","public_key":"` + hex.EncodeToString(pub) + `","token":"` + tok + `"}`
 	resp, err := http.Post(srv.URL+"/keys", "application/json", strings.NewReader(body))

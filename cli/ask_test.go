@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bcm/agent_comms/core"
+	"github.com/bcm/agent_comms/store"
 )
 
 // Searching the raw sentence matches on its stopwords, which every other
@@ -34,6 +35,8 @@ func TestAskAttachesPriorContext(t *testing.T) {
 	srv, st := liveServer(t)
 	enrol(t, srv, st)
 
+	seedActor(t, st, "human:bcm")
+
 	// The room already knows.
 	ev := core.Event{Room: "core", Author: "agent:c9", Kind: core.KindTIL,
 		Body: map[string]any{"text": "migration 0031 reorder is safe; 0029 is idempotent"},
@@ -44,7 +47,7 @@ func TestAskAttachesPriorContext(t *testing.T) {
 	}
 
 	var c capture
-	code := Run(c.env(t, srv.URL, ""), []string{"ask", "--as", seat, "--to", "bcm",
+	code := Run(c.env(t, srv.URL, ""), []string{"ask", "--as", seat, "--to", "human:bcm",
 		"--text", "is migration 0031 safe to reorder ahead of 0029?"})
 	if code != ExitOK {
 		t.Fatalf("ask failed: %d %s", code, c.out.String())
@@ -65,9 +68,10 @@ func TestAskPostsEvenWithNoPriorContext(t *testing.T) {
 	isolateKeys(t)
 	srv, st := liveServer(t)
 	enrol(t, srv, st)
+	seedActor(t, st, "human:bcm")
 
 	var c capture
-	code := Run(c.env(t, srv.URL, ""), []string{"ask", "--as", seat, "--to", "bcm",
+	code := Run(c.env(t, srv.URL, ""), []string{"ask", "--as", seat, "--to", "human:bcm",
 		"--text", "does anyone know about zeppelins"})
 	if code != ExitOK {
 		t.Fatalf("ask must post regardless of what search found: %d %s", code, c.out.String())
@@ -298,4 +302,140 @@ func TestPostHelpDocumentsTextAndAttachFlags(t *testing.T) {
 			t.Errorf("post --help does not mention %q", want)
 		}
 	}
+}
+
+// seedActor makes a seat addressable the way the hub does: by having it post.
+func seedActor(t *testing.T, st *store.Store, actor string) {
+	t.Helper()
+	_, err := st.Append(core.Event{Room: "core", Author: core.Actor(actor),
+		Kind: core.KindChat, Body: map[string]any{"text": "here"},
+		Lane: core.LaneOf(core.KindChat)}, "seed-"+actor, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Naming a room switches to it. Every chat tool works this way, and an agent
+// that orients into one room and then posts into another has written a
+// wrong-room event into a log that cannot take it back.
+func TestSelectingARoomSticksAndFlagStillWins(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+	if err := st.EnsureRoom("bash"); err != nil {
+		t.Fatal(err)
+	}
+
+	var sel capture
+	if code := Run(sel.env(t, srv.URL, ""), []string{"room", "bash", "--as", seat}); code != ExitOK {
+		t.Fatalf("room bash failed: %d %s", code, sel.out.String())
+	}
+	if got := SelectedRoom(seat); got != "bash" {
+		t.Fatalf("the selection did not stick: %q", got)
+	}
+
+	var p capture
+	if code := Run(p.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+		"--text", "landed in the selected room"}); code != ExitOK {
+		t.Fatalf("post failed: %d %s", code, p.out.String())
+	}
+	if !roomHas(t, st, "bash", "landed in the selected room") {
+		t.Error("a post with no --room must land in the selected room")
+	}
+
+	var o capture
+	if code := Run(o.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+		"--room", "core", "--text", "one-off into core"}); code != ExitOK {
+		t.Fatalf("override failed: %d %s", code, o.out.String())
+	}
+	if !roomHas(t, st, "core", "one-off into core") {
+		t.Error("--room must override the selection, so a one-off needs no switch back")
+	}
+	if roomHas(t, st, "bash", "one-off into core") {
+		t.Error("the override leaked into the selected room")
+	}
+}
+
+// Selecting a room that does not exist must fail loudly, not silently persist a
+// selection that sends every later post into a room nobody reads.
+func TestSelectingAnUnknownRoomIsRefused(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""), []string{"room", "nope", "--as", seat}); code == ExitOK {
+		t.Fatal("an unknown room must not be selectable")
+	}
+	if got := SelectedRoom(seat); got == "nope" {
+		t.Error("a refused selection must not persist")
+	}
+}
+
+// whoami is the orientation call: seat, key status, where posts will land, and
+// how far each lane has been read.
+func TestWhoamiReportsRoomKeyStatusAndCursors(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+	if err := st.EnsureRoom("bash"); err != nil {
+		t.Fatal(err)
+	}
+	Run(new(capture).env(t, srv.URL, ""), []string{"room", "bash", "--as", seat})
+
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""), []string{"whoami", "--as", seat}); code != ExitOK {
+		t.Fatalf("whoami failed: %d %s", code, c.out.String())
+	}
+	last := lines(t, &c)[0]
+	if last["room"] != "bash" {
+		t.Errorf("whoami must report where posts will land, got %v", last["room"])
+	}
+	if last["key_status"] != "active" {
+		t.Errorf("whoami must report key status, got %v", last["key_status"])
+	}
+	cursors, ok := last["cursors"].(map[string]any)
+	if !ok {
+		t.Fatalf("whoami must report each cursor, got %v", last["cursors"])
+	}
+	for _, lane := range []string{"read", "inbox"} {
+		if _, ok := cursors[lane]; !ok {
+			t.Errorf("no cursor reported for the %s lane", lane)
+		}
+	}
+}
+
+// The roster is what recipient.unknown is checked against, so `room` with no
+// argument has to show it.
+func TestRoomWithNoArgumentListsRoomsAndSeats(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+	seedActor(t, st, "human:sarah")
+
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""), []string{"room", "--as", seat}); code != ExitOK {
+		t.Fatalf("room failed: %d %s", code, c.out.String())
+	}
+	out := c.out.String()
+	if !strings.Contains(out, `"type":"rooms"`) || !strings.Contains(out, `"type":"actors"`) {
+		t.Fatalf("room must list both rooms and seats: %s", out)
+	}
+	if !strings.Contains(out, "human:sarah") {
+		t.Error("the roster must name the seats, since a misspelt --to is refused")
+	}
+}
+
+func roomHas(t *testing.T, st *store.Store, room, text string) bool {
+	t.Helper()
+	recs, err := st.Since(room, 0, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range recs {
+		if strings.Contains(r.Text(), text) {
+			return true
+		}
+	}
+	return false
 }

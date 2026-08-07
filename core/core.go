@@ -115,6 +115,10 @@ type State struct {
 	EventRoom func(ref string) (string, bool)
 	// IsRedacted reports whether an event is already suppressed.
 	IsRedacted func(ref string) bool
+	// ActorEnrolled reports whether a seat has ever held a key. An addressed
+	// event to a seat that does not exist is worse than a rejection: it is
+	// accepted, addressed to nobody, permanently, and its author waits.
+	ActorEnrolled func(a Actor) bool
 }
 
 // Decide is the whole domain. state × command → events | rejection.
@@ -167,6 +171,15 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 	if lane == Addressed && c.Recipient == "" {
 		return nil, &Rejection{"recipient.required",
 			"kind " + string(c.Kind) + " is addressed and must name a recipient"}
+	}
+	// A recipient nobody enrolled as is a typo the log keeps forever. The check
+	// is here rather than in the shell because it decides whether an event is
+	// admissible, and both clients must get the same answer.
+	if c.Recipient != "" && s.ActorEnrolled != nil && !s.ActorEnrolled(c.Recipient) {
+		return nil, &Rejection{"recipient.unknown",
+			"no seat " + string(c.Recipient) + " is enrolled; addressing an event to a " +
+				"seat that does not exist waits for an answer nobody was asked for. " +
+				"Run: agent_comms room"}
 	}
 	if lane == Ambient && c.Recipient != "" {
 		return nil, &Rejection{"recipient.forbidden",

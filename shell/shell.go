@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -57,6 +58,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /a/{hash}", s.getArtifact)
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /rooms", s.roomsList)
+	mux.HandleFunc("GET /rooms/{name}", s.roomBrief)
+	mux.HandleFunc("GET /actors", s.actorsList)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
@@ -307,6 +310,24 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A shorthand recipient is expanded here, at the boundary, so the browser's
+	// /ask @sarah and the client's --to sarah name the same seat. The core sees
+	// a canonical actor or a rejection, never a guess.
+	if cmd.Recipient != "" {
+		switch matches := s.st.ResolveActor(string(cmd.Recipient)); len(matches) {
+		case 1:
+			cmd.Recipient = core.Actor(matches[0])
+		case 0:
+			// Leave it; the decider reports recipient.unknown with its own detail.
+		default:
+			writeJSON(w, http.StatusUnprocessableEntity, rejectedResponse{
+				"recipient.ambiguous",
+				string(cmd.Recipient) + " matches " + strings.Join(matches, " and ") +
+					"; name the seat in full", ""})
+			return
+		}
+	}
+
 	state := core.State{
 		RoomExists:     s.st.RoomExists,
 		EventKind:      s.st.EventKind,
@@ -314,6 +335,9 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		EventAuthor:    s.st.EventAuthor,
 		EventRoom:      s.st.EventRoom,
 		IsRedacted:     s.st.IsRedactedRef,
+		ActorEnrolled: func(a core.Actor) bool {
+			return s.st.ActorEnrolled(string(a))
+		},
 	}
 	events, rej := core.Decide(state, cmd)
 	if rej != nil {
@@ -664,4 +688,46 @@ func writeSSE(w http.ResponseWriter, rec store.Record) {
 		fmt.Fprintf(w, "data: elements %s\n", line)
 	}
 	fmt.Fprint(w, "\n")
+}
+
+// roomBrief is the one call an agent makes before it decides anything. It reads
+// decision projections only, so it stays an indexed read as the log grows.
+func (s *Server) roomBrief(w http.ResponseWriter, r *http.Request) {
+	room := r.PathValue("name")
+	if !s.st.RoomExists(room) {
+		writeJSON(w, http.StatusNotFound, rejectedResponse{"room.unknown",
+			"no room " + room + "; GET /rooms lists them", ""})
+		return
+	}
+	if !wantsJSON(r) {
+		http.Redirect(w, r, "/?room="+url.QueryEscape(room), http.StatusFound)
+		return
+	}
+	brief, err := s.st.RoomBrief(room, s.now())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			rejectedResponse{"brief.failed", err.Error(), ""})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": "read", "brief": brief,
+	})
+}
+
+// actorsList is the roster recipient.unknown is checked against, so an agent
+// that gets the rejection can find the spelling it should have used.
+func (s *Server) actorsList(w http.ResponseWriter, r *http.Request) {
+	actors, err := s.st.Actors()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			rejectedResponse{"actors.failed", err.Error(), ""})
+		return
+	}
+	if !wantsJSON(r) {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": "read", "actors": actors, "count": len(actors),
+	})
 }

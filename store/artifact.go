@@ -85,6 +85,11 @@ type Progress struct {
 	Updated time.Time
 }
 
+// StallWindow is the one definition of "quiet long enough to be worth saying".
+// It lives here, beside the projection it is evaluated against, so the room
+// brief and the rendered ledger cannot disagree about who is stalled.
+const StallWindow = 15 * time.Minute
+
 // Stalled reports whether this actor has gone quiet past the given window. It
 // is evaluated against the server clock, never a client timestamp.
 func (p Progress) Stalled(now time.Time, window time.Duration) bool {

@@ -32,7 +32,7 @@ func TestDecide(t *testing.T) {
 	}{
 		{
 			name:     "chat is accepted and ambient",
-			cmd:      Command{Room: "core", Author: "bcm", Kind: KindChat, Body: chat("morning"), Idem: "i1"},
+			cmd:      Command{Room: "core", Author: "human:bcm", Kind: KindChat, Body: chat("morning"), Idem: "i1"},
 			wantLane: Ambient,
 		},
 		{
@@ -44,12 +44,12 @@ func TestDecide(t *testing.T) {
 		{
 			name: "question naming a recipient is accepted and addressed",
 			cmd: Command{Room: "core", Author: "agent:claude-2", Kind: KindQuestion, Idem: "i3",
-				Body: chat("safe to reorder?"), Recipient: "bcm"},
+				Body: chat("safe to reorder?"), Recipient: "human:bcm"},
 			wantLane: Addressed,
 		},
 		{
 			name: "answer referencing a question is accepted",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindAnswer, Idem: "i4",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindAnswer, Idem: "i4",
 				Body: chat("yes"), Recipient: "agent:claude-2", Refs: []string{"evt_q"}},
 			wantLane: Addressed,
 		},
@@ -60,7 +60,7 @@ func TestDecide(t *testing.T) {
 		},
 		{
 			name: "handoff naming a recipient is accepted and addressed",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindHandoff, Idem: "i6",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindHandoff, Idem: "i6",
 				Body: chat("retry path is yours"), Recipient: "agent:codex-3"},
 			wantLane: Addressed,
 		},
@@ -72,7 +72,7 @@ func TestDecide(t *testing.T) {
 		},
 		{
 			name: "redact referencing one event is accepted",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindRedact, Idem: "i8",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindRedact, Idem: "i8",
 				Body: chat("leaked key"), Refs: []string{"evt_chat"}},
 			wantLane: Ambient,
 		},
@@ -80,7 +80,7 @@ func TestDecide(t *testing.T) {
 		// --- rejections: envelope ---
 		{
 			name:    "room is required",
-			cmd:     Command{Author: "bcm", Kind: KindChat, Body: chat("x"), Idem: "i9"},
+			cmd:     Command{Author: "human:bcm", Kind: KindChat, Body: chat("x"), Idem: "i9"},
 			wantErr: "room.required",
 		},
 		{
@@ -90,48 +90,48 @@ func TestDecide(t *testing.T) {
 		},
 		{
 			name:    "idempotency key is required",
-			cmd:     Command{Room: "core", Author: "bcm", Kind: KindChat, Body: chat("x")},
+			cmd:     Command{Room: "core", Author: "human:bcm", Kind: KindChat, Body: chat("x")},
 			wantErr: "idem.required",
 		},
 		{
 			name:    "unknown kind is rejected",
-			cmd:     Command{Room: "core", Author: "bcm", Kind: "gossip", Body: chat("x"), Idem: "i11"},
+			cmd:     Command{Room: "core", Author: "human:bcm", Kind: "gossip", Body: chat("x"), Idem: "i11"},
 			wantErr: "kind.unknown",
 		},
 
 		// --- rejections: schema ---
 		{
 			name:    "chat requires text",
-			cmd:     Command{Room: "core", Author: "bcm", Kind: KindChat, Body: map[string]any{}, Idem: "i12"},
+			cmd:     Command{Room: "core", Author: "human:bcm", Kind: KindChat, Body: map[string]any{}, Idem: "i12"},
 			wantErr: "body.text.required",
 		},
 		{
 			name: "finding requires text",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindFinding, Idem: "i13",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindFinding, Idem: "i13",
 				Body: map[string]any{"severity": "p1"}},
 			wantErr: "body.text.required",
 		},
 		{
 			name: "finding requires a valid severity",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindFinding, Idem: "i14",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindFinding, Idem: "i14",
 				Body: map[string]any{"text": "x", "severity": "critical"}},
 			wantErr: "body.severity.invalid",
 		},
 		{
 			name: "finding rejects missing severity",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindFinding, Idem: "i15",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindFinding, Idem: "i15",
 				Body: map[string]any{"text": "x"}},
 			wantErr: "body.severity.invalid",
 		},
 		{
 			name: "pr.link requires url",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindPRLink, Idem: "i16",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindPRLink, Idem: "i16",
 				Body: map[string]any{}},
 			wantErr: "body.url.required",
 		},
 		{
 			name: "redact must reference exactly one event",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindRedact, Idem: "i17",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindRedact, Idem: "i17",
 				Body: chat("x"), Refs: []string{"a", "b"}},
 			wantErr: "refs.exactly_one",
 		},
@@ -145,27 +145,27 @@ func TestDecide(t *testing.T) {
 		},
 		{
 			name: "handoff must name a recipient",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindHandoff, Idem: "i19",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindHandoff, Idem: "i19",
 				Body: chat("someone take this")},
 			wantErr: "recipient.required",
 		},
 		{
 			name: "ambient kind cannot name a recipient",
 			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindFinding, Idem: "i20",
-				Body: map[string]any{"text": "x", "severity": "p0"}, Recipient: "bcm"},
+				Body: map[string]any{"text": "x", "severity": "p0"}, Recipient: "human:bcm"},
 			wantErr: "recipient.forbidden",
 		},
 
 		// --- rejections: answer must answer something ---
 		{
 			name: "answer without refs is rejected",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindAnswer, Idem: "i21",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindAnswer, Idem: "i21",
 				Body: chat("yes"), Recipient: "agent:claude-2"},
 			wantErr: "refs.question_required",
 		},
 		{
 			name: "answer referencing a non-question is rejected",
-			cmd: Command{Room: "core", Author: "bcm", Kind: KindAnswer, Idem: "i22",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindAnswer, Idem: "i22",
 				Body: chat("yes"), Recipient: "agent:claude-2", Refs: []string{"evt_chat"}},
 			wantErr: "refs.question_required",
 		},
@@ -215,13 +215,13 @@ func TestDecide(t *testing.T) {
 func TestUnknownRoomIsRejected(t *testing.T) {
 	state := State{RoomExists: func(r string) bool { return r == "core" }}
 
-	_, rej := Decide(state, Command{Room: "nope", Author: "bcm", Kind: KindChat,
+	_, rej := Decide(state, Command{Room: "nope", Author: "human:bcm", Kind: KindChat,
 		Body: chat("x"), Idem: "i1"})
 	if rej == nil || rej.Invariant != "room.unknown" {
 		t.Fatalf("expected room.unknown, got %v", rej)
 	}
 
-	_, rej = Decide(state, Command{Room: "core", Author: "bcm", Kind: KindChat,
+	_, rej = Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindChat,
 		Body: chat("x"), Idem: "i2"})
 	if rej != nil {
 		t.Fatalf("known room must be accepted, got %v", rej)
@@ -250,7 +250,7 @@ func TestLaneIsAPropertyOfKind(t *testing.T) {
 // TestDecideIsDeterministic guards the purity the whole design leans on.
 func TestDecideIsDeterministic(t *testing.T) {
 	state := State{RoomExists: okRoom}
-	cmd := Command{Room: "core", Author: "bcm", Kind: KindChat, Body: chat("x"), Idem: "i1"}
+	cmd := Command{Room: "core", Author: "human:bcm", Kind: KindChat, Body: chat("x"), Idem: "i1"}
 
 	first, rej1 := Decide(state, cmd)
 	second, rej2 := Decide(state, cmd)
@@ -272,8 +272,8 @@ func TestActorIsAgent(t *testing.T) {
 	cases := map[Actor]bool{
 		"agent:claude-1": true,
 		"agent:codex-3":  true,
-		"bcm":            false,
-		"sarah":          false,
+		"human:bcm":            false,
+		"human:sarah":          false,
 		"agent":          false,
 		"":               false,
 	}
@@ -320,7 +320,7 @@ func TestAnswerRecipientIsDerivedFromTheQuestion(t *testing.T) {
 		},
 	}
 
-	events, rej := Decide(state, Command{Room: "core", Author: "bcm", Kind: KindAnswer,
+	events, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindAnswer,
 		Body: chat("yes, safe"), Refs: []string{"evt_q"}, Idem: "a1"})
 	if rej != nil {
 		t.Fatalf("an answer with no recipient must derive one: %v", rej)
@@ -330,12 +330,12 @@ func TestAnswerRecipientIsDerivedFromTheQuestion(t *testing.T) {
 	}
 
 	// An explicit recipient still wins — deriving is a default, not a rewrite.
-	events, rej = Decide(state, Command{Room: "core", Author: "bcm", Kind: KindAnswer,
-		Body: chat("cc"), Refs: []string{"evt_q"}, Recipient: "sarah", Idem: "a2"})
+	events, rej = Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindAnswer,
+		Body: chat("cc"), Refs: []string{"evt_q"}, Recipient: "human:sarah", Idem: "a2"})
 	if rej != nil {
 		t.Fatal(rej)
 	}
-	if events[0].Recipient != "sarah" {
+	if events[0].Recipient != "human:sarah" {
 		t.Errorf("an explicit recipient must not be overwritten, got %q", events[0].Recipient)
 	}
 }
@@ -347,9 +347,46 @@ func TestAnswerStillNeedsAQuestion(t *testing.T) {
 		EventKind:   func(string) (Kind, bool) { return KindChat, true },
 		EventAuthor: func(string) (Actor, bool) { return "someone", true },
 	}
-	_, rej := Decide(state, Command{Room: "core", Author: "bcm", Kind: KindAnswer,
+	_, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindAnswer,
 		Body: chat("hm"), Refs: []string{"evt_chat"}, Idem: "a3"})
 	if rej == nil || rej.Invariant != "refs.question_required" {
 		t.Fatalf("an answer pointing at a non-question must still be refused, got %v", rej)
+	}
+}
+
+// A recipient nobody enrolled as is a typo the append-only log keeps forever,
+// and its author waits for an answer nobody was asked for.
+func TestAddressingAnUnenrolledSeatIsRejected(t *testing.T) {
+	roster := map[Actor]bool{"human:sarah": true, "agent:c1": true}
+	s := State{RoomExists: okRoom, ActorEnrolled: func(a Actor) bool { return roster[a] }}
+
+	_, rej := Decide(s, Command{
+		Room: "core", Author: "agent:c1", Kind: KindQuestion,
+		Recipient: "human:sarrah", Body: map[string]any{"text": "is it safe?"}, Idem: "i1",
+	})
+	if rej == nil {
+		t.Fatal("a question to an unenrolled seat must be rejected, not addressed to nobody")
+	}
+	if rej.Invariant != "recipient.unknown" {
+		t.Errorf("want recipient.unknown, got %s", rej.Invariant)
+	}
+
+	if _, rej := Decide(s, Command{
+		Room: "core", Author: "agent:c1", Kind: KindQuestion,
+		Recipient: "human:sarah", Body: map[string]any{"text": "is it safe?"}, Idem: "i2",
+	}); rej != nil {
+		t.Errorf("the enrolled spelling must be accepted, got %v", rej)
+	}
+}
+
+// The rule is the core's, so it cannot be true in one client and false in the
+// other: a decider with no roster is a decider that has not been wired up.
+func TestRecipientCheckIsSkippedOnlyWhenNoRosterIsWired(t *testing.T) {
+	s := State{RoomExists: okRoom}
+	if _, rej := Decide(s, Command{
+		Room: "core", Author: "agent:c1", Kind: KindQuestion,
+		Recipient: "human:anyone", Body: map[string]any{"text": "?"}, Idem: "i3",
+	}); rej != nil {
+		t.Errorf("with no roster wired the check cannot run; got %v", rej)
 	}
 }

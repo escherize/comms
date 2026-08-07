@@ -34,11 +34,11 @@ var t0 = time.Date(2026, 8, 6, 14, 0, 0, 0, time.UTC)
 func TestAppendAssignsIncreasingSeq(t *testing.T) {
 	s := newStore(t)
 
-	a, err := s.Append(ev(core.KindChat, "bcm", "one"), "i1", t0)
+	a, err := s.Append(ev(core.KindChat, "human:bcm", "one"), "i1", t0)
 	if err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	b, err := s.Append(ev(core.KindChat, "bcm", "two"), "i2", t0)
+	b, err := s.Append(ev(core.KindChat, "human:bcm", "two"), "i2", t0)
 	if err != nil {
 		t.Fatalf("append: %v", err)
 	}
@@ -53,12 +53,12 @@ func TestAppendAssignsIncreasingSeq(t *testing.T) {
 func TestIdempotencyKeyReturnsOriginalSeq(t *testing.T) {
 	s := newStore(t)
 
-	first, err := s.Append(ev(core.KindChat, "bcm", "hello"), "same-key", t0)
+	first, err := s.Append(ev(core.KindChat, "human:bcm", "hello"), "same-key", t0)
 	if err != nil {
 		t.Fatalf("first append: %v", err)
 	}
 
-	second, err := s.Append(ev(core.KindChat, "bcm", "hello"), "same-key", t0)
+	second, err := s.Append(ev(core.KindChat, "human:bcm", "hello"), "same-key", t0)
 	var dup ErrDuplicate
 	if !errors.As(err, &dup) {
 		t.Fatalf("expected ErrDuplicate, got %v", err)
@@ -89,7 +89,7 @@ func TestSeqJumpsForwardOnReopen(t *testing.T) {
 	if err := s1.EnsureRoom("core"); err != nil {
 		t.Fatal(err)
 	}
-	before, err := s1.Append(ev(core.KindChat, "bcm", "x"), "i1", t0)
+	before, err := s1.Append(ev(core.KindChat, "human:bcm", "x"), "i1", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestSeqJumpsForwardOnReopen(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	defer s2.Close()
-	after, err := s2.Append(ev(core.KindChat, "bcm", "y"), "i2", t0)
+	after, err := s2.Append(ev(core.KindChat, "human:bcm", "y"), "i2", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestSeqJumpsForwardOnReopen(t *testing.T) {
 // the integrity story being a convention.
 func TestEnvelopeIsAppendOnly(t *testing.T) {
 	s := newStore(t)
-	seq, err := s.Append(ev(core.KindChat, "bcm", "immutable"), "i1", t0)
+	seq, err := s.Append(ev(core.KindChat, "human:bcm", "immutable"), "i1", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,14 +132,14 @@ func TestEnvelopeIsAppendOnly(t *testing.T) {
 func TestPurgeErasesBodyButChainStillVerifies(t *testing.T) {
 	s := newStore(t)
 
-	if _, err := s.Append(ev(core.KindChat, "bcm", "before"), "i1", t0); err != nil {
+	if _, err := s.Append(ev(core.KindChat, "human:bcm", "before"), "i1", t0); err != nil {
 		t.Fatal(err)
 	}
-	secret, err := s.Append(ev(core.KindChat, "bcm", "sk-live-DO-NOT-LEAK"), "i2", t0)
+	secret, err := s.Append(ev(core.KindChat, "human:bcm", "sk-live-DO-NOT-LEAK"), "i2", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Append(ev(core.KindChat, "bcm", "after"), "i3", t0); err != nil {
+	if _, err := s.Append(ev(core.KindChat, "human:bcm", "after"), "i3", t0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,7 +186,7 @@ func TestPurgeErasesBodyButChainStillVerifies(t *testing.T) {
 // The purged secret must not survive in the derived search index either.
 func TestPurgeRemovesFromSearch(t *testing.T) {
 	s := newStore(t)
-	seq, err := s.Append(ev(core.KindChat, "bcm", "hunter2 password leak"), "i1", t0)
+	seq, err := s.Append(ev(core.KindChat, "human:bcm", "hunter2 password leak"), "i1", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestSearchFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mustAppend(t, s, core.Event{Room: "core", Author: "bcm", Kind: core.KindChat,
+	mustAppend(t, s, core.Event{Room: "core", Author: "human:bcm", Kind: core.KindChat,
 		Body: map[string]any{"text": "migration order"}}, "i1")
 	mustAppend(t, s, core.Event{Room: "bash", Author: "agent:claude-1", Kind: core.KindFinding,
 		Body: map[string]any{"text": "migration order", "severity": "p1"}}, "i2")
@@ -257,8 +257,8 @@ func TestSearchFilters(t *testing.T) {
 		t.Errorf("kind filter failed: %+v", byKind)
 	}
 
-	byAuthor, _ := s.Search("migration", "", "", "bcm", "", 10)
-	if len(byAuthor) != 1 || byAuthor[0].Author != "bcm" {
+	byAuthor, _ := s.Search("migration", "", "", "human:bcm", "", 10)
+	if len(byAuthor) != 1 || byAuthor[0].Author != "human:bcm" {
 		t.Errorf("author filter failed: %+v", byAuthor)
 	}
 }
@@ -269,7 +269,7 @@ func TestSinceResumesWithoutGapOrDuplicate(t *testing.T) {
 	s := newStore(t)
 	var seqs []int64
 	for i, text := range []string{"a", "b", "c", "d"} {
-		seq := mustAppend(t, s, ev(core.KindChat, "bcm", text), string(rune('a'+i)))
+		seq := mustAppend(t, s, ev(core.KindChat, "human:bcm", text), string(rune('a'+i)))
 		seqs = append(seqs, seq)
 	}
 
@@ -290,8 +290,8 @@ func TestSinceIsRoomScoped(t *testing.T) {
 	if err := s.EnsureRoom("other"); err != nil {
 		t.Fatal(err)
 	}
-	mustAppend(t, s, ev(core.KindChat, "bcm", "in core"), "i1")
-	mustAppend(t, s, core.Event{Room: "other", Author: "bcm", Kind: core.KindChat,
+	mustAppend(t, s, ev(core.KindChat, "human:bcm", "in core"), "i1")
+	mustAppend(t, s, core.Event{Room: "other", Author: "human:bcm", Kind: core.KindChat,
 		Body: map[string]any{"text": "in other"}}, "i2")
 
 	got, _ := s.Since("core", 0, 100)
@@ -320,7 +320,7 @@ func TestRoomProjection(t *testing.T) {
 func TestEventKindLookup(t *testing.T) {
 	s := newStore(t)
 	seq := mustAppend(t, s, core.Event{Room: "core", Author: "agent:c1", Kind: core.KindQuestion,
-		Body: map[string]any{"text": "?"}, Recipient: "bcm", Lane: core.Addressed}, "i1")
+		Body: map[string]any{"text": "?"}, Recipient: "human:bcm", Lane: core.Addressed}, "i1")
 
 	k, ok := s.EventKind(itoa(seq))
 	if !ok || k != core.KindQuestion {
@@ -338,7 +338,7 @@ func TestVerifyToleratesSeqGaps(t *testing.T) {
 
 	s1, _ := Open(path)
 	s1.EnsureRoom("core")
-	mustAppend(t, s1, ev(core.KindChat, "bcm", "before restart"), "i1")
+	mustAppend(t, s1, ev(core.KindChat, "human:bcm", "before restart"), "i1")
 	s1.Close()
 
 	s2, err := Open(path)
@@ -346,7 +346,7 @@ func TestVerifyToleratesSeqGaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	mustAppend(t, s2, ev(core.KindChat, "bcm", "after restart"), "i2")
+	mustAppend(t, s2, ev(core.KindChat, "human:bcm", "after restart"), "i2")
 
 	if err := s2.Verify(); err != nil {
 		t.Errorf("chain must verify across a restart gap: %v", err)
@@ -355,8 +355,8 @@ func TestVerifyToleratesSeqGaps(t *testing.T) {
 
 func TestVerifyDetectsTampering(t *testing.T) {
 	s := newStore(t)
-	mustAppend(t, s, ev(core.KindChat, "bcm", "one"), "i1")
-	mustAppend(t, s, ev(core.KindChat, "bcm", "two"), "i2")
+	mustAppend(t, s, ev(core.KindChat, "human:bcm", "one"), "i1")
+	mustAppend(t, s, ev(core.KindChat, "human:bcm", "two"), "i2")
 
 	if err := s.Verify(); err != nil {
 		t.Fatalf("clean chain must verify: %v", err)
@@ -406,10 +406,10 @@ func TestSearchSinceFilter(t *testing.T) {
 	old := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
 	recent := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
 
-	if _, err := s.Append(ev(core.KindFinding, "bcm", "migration order old"), "s1", old); err != nil {
+	if _, err := s.Append(ev(core.KindFinding, "human:bcm", "migration order old"), "s1", old); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Append(ev(core.KindFinding, "bcm", "migration order new"), "s2", recent); err != nil {
+	if _, err := s.Append(ev(core.KindFinding, "human:bcm", "migration order new"), "s2", recent); err != nil {
 		t.Fatal(err)
 	}
 
@@ -427,7 +427,7 @@ func TestSearchSinceFilter(t *testing.T) {
 	}
 
 	// A full timestamp works too, and composes with the other filters.
-	composed, _ := s.Search("migration", "core", "finding", "bcm", "2026-08-05T00:00:00Z", 10)
+	composed, _ := s.Search("migration", "core", "finding", "human:bcm", "2026-08-05T00:00:00Z", 10)
 	if len(composed) != 1 {
 		t.Errorf("filters must compose: want 1, got %d", len(composed))
 	}
@@ -436,12 +436,12 @@ func TestSearchSinceFilter(t *testing.T) {
 // A redacted body must not survive in search, the same as a purged one.
 func TestRedactedBodyLeavesSearch(t *testing.T) {
 	s := newStore(t)
-	seq := mustAppend(t, s, ev(core.KindChat, "bcm", "hunter2 secret"), "r1")
+	seq := mustAppend(t, s, ev(core.KindChat, "human:bcm", "hunter2 secret"), "r1")
 
 	if hits, _ := s.Search("hunter2", "", "", "", "", 10); len(hits) != 1 {
 		t.Fatal("setup: should be searchable before redaction")
 	}
-	if err := s.ApplyRedaction(seq, seq+1, "bcm", t0); err != nil {
+	if err := s.ApplyRedaction(seq, seq+1, "human:bcm", t0); err != nil {
 		t.Fatal(err)
 	}
 	if hits, _ := s.Search("hunter2", "", "", "", "", 10); len(hits) != 0 {
@@ -455,7 +455,7 @@ func TestRedactedBodyLeavesSearch(t *testing.T) {
 	if !recs[0].Redacted || recs[0].Text() != "" {
 		t.Error("a redacted record must report itself redacted with no body")
 	}
-	if recs[0].RedactedBy != "bcm" {
+	if recs[0].RedactedBy != "human:bcm" {
 		t.Errorf("redaction must record who did it, got %q", recs[0].RedactedBy)
 	}
 }
@@ -466,13 +466,13 @@ func TestRedactedBodyLeavesSearch(t *testing.T) {
 func TestIdemReuseWithDifferentContentConflicts(t *testing.T) {
 	s := newStore(t)
 
-	first, err := s.Append(ev(core.KindChat, "bcm", "ORIGINAL"), "k", t0)
+	first, err := s.Append(ev(core.KindChat, "human:bcm", "ORIGINAL"), "k", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Genuine retry: identical content, same key. Still a duplicate.
-	if _, err := s.Append(ev(core.KindChat, "bcm", "ORIGINAL"), "k", t0); err == nil {
+	if _, err := s.Append(ev(core.KindChat, "human:bcm", "ORIGINAL"), "k", t0); err == nil {
 		t.Error("an identical retry should report ErrDuplicate")
 	} else {
 		var dup ErrDuplicate
@@ -482,7 +482,7 @@ func TestIdemReuseWithDifferentContentConflicts(t *testing.T) {
 	}
 
 	// Different content, same key: must not be silently swallowed.
-	_, err = s.Append(ev(core.KindChat, "bcm", "COMPLETELY DIFFERENT"), "k", t0)
+	_, err = s.Append(ev(core.KindChat, "human:bcm", "COMPLETELY DIFFERENT"), "k", t0)
 	var conflict ErrIdemConflict
 	if !errors.As(err, &conflict) {
 		t.Fatalf("reuse with different content must conflict, got %v", err)

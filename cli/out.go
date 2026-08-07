@@ -82,15 +82,18 @@ type Result struct {
 	Outcome string `json:"outcome"`
 	Exit    int    `json:"exit,omitempty"`
 
-	Seq     int64  `json:"seq,omitempty"`
-	Applied *bool  `json:"applied,omitempty"`
-	Actor   string `json:"actor,omitempty"`
-	Host    string `json:"host,omitempty"`
-	Server  string `json:"server,omitempty"`
-	PubKey  string `json:"public_key,omitempty"`
-	Hash    string `json:"hash,omitempty"`
-	Size    int    `json:"size,omitempty"`
-	Count   int    `json:"count,omitempty"`
+	Seq       int64            `json:"seq,omitempty"`
+	Applied   *bool            `json:"applied,omitempty"`
+	Actor     string           `json:"actor,omitempty"`
+	Host      string           `json:"host,omitempty"`
+	Server    string           `json:"server,omitempty"`
+	Room      string           `json:"room,omitempty"`
+	KeyStatus string           `json:"key_status,omitempty"`
+	Cursors   map[string]int64 `json:"cursors,omitempty"`
+	PubKey    string           `json:"public_key,omitempty"`
+	Hash      string           `json:"hash,omitempty"`
+	Size      int              `json:"size,omitempty"`
+	Count     int              `json:"count,omitempty"`
 
 	Invariant string `json:"invariant,omitempty"`
 	Detail    string `json:"detail,omitempty"`

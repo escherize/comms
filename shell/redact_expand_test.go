@@ -36,7 +36,7 @@ func TestRedactSuppressesItsTarget(t *testing.T) {
 		t.Fatal("setup: the secret should be searchable before redaction")
 	}
 
-	code, _ := post(t, srv, `{"room":"core","author":"bcm","kind":"redact",`+
+	code, _ := post(t, srv, `{"room":"core","author":"human:bcm","kind":"redact",`+
 		`"body":{"text":"pasted a key"},"refs":["`+itoa(target)+`"],"idem":"r1"}`)
 	if code != http.StatusOK {
 		t.Fatalf("redact should be accepted, got %d", code)
@@ -64,7 +64,7 @@ func TestRedactLeavesTheEventInPlace(t *testing.T) {
 	_, out := post(t, srv, cmd("chat", "oops", "o1"))
 	target := int64(out["seq"].(float64))
 
-	post(t, srv, `{"room":"core","author":"bcm","kind":"redact",`+
+	post(t, srv, `{"room":"core","author":"human:bcm","kind":"redact",`+
 		`"body":{"text":"mistake"},"refs":["`+itoa(target)+`"],"idem":"r1"}`)
 
 	recs, err := st.Since("core", 0, 100)
@@ -172,7 +172,7 @@ func TestRedactAuthorizationOverTheWire(t *testing.T) {
 		t.Error("the refused redact must leave the event intact")
 	}
 
-	code, _ = post(t, srv, `{"room":"core","author":"bcm","kind":"redact",`+
+	code, _ = post(t, srv, `{"room":"core","author":"human:bcm","kind":"redact",`+
 		`"body":{"text":"my paste"},"refs":["`+target+`"],"idem":"b1"}`)
 	if code != http.StatusOK {
 		t.Fatalf("the author must be able to redact their own event, got %d", code)
@@ -188,7 +188,7 @@ func TestRedactDropsAttachmentsAndTheirLinks(t *testing.T) {
 	srv, st := newServer(t)
 
 	hash := putArtifact(t, srv, "# trace\n\nSECRET-TOKEN-abc123\n")
-	_, out := post(t, srv, `{"room":"core","author":"bcm","kind":"finding",`+
+	_, out := post(t, srv, `{"room":"core","author":"human:bcm","kind":"finding",`+
 		`"body":{"text":"crash log","severity":"p1"},"idem":"a1",`+
 		`"attachments":[{"hash":"`+hash+`","title":"trace.md"}]}`)
 	target := itoa(int64(out["seq"].(float64)))
@@ -200,7 +200,7 @@ func TestRedactDropsAttachmentsAndTheirLinks(t *testing.T) {
 		}
 	}
 
-	code, rej := post(t, srv, `{"room":"core","author":"bcm","kind":"redact",`+
+	code, rej := post(t, srv, `{"room":"core","author":"human:bcm","kind":"redact",`+
 		`"body":{"text":"leaked a token"},"refs":["`+target+`"],"idem":"r1"}`)
 	if code != http.StatusOK {
 		t.Fatalf("the author's redact should be accepted: %d %v", code, rej)
@@ -236,7 +236,7 @@ func TestCrossRoomRedactIsRefused(t *testing.T) {
 	_, out := post(t, srv, cmd("chat", "in core", "c1"))
 	target := itoa(int64(out["seq"].(float64)))
 
-	code, rej := post(t, srv, `{"room":"other","author":"bcm","kind":"redact",`+
+	code, rej := post(t, srv, `{"room":"other","author":"human:bcm","kind":"redact",`+
 		`"body":{"text":"x"},"refs":["`+target+`"],"idem":"x1"}`)
 	if code != http.StatusUnprocessableEntity || rej["invariant"] != "refs.target_unknown" {
 		t.Errorf("a cross-room redact must be refused, got %d %v", code, rej)

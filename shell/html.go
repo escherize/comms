@@ -303,8 +303,8 @@ finish review, the verdict, and DESIGN.md.
   <span class="who" id="whoami" title="who you are posting as — identity, not authentication">
     <label for="actor">as</label>
     <select id="actor">
-      <option value="bcm">bcm</option>
-      <option value="sarah">sarah</option>
+      <option value="human:bcm">bcm</option>
+      <option value="human:sarah">sarah</option>
       <option value="agent:claude-1">claude-1</option>
       <option value="agent:codex-3">codex-3</option>
     </select>
@@ -424,6 +424,8 @@ const composeScript = `
     ask: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /ask @someone <question>'};
+      // A bare @name is sent as typed; the server resolves it against the
+      // roster, the same way the client's --to does, so one rule serves both.
       return {kind:'question', body:{text:m[2]}, recipient:m[1]};
     },
     answer: function(rest){

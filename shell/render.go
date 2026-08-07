@@ -117,8 +117,12 @@ func short(h string) string {
 
 // shortActor drops the agent: prefix — the column is narrow and the prefix is
 // the same on every agent row, so it carries no information there.
+// shortActor drops the namespace for display. The namespace decides how a post
+// is read — provenance, lane budgets — but the column is 8 characters wide and
+// every row would spend six of them on the same two words.
 func shortActor(a core.Actor) string {
-	return strings.TrimPrefix(string(a), "agent:")
+	s := strings.TrimPrefix(string(a), "agent:")
+	return strings.TrimPrefix(s, "human:")
 }
 
 func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +226,7 @@ const carryThreshold = 3
 
 // stallWindow is how long an actor may go quiet before the room says so.
 // Evaluated against the server clock, never a client timestamp.
-const stallWindow = 15 * time.Minute
+const stallWindow = store.StallWindow
 
 // renderProgress folds each working actor's latest status into one live line
 // for the balance foot, so a human can see where the agents are without

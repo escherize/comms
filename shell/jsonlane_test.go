@@ -142,14 +142,16 @@ func TestJSONLaneResumesWithoutGap(t *testing.T) {
 
 // recipient= is the only filter inbox needs.
 func TestRecipientAndKindFilterServerSide(t *testing.T) {
-	srv, _ := newServer(t)
+	srv, st := newServer(t)
+	seedActor(t, st, "human:bcm")
+	seedActor(t, st, "human:sarah")
 	post(t, srv, cmd("chat", "ambient noise", "f1"))
 	post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
-		`"body":{"text":"for bcm"},"recipient":"bcm","idem":"f2"}`)
+		`"body":{"text":"for bcm"},"recipient":"human:bcm","idem":"f2"}`)
 	post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
-		`"body":{"text":"for sarah"},"recipient":"sarah","idem":"f3"}`)
+		`"body":{"text":"for sarah"},"recipient":"human:sarah","idem":"f3"}`)
 
-	fs := frames(t, srv.URL+"/stream?room=core&recipient=bcm", "", 500*time.Millisecond)
+	fs := frames(t, srv.URL+"/stream?room=core&recipient=human:bcm", "", 500*time.Millisecond)
 	if countOf(fs, "event") != 1 {
 		t.Errorf("recipient= must filter server-side, got %d events", countOf(fs, "event"))
 	}
@@ -204,7 +206,7 @@ func TestRedactedEventsCrossTheLaneSuppressed(t *testing.T) {
 	srv, _ := newServer(t)
 	_, out := post(t, srv, cmd("chat", "SECRET-TOKEN-abc123", "s1"))
 	target := itoa(int64(out["seq"].(float64)))
-	post(t, srv, `{"room":"core","author":"bcm","kind":"redact",`+
+	post(t, srv, `{"room":"core","author":"human:bcm","kind":"redact",`+
 		`"body":{"text":"pasted a token"},"refs":["`+target+`"],"idem":"s2"}`)
 
 	fs := frames(t, srv.URL+"/stream?room=core", "", 500*time.Millisecond)
@@ -236,15 +238,15 @@ func TestAuthFailuresAreFourDistinctInvariants(t *testing.T) {
 	}
 
 	_, unknownPriv, _ := ed25519.GenerateKey(nil)
-	if got := send("bcm", unknownPriv, body); got["invariant"] != "key.unknown" {
+	if got := send("human:bcm", unknownPriv, body); got["invariant"] != "key.unknown" {
 		t.Errorf("unenrolled seat: want key.unknown, got %v", got["invariant"])
 	}
 
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	st.RegisterKey("bcm", pub, time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC))
+	st.RegisterKey("human:bcm", pub, time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC))
 
 	// A signature over different bytes is a client bug, not a key problem.
-	forged := `{"room":"core","author":"bcm","kind":"chat","body":{"text":"other"},"idem":"a2"}`
+	forged := `{"room":"core","author":"human:bcm","kind":"chat","body":{"text":"other"},"idem":"a2"}`
 	req, _ := http.NewRequest("POST", srv.URL+"/commands", strings.NewReader(forged))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature", hex.EncodeToString(ed25519.Sign(priv, []byte(body))))
@@ -256,13 +258,13 @@ func TestAuthFailuresAreFourDistinctInvariants(t *testing.T) {
 		t.Errorf("mismatched bytes: want signature.invalid, got %v", m["invariant"])
 	}
 
-	st.RevokeKey("bcm", time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC))
-	if got := send("bcm", priv, body); got["invariant"] != "key.revoked" {
+	st.RevokeKey("human:bcm", time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC))
+	if got := send("human:bcm", priv, body); got["invariant"] != "key.revoked" {
 		t.Errorf("revoked: want key.revoked, got %v", got["invariant"])
 	}
 
-	st.MarkCompromised("bcm", time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC))
-	if got := send("bcm", priv, body); got["invariant"] != "key.compromised" {
+	st.MarkCompromised("human:bcm", time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC))
+	if got := send("human:bcm", priv, body); got["invariant"] != "key.compromised" {
 		t.Errorf("compromised: want key.compromised, got %v", got["invariant"])
 	}
 }

@@ -36,7 +36,7 @@ func seedRoom(t *testing.T) (*Store, map[string]int64) {
 		"retry budget is read before the backoff is applied")
 	add("migration", core.KindQuestion, "agent:claude-2",
 		"migration 0031 assumes 0029 ran; is it safe to reorder?")
-	add("flake", core.KindTIL, "bcm",
+	add("flake", core.KindTIL, "human:bcm",
 		"the flaky test helper leaks a temp dir on failure paths")
 	return s, seqs
 }

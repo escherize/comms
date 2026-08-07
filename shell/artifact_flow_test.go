@@ -107,7 +107,7 @@ func TestAttachmentMustExist(t *testing.T) {
 	srv, _ := newServer(t)
 	ghost := strings.Repeat("a", 64)
 	code, out := post(t, srv,
-		`{"room":"core","author":"bcm","kind":"chat","body":{"text":"x"},"idem":"g1",`+
+		`{"room":"core","author":"human:bcm","kind":"chat","body":{"text":"x"},"idem":"g1",`+
 			`"attachments":[{"hash":"`+ghost+`","title":"ghost.md"}]}`)
 	if code != http.StatusUnprocessableEntity || out["invariant"] != "attachment.unknown" {
 		t.Errorf("want 422 attachment.unknown, got %d %v", code, out)
@@ -118,7 +118,7 @@ func TestAttachmentMustExist(t *testing.T) {
 func TestMalformedAttachmentHashFailsParse(t *testing.T) {
 	srv, _ := newServer(t)
 	code, out := post(t, srv,
-		`{"room":"core","author":"bcm","kind":"chat","body":{"text":"x"},"idem":"m1",`+
+		`{"room":"core","author":"human:bcm","kind":"chat","body":{"text":"x"},"idem":"m1",`+
 			`"attachments":[{"hash":"NOT-A-HASH","title":"x.md"}]}`)
 	if code != http.StatusBadRequest || out["invariant"] != "parse.failed" {
 		t.Errorf("want 400 parse.failed, got %d %v", code, out)
@@ -150,7 +150,7 @@ func TestArtifactContentIsSearchable(t *testing.T) {
 func TestPurgeDropsAttachments(t *testing.T) {
 	srv, st := newServer(t)
 	hash := putArtifact(t, srv, "credentials: sk-live-DO-NOT-LEAK\n")
-	_, out := post(t, srv, `{"room":"core","author":"bcm","kind":"chat",`+
+	_, out := post(t, srv, `{"room":"core","author":"human:bcm","kind":"chat",`+
 		`"body":{"text":"oops"},"idem":"p1",`+
 		`"attachments":[{"hash":"`+hash+`","title":"env.md"}]}`)
 	seq := int64(out["seq"].(float64))

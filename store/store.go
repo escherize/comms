@@ -178,6 +178,29 @@ CREATE TABLE IF NOT EXISTS progress (
   server_ts TEXT NOT NULL,
   PRIMARY KEY (room, author)
 );
+
+-- The roster. A seat lands here on enrolment, and also on its first accepted
+-- append, so an unsigned demo post makes its author addressable without a key.
+-- It is what recipient.unknown is checked against: a typo has never posted.
+CREATE TABLE IF NOT EXISTS actor (
+  actor      TEXT PRIMARY KEY,
+  first_seen TEXT NOT NULL,
+  source     TEXT NOT NULL          -- 'enrolment' | 'post'
+);
+
+-- Question -> answer folding, maintained in the append transaction. A json_each
+-- scan over refs at read time is O(events) per room view; ARCHITECTURE flags it
+-- past 10^5, and orientation is the one call an agent makes before every task.
+CREATE TABLE IF NOT EXISTS question (
+  seq        INTEGER PRIMARY KEY,
+  room       TEXT NOT NULL,
+  author     TEXT NOT NULL,
+  recipient  TEXT NOT NULL DEFAULT '',
+  asked_at   TEXT NOT NULL,
+  answer_seq INTEGER NOT NULL DEFAULT 0,
+  answered_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS question_room ON question(room, answer_seq);
 `
 
 // Open prepares the store and advances seq past any live fencing tokens lost to
@@ -395,6 +418,36 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 			   note = excluded.note, server_ts = excluded.server_ts`,
 			ev.Room, string(ev.Author), int(step), int(of), text, ts); err != nil {
 			return 0, err
+		}
+	}
+
+	// The roster, same transaction. An author who posted is a seat that exists,
+	// which is what makes recipient.unknown safe to enforce on a hub where the
+	// browser posts unsigned.
+	if _, err := tx.Exec(
+		`INSERT INTO actor(actor, first_seen, source) VALUES(?,?,'post')
+		 ON CONFLICT(actor) DO NOTHING`, string(ev.Author), ts); err != nil {
+		return 0, err
+	}
+
+	// Question -> answer folding, same transaction.
+	switch ev.Kind {
+	case core.KindQuestion:
+		if _, err := tx.Exec(
+			`INSERT INTO question(seq, room, author, recipient, asked_at)
+			 VALUES(?,?,?,?,?) ON CONFLICT(seq) DO NOTHING`,
+			next, ev.Room, string(ev.Author), string(ev.Recipient), ts); err != nil {
+			return 0, err
+		}
+	case core.KindAnswer:
+		// First answer wins: a question is open or it is not, and later answers
+		// do not reopen it.
+		for _, ref := range ev.Refs {
+			if _, err := tx.Exec(
+				`UPDATE question SET answer_seq = ?, answered_at = ?
+				 WHERE seq = ? AND answer_seq = 0`, next, ts, ref); err != nil {
+				return 0, err
+			}
 		}
 	}
 
