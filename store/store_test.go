@@ -499,13 +499,21 @@ func TestSearchDoesNotRequireEveryToken(t *testing.T) {
 	s := newStore(t)
 	mustAppend(t, s, ev(core.KindTIL, "agent:c1", "sqlite-vec rejects long bodies"), "q1")
 
-	exact, _ := s.Search("sqlite-vec rejects long bodies", "", "", "", "", 10)
+	// Check the error: discarding it turns a SQL failure into "no hits", which
+	// is the exact confusion this ticket exists to remove.
+	exact, err := s.Search("sqlite-vec rejects long bodies", "", "", "", "", 10)
+	if err != nil {
+		t.Fatalf("search errored: %v", err)
+	}
 	if len(exact) != 1 {
 		t.Fatalf("the exact phrase must match, got %d", len(exact))
 	}
 
 	// One word the room does not contain must not zero the result.
-	loose, _ := s.Search("sqlite-vec long bodies missing", "", "", "", "", 10)
+	loose, err := s.Search("sqlite-vec long bodies missing", "", "", "", "", 10)
+	if err != nil {
+		t.Fatalf("search errored: %v", err)
+	}
 	if len(loose) != 1 {
 		t.Errorf("a query with one absent word must still find the record, got %d hits", len(loose))
 	}

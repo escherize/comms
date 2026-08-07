@@ -288,7 +288,40 @@ func tally(recs []store.Record) (ambient, addressed int, head int64) {
 }
 
 func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+
+	// An empty query is a rejection, not an empty result. Filters alone match
+	// nothing, and returning zero hits would read as "the room does not know
+	// this" when nothing was actually asked.
+	if q == "" && wantsJSON(r) {
+		writeJSONL(w, http.StatusUnprocessableEntity, nil, map[string]any{
+			"ok": false, "outcome": "rejected", "exit": 3,
+			"invariant": "query.required",
+			"detail":    "search needs a query; filters alone match nothing",
+			"next":      "add words to search for, then filter with room=, kind=, author=, since=",
+		})
+		return
+	}
+
+	if wantsJSON(r) {
+		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
+			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
+			r.URL.Query().Get("since"), 100)
+		if err != nil {
+			writeJSONL(w, http.StatusInternalServerError, nil, map[string]any{
+				"ok": false, "outcome": "internal", "exit": 1,
+				"invariant": "search.failed", "detail": err.Error(),
+			})
+			return
+		}
+		writeJSONL(w, http.StatusOK, hits, map[string]any{
+			"ok": true, "outcome": "read", "count": len(hits),
+			"lanes": s.st.Lanes(),
+			"query": q,
+		})
+		return
+	}
+
 	var rows strings.Builder
 	var n int
 	if q != "" {
@@ -300,8 +333,8 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 				`<div class="author">—</div><div class="kind">ERR</div>` +
 				`<div class="body">` + html.EscapeString(err.Error()) + `</div></div>`)
 		}
-		for i, hit := range hits {
-			rows.WriteString(searchRow(i+1, hit))
+		for _, hit := range hits {
+			rows.WriteString(searchRow(hit))
 		}
 		n = len(hits)
 	}
@@ -316,17 +349,18 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, page)
 }
 
-// searchRow shows the lexical rank as its own column. The vector rank column
-// ships with M2; the grammar already has a slot for it.
-func searchRow(rank int, r store.Record) string {
+// searchRow shows the lexical rank as its own column — the bm25 score, not the
+// row's position, so a reader can see how much better the first hit is than the
+// second. The vector rank column ships with ticket 07; the grammar has its slot.
+func searchRow(r store.Record) string {
 	return fmt.Sprintf(
 		`<div class="row srow">`+
 			`<div class="folio">%d</div>`+
-			`<div class="rank">%d</div>`+
+			`<div class="rank">%.1f</div>`+
 			`<div class="rank vec">—</div>`+
 			`<div class="author">%s</div>`+
 			`<div class="kind">%s</div>`+
 			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
-		r.Seq, rank, html.EscapeString(shortActor(r.Author)), kindCode(r.Kind),
+		r.Seq, r.Rank, html.EscapeString(shortActor(r.Author)), kindCode(r.Kind),
 		html.EscapeString(r.Room), r.Seq, html.EscapeString(r.Text()))
 }

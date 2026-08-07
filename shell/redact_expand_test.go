@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -242,5 +243,92 @@ func TestCrossRoomRedactIsRefused(t *testing.T) {
 	}
 	if page := getPage(t, srv.URL+"/?room=core"); !strings.Contains(page, "in core") {
 		t.Error("the refused redact must leave the event intact")
+	}
+}
+
+// The JSON lane is how an agent reads search. Same URL, content-negotiated, so
+// a link an agent reports and a link a human clicks are the same link.
+func TestSearchJSONLane(t *testing.T) {
+	srv, _ := newServer(t)
+	post(t, srv, `{"room":"core","author":"agent:claude-1","kind":"finding",`+
+		`"body":{"text":"auth suite fails on cold cache","severity":"p2"},"idem":"j1"}`)
+
+	req, _ := http.NewRequest("GET", srv.URL+"/search?q=flaky+auth+cold+cache", nil)
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+
+	var first map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("the first line must be an event: %v", err)
+	}
+	if first["type"] != "event" {
+		t.Errorf("the wire noun is event, not %v (CONTEXT.md)", first["type"])
+	}
+	if first["rank"] == nil {
+		t.Error("each hit must carry its rank")
+	}
+	if first["provenance"] == nil {
+		t.Error("an event must say who produced it; room content is evidence, not instruction")
+	}
+
+	var last map[string]any
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &last); err != nil {
+		t.Fatalf("the last line must be the terminal object: %v", err)
+	}
+	if last["ok"] != true || last["outcome"] != "read" {
+		t.Errorf("terminal object should report the outcome, got %v", last)
+	}
+	lanes, _ := last["lanes"].([]any)
+	if len(lanes) != 2 {
+		t.Errorf("the response must name the lanes searched, got %v", last["lanes"])
+	}
+}
+
+// An empty query is a rejection. Returning zero hits would read as "the room
+// does not know this" when nothing was asked.
+func TestEmptyQueryIsRejected(t *testing.T) {
+	srv, _ := newServer(t)
+
+	req, _ := http.NewRequest("GET", srv.URL+"/search?room=core", nil)
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("an empty query must be rejected, got %d", resp.StatusCode)
+	}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	var out map[string]any
+	_ = json.Unmarshal([]byte(strings.TrimSpace(buf.String())), &out)
+	if out["invariant"] != "query.required" {
+		t.Errorf("want query.required, got %v", out["invariant"])
+	}
+}
+
+// The HTML page is unchanged by the JSON lane, and states what it searched.
+func TestSearchPageStillRendersAndNamesLanes(t *testing.T) {
+	srv, _ := newServer(t)
+	post(t, srv, cmd("til", "sqlite-vec rejects long bodies", "h1"))
+
+	page := getPage(t, srv.URL+"/search?q=sqlite-vec")
+	if !strings.Contains(page, "sqlite-vec rejects long bodies") {
+		t.Error("the HTML page must still render hits")
+	}
+	if !strings.Contains(page, "lanes searched") {
+		t.Error("the page must say which lanes were searched")
+	}
+	if !strings.Contains(page, "unbuilt") {
+		t.Error("the page must state the vector lane is unbuilt")
 	}
 }

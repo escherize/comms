@@ -45,6 +45,11 @@ type Record struct {
 	Attach     []core.Attachment
 	Redacted   bool
 	RedactedBy string
+
+	// Rank is the bm25 score when this record came from a search. SQLite
+	// returns lower-is-better, so it is negated here: bigger means a better
+	// match, which is what a reader expects a rank column to mean.
+	Rank float64
 }
 
 // Text returns the body's text field, or "" when the body is absent.
@@ -462,6 +467,30 @@ func ftsQuery(raw string) string {
 	return strings.Join(quoted, " OR ")
 }
 
+// SearchResult carries the hits plus what was actually searched, so an empty
+// result cannot be read as "the room does not know this".
+type SearchResult struct {
+	Hits  []Record
+	Lanes []LaneStatus
+}
+
+// LaneStatus reports one search lane's state.
+type LaneStatus struct {
+	Name   string `json:"name"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// Lanes describes what a search covered. The vector lane is named as unbuilt
+// rather than omitted, because a lane nobody mentions is a lane a reader
+// assumes was searched.
+func (s *Store) Lanes() []LaneStatus {
+	return []LaneStatus{
+		{Name: "lexical", State: "searched"},
+		{Name: "vector", State: "unbuilt", Detail: "semantic search ships in ticket 07; these results are lexical only"},
+	}
+}
+
 // Search runs the lexical lane. Filters are applied after the FTS match.
 func (s *Store) Search(query, room, kind, author, since string, limit int) ([]Record, error) {
 	q := ftsQuery(query)
@@ -499,9 +528,9 @@ func (s *Store) Search(query, room, kind, author, since string, limit int) ([]Re
 
 	rows, err := s.db.Query(`
 		SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,
-		       e.refs, e.body_hash, e.prev_hash, b.json, e.attach
-		FROM search s
-		JOIN envelope e ON e.seq = s.seq
+		       e.refs, e.body_hash, e.prev_hash, b.json, e.attach, bm25(search)
+		FROM search
+		JOIN envelope e ON e.seq = search.seq
 		LEFT JOIN body b ON b.seq = e.seq
 		WHERE search MATCH ?`+clause+`
 		ORDER BY rank
@@ -510,7 +539,11 @@ func (s *Store) Search(query, room, kind, author, since string, limit int) ([]Re
 		return nil, err
 	}
 	defer rows.Close()
-	return scanRecords(rows)
+	recs, err := scanRanked(rows)
+	if err != nil {
+		return nil, err
+	}
+	return s.markRedactions(recs), nil
 }
 
 func scanRecords(rows *sql.Rows) ([]Record, error) {
@@ -632,4 +665,44 @@ func hashBytes(b []byte) string {
 
 func hashChain(prev, body string) string {
 	return hashBytes([]byte(prev + ":" + body))
+}
+
+// scanRanked reads the search shape, which carries a bm25 score after the
+// columns scanRecords expects.
+func scanRanked(rows *sql.Rows) ([]Record, error) {
+	var out []Record
+	for rows.Next() {
+		var (
+			r        Record
+			ts, refs string
+			author   string
+			kind     string
+			recip    string
+			lane     int
+			bodyJSON sql.NullString
+			attach   string
+			score    float64
+		)
+		if err := rows.Scan(&r.Seq, &ts, &r.Room, &author, &kind, &recip, &lane,
+			&refs, &r.BodyHash, &r.PrevHash, &bodyJSON, &attach, &score); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(attach), &r.Attach)
+		r.ServerTS, _ = time.Parse(time.RFC3339Nano, ts)
+		r.Author = core.Actor(author)
+		r.Kind = core.Kind(kind)
+		r.Recipient = core.Actor(recip)
+		r.Lane = core.Lane(lane)
+		_ = json.Unmarshal([]byte(refs), &r.Refs)
+		if bodyJSON.Valid {
+			_ = json.Unmarshal([]byte(bodyJSON.String), &r.Body)
+		} else {
+			r.BodyErased = true
+		}
+		// SQLite's bm25 is lower-is-better; negate so a bigger number reads as
+		// a better match, which is what a rank column implies.
+		r.Rank = -score
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

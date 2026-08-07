@@ -532,8 +532,8 @@ const searchHTML = `<!doctype html>
 <footer>
   <div class="balance">
     <span>hits <b>{{N}}</b></span>
-    <span>lexical <b>current</b></span>
-    <span>vector <b>ships M2</b></span>
+    <span>lanes searched <b>lexical</b></span>
+    <span>vector <b>unbuilt — these results are lexical only</b></span>
   </div>
 </footer>
 ` + themeScript + `
