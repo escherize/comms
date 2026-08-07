@@ -192,3 +192,67 @@ func (e *escalations) left(actor core.Actor) int {
 	}
 	return EscalationBudget - n
 }
+
+// PostingBudget is how many ambient entries one seat may add to a room per
+// window before it has to start summarizing.
+//
+// This is not the rate limiter above, and the difference is the remedy. The
+// limiter guards wire speed — 700 signed posts landed in 227ms against this
+// server — and its answer is "wait 800ms". A posting budget guards attention:
+// thirty findings an hour is not too fast to accept, it is too many to read,
+// and waiting does not help. Its answer is "say it once, together".
+//
+// Nothing is dropped either way. The agent still holds what it was going to
+// say, which is the whole reason the refusal can ask for a summary instead.
+const (
+	PostingBudget = 30
+	PostingWindow = time.Hour
+)
+
+// posting is the ambient spend ledger, per seat per room. Per room because a
+// bug bash is a room, and a busy hour there should not silence the same agent
+// in core.
+type posting struct {
+	mu    sync.Mutex
+	spent map[postingKey][]time.Time
+	now   func() time.Time
+}
+
+type postingKey struct {
+	actor core.Actor
+	room  string
+}
+
+func newPosting(now func() time.Time) *posting {
+	return &posting{spent: map[postingKey][]time.Time{}, now: now}
+}
+
+// charge records an ambient post and reports what is left. Addressed kinds are
+// not charged here: they are priced by the escalation budget and by the fact
+// that a person is named, which is a cost the author already feels.
+func (p *posting) charge(actor core.Actor, room string, kind core.Kind) (remaining int, oldest time.Duration, ok bool) {
+	if exemptFromBudget(kind) || core.LaneOf(kind) == core.Addressed {
+		return PostingBudget, 0, true
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	key := postingKey{actor, room}
+	now := p.now()
+	cutoff := now.Add(-PostingWindow)
+	var live []time.Time
+	for _, at := range p.spent[key] {
+		if at.After(cutoff) {
+			live = append(live, at)
+		}
+	}
+
+	if len(live) >= PostingBudget {
+		p.spent[key] = live
+		return 0, live[0].Add(PostingWindow).Sub(now), false
+	}
+	live = append(live, now)
+	p.spent[key] = live
+	return PostingBudget - len(live), 0, true
+}

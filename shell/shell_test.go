@@ -21,6 +21,15 @@ import (
 // a real store on a temp file. Nothing is mocked past the interface.
 func newServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()
+	return newServerEvery(t, time.Millisecond)
+}
+
+// newServerEvery builds a server whose clock advances by step on every read.
+// A test about a budget has to choose its own rate of time: an agent that
+// paces itself trips the posting budget and never the rate limiter, and that
+// is the regime the budget exists for.
+func newServerEvery(t *testing.T, step time.Duration) (*httptest.Server, *store.Store) {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "shell.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -40,7 +49,7 @@ func newServer(t *testing.T) (*httptest.Server, *store.Store) {
 	sv := New(st, func() time.Time {
 		clockMu.Lock()
 		defer clockMu.Unlock()
-		tick = tick.Add(time.Millisecond)
+		tick = tick.Add(step)
 		return tick
 	})
 	// Signatures are enforced by default. These tests exercise the command

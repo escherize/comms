@@ -44,6 +44,7 @@ type Server struct {
 	limit    *limiter
 	correct  *corrections
 	escalate *escalations
+	posting  *posting
 }
 
 // PostsPerMinute and PostBurst bound one seat. The burst is what an agent
@@ -62,7 +63,8 @@ func New(st *store.Store, now Clock) *Server {
 		RequireSignature: true,
 		limit:            newLimiter(PostsPerMinute, PostBurst, now),
 		correct:          newCorrections(),
-		escalate:         newEscalations(now)}
+		escalate:         newEscalations(now),
+		posting:          newPosting(now)}
 }
 
 func (s *Server) Routes() *http.ServeMux {
@@ -346,6 +348,30 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 				"applied": false,
 				"kept":    false,
 				"next":    "this post was not kept: sleep retry_after_ms, then post it again",
+			})
+			return
+		}
+	}
+
+	// The posting budget. Distinct from the rate limit above and refused
+	// differently, because the remedy differs: too fast is answered by waiting,
+	// too much is answered by saying it once.
+	if s.posting != nil {
+		if remaining, oldest, ok := s.posting.charge(cmd.Author, cmd.Room, cmd.Kind); !ok {
+			_ = remaining
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{
+				"ok": false, "outcome": "throttled", "exit": 6,
+				"invariant": "budget.exhausted",
+				"detail": fmt.Sprintf(
+					"this seat has added %d ambient entries to %s in the last %s. "+
+						"Nothing was posted and nothing was lost",
+					PostingBudget, cmd.Room, PostingWindow),
+				"retry_after_ms": oldest.Milliseconds(),
+				"kept":           false,
+				"next": "you are not posting too fast, you are posting too much to read. " +
+					"Combine what is left into one summarizing finding and post that, or " +
+					"attach the detail and post the summary. task.* and offer.* are never " +
+					"budgeted, so work coordination is unaffected",
 			})
 			return
 		}

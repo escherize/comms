@@ -594,3 +594,106 @@ func TestEachKindRendersItsOwnFields(t *testing.T) {
 		}
 	}
 }
+
+// A posting budget is not a rate limit, and the difference is the remedy.
+// Thirty findings an hour is not too fast to accept — it is too many to read,
+// and waiting does not help.
+func TestThePostingBudgetAsksForASummaryNotAWait(t *testing.T) {
+	// Five seconds a post: an agent working at a human pace. It never trips the
+	// rate limiter, which is the point — too fast and too much are different
+	// conditions with different answers, and this is the second one.
+	srv, _ := newServerEvery(t, 5*time.Second)
+
+	var code int
+	var out map[string]any
+	for i := 0; i < PostingBudget+5; i++ {
+		code, out = post(t, srv, cmd("til", "entry "+itoa(int64(i)), "b"+itoa(int64(i))))
+		if code == http.StatusTooManyRequests {
+			break
+		}
+	}
+	if code != http.StatusTooManyRequests {
+		t.Fatalf("a seat must not be able to fill a room without bound; got %d", code)
+	}
+	if out["invariant"] != "budget.exhausted" {
+		t.Fatalf("want budget.exhausted, got %v", out["invariant"])
+	}
+	next := fmt.Sprint(out["next"])
+	if !strings.Contains(next, "summarizing") && !strings.Contains(next, "Combine") {
+		t.Errorf("the remedy for too much is a summary, not a wait: %v", next)
+	}
+	if out["kept"] != false {
+		t.Error("the reply must say what happened to the entry")
+	}
+
+	// Not lost, and not silently swallowed: the refusal is explicit and the
+	// agent still holds what it was going to say.
+	if !strings.Contains(fmt.Sprint(out["detail"]), "nothing was lost") {
+		t.Errorf("the refusal must say nothing was lost: %v", out["detail"])
+	}
+}
+
+// The budget is per room. A busy hour in a bug bash must not silence the same
+// seat in core.
+func TestThePostingBudgetIsPerRoom(t *testing.T) {
+	srv, st := newServerEvery(t, 5*time.Second)
+	if err := st.EnsureRoom("bash"); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < PostingBudget+2; i++ {
+		post(t, srv, cmd("til", "core entry "+itoa(int64(i)), "pr"+itoa(int64(i))))
+	}
+	if code, _ := post(t, srv, cmd("til", "one more in core", "pr-over")); code != http.StatusTooManyRequests {
+		t.Fatalf("setup: core's budget should be spent, got %d", code)
+	}
+
+	code, out := post(t, srv, `{"room":"bash","author":"agent:c1","kind":"til",`+
+		`"body":{"text":"a fresh room"},"idem":"other-room"}`)
+	if code != http.StatusOK {
+		t.Errorf("a spent budget in one room must not silence the seat in another: %d %v", code, out)
+	}
+}
+
+// Addressed kinds are not charged here. They are priced by the escalation
+// budget and by naming a person, which is a cost the author already feels.
+func TestAddressedKindsAreNotChargedToThePostingBudget(t *testing.T) {
+	srv, st := newServerEvery(t, 5*time.Second)
+	seedActor(t, st, "human:bcm")
+
+	for i := 0; i < PostingBudget+2; i++ {
+		post(t, srv, cmd("til", "entry "+itoa(int64(i)), "ad"+itoa(int64(i))))
+	}
+	code, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"question",`+
+		`"body":{"text":"is this still true?"},"recipient":"human:bcm","idem":"ad-q"}`)
+	if code != http.StatusOK {
+		t.Errorf("an addressed kind must not be refused by the ambient budget: %d %v", code, out)
+	}
+}
+
+// Work coordination is exempt by construction, so a burst of task.* is never
+// delayed however full the room is. The rule is a prefix, so a task kind added
+// later is exempt without anyone remembering to add it.
+func TestABurstOfWorkCoordinationIsNeverDelayed(t *testing.T) {
+	p := newPosting(func() time.Time { return time.Unix(0, 0) })
+	for i := 0; i < PostingBudget*10; i++ {
+		if _, _, ok := p.charge("agent:c1", "core", core.Kind("task.done")); !ok {
+			t.Fatalf("task.done was delayed on attempt %d; claims must never queue", i)
+		}
+	}
+	for i := 0; i < PostingBudget*10; i++ {
+		if _, _, ok := p.charge("agent:c1", "core", core.Kind("offer.settle")); !ok {
+			t.Fatalf("offer.settle was delayed on attempt %d", i)
+		}
+	}
+	// And the same ledger still bounds ambient chatter.
+	var refused bool
+	for i := 0; i < PostingBudget+1; i++ {
+		if _, _, ok := p.charge("agent:c1", "core", core.KindTIL); !ok {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Error("the exemption must not disable the budget for everything else")
+	}
+}

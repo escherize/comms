@@ -167,6 +167,7 @@ var verdicts = map[string]string{
 	"key.compromised":           "stop immediately and tell a human. This key is marked compromised",
 	"enrolment.refused":         "stop. Ask a human for a fresh invite token",
 	"escalation.exhausted":      "wait for the window; the entry is recorded either way",
+	"budget.exhausted":          "combine what is left into one summarizing finding and post that",
 	"parse.failed":              "stop. The client built a malformed command; this is a bug here",
 
 	// Usage failures the caller can fix. `next: "stop"` on any of these tells an
