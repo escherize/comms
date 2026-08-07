@@ -86,6 +86,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /actors", s.actorsList)
 	mux.HandleFunc("POST /escalate", s.postEscalation)
 	mux.HandleFunc("GET /index", s.indexStatus)
+	mux.HandleFunc("POST /delivered", s.postDelivered)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
@@ -1056,5 +1057,34 @@ func (s *Server) indexStatus(w http.ResponseWriter, r *http.Request) {
 		"dead_lettered":        dead,
 		"detail": "events on the dead-letter list are absent from the semantic lane " +
 			"and present in the lexical one; rebuild with: agent_comms -reembed <seq>",
+	})
+}
+
+// postDelivered records how far a seat has drained its addressed lane. It is
+// not a command and produces no event: delivery is operational state, true now
+// and uninteresting in six months, and putting it in the log would double the
+// log's volume with rows nobody will search for.
+func (s *Server) postDelivered(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actor   string `json:"actor"`
+		Room    string `json:"room"`
+		Through int64  `json:"addressed_through"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, rejectedResponse{"parse.failed", err.Error(), ""})
+		return
+	}
+	if req.Actor == "" || req.Room == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, rejectedResponse{"actor.required",
+			"a delivery receipt names the seat and the room", ""})
+		return
+	}
+	if err := s.st.MarkDelivered(req.Actor, req.Room, req.Through, s.now()); err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			rejectedResponse{"delivery.failed", err.Error(), ""})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": "recorded", "addressed_through": req.Through,
 	})
 }

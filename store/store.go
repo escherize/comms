@@ -223,6 +223,10 @@ func Open(path string) (*Store, error) {
 	// One writer. The whole ordering story depends on it.
 	db.SetMaxOpenConns(1)
 
+	if _, err := db.Exec(deliverySchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("delivery schema: %w", err)
+	}
 	if _, err := db.Exec(vectorSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("vector schema: %w", err)

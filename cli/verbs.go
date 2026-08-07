@@ -37,7 +37,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"enrol", "post", "redact", "ask", "answer", "attach", "read", "inbox", "search", "room", "whoami", "escalate"}
+var Verbs = []string{"enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "search", "room", "whoami", "escalate"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -66,6 +66,8 @@ func Run(e *Env, args []string) int {
 		return runAnswer(e, args[1:])
 	case "attach":
 		return runAttach(e, args[1:])
+	case "decline":
+		return runDecline(e, args[1:])
 	case "room":
 		return runRoom(e, args[1:])
 	case "search":
@@ -1145,4 +1147,62 @@ func knownKind(k core.Kind) bool {
 func knownKindNames() []string {
 	return []string{"chat", "finding", "question", "answer", "til",
 		"handoff", "status", "pr.link", "digest", "redact"}
+}
+
+// ---------------------------------------------------------------- decline
+
+func runDecline(e *Env, args []string) int {
+	fs, sink := newFlags("decline")
+	actor := fs.String("as", "", "the seat declining")
+	room := fs.String("room", "", "room the handoff is in")
+	why := fs.String("why", "", "why you are not taking it")
+	idem := fs.String("idem", "", "reuse a natural key you already have")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms decline <seq> --as <seat> --why "<why not>"
+
+Refuses a handoff, out loud. It goes back to whoever handed the work over, for
+the same reason an answer goes back to whoever asked: the person who needs to
+know is the one who thought the work was covered.
+
+  agent_comms decline 50002 --as agent:bcm/claude-1 \
+      --why "already three deep in the auth suite; this needs someone free"
+
+Declining is not a failure and costs you nothing. Saying nothing does: a
+handoff nobody took and nobody refused looks exactly like a handoff being
+worked on, and the difference is discovered when the work is due.`)
+	}
+
+	seqs, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
+	}
+	if len(seqs) != 1 {
+		return e.Out.Fail(ExitUsage, "usage", "refs.exactly_one",
+			"name the handoff you are refusing: agent_comms decline <seq>")
+	}
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	if *why == "" {
+		return e.Out.Fail(ExitUsage, "usage", "body.text.required",
+			"say why: a refusal without a reason makes the sender ask, which is the "+
+				"round trip declining exists to save")
+	}
+	drainFirst(e, seat)
+
+	priv, err := LoadSeat(seat)
+	if err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
+	}
+	cmd := map[string]any{
+		"room": resolveRoom(seat, *room), "author": seat, "kind": "decline",
+		"body": map[string]any{"text": *why},
+		"refs": []string{seqs[0]},
+	}
+	applyIdem(e, cmd, *idem)
+	return send(e, NewClient(e.Server, seat, priv), cmd, "decline", nil)
 }

@@ -186,6 +186,17 @@ func TestEverySkillCommandRuns(t *testing.T) {
 	}
 	subs["20014"] = itoa(seedF)
 
+	// The skill's decline example names a handoff. Seed one addressed to this
+	// seat, so the example runs as written rather than being special-cased.
+	seedH, err := st.Append(core.Event{Room: "core", Author: "human:sarah",
+		Kind: core.KindHandoff, Recipient: core.Actor(seat),
+		Body: map[string]any{"text": "the retry path is yours"},
+		Lane: core.LaneOf(core.KindHandoff)}, "skill-h", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs["50002"] = itoa(seedH)
+
 	var up capture
 	if code := Run(up.env(t, srv.URL, "# seeded artifact\n"), []string{"attach", "-"}); code != ExitOK {
 		t.Fatalf("seeding an artifact failed: %s", up.out.String())
@@ -260,7 +271,7 @@ func TestEverySkillCommandRuns(t *testing.T) {
 // run as written.
 func withSeat(args []string) []string {
 	needsSeat := map[string]bool{
-		"post": true, "ask": true, "answer": true,
+		"post": true, "ask": true, "answer": true, "decline": true,
 		"read": true, "inbox": true, "redact": true, "whoami": true,
 		"room": true, "search": true,
 	}

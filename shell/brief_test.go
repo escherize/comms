@@ -865,3 +865,158 @@ func TestAReplayedEscalationIsFree(t *testing.T) {
 		t.Errorf("one escalation, run twice, must interrupt once; got %d", questions)
 	}
 }
+
+// A brief that reports counts tells a second arrival how much it does not know.
+// It needs to know what the room already contains, before it posts.
+func TestTheBriefCarriesContentNotOnlyCounts(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "human:bcm")
+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding","body":{`+
+		`"text":"the auth suite flakes on a cold cache","severity":"p1",`+
+		`"about":"auth.py"},"idem":"bc1"}`)
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"til",`+
+		`"body":{"text":"FTS5 reads a hyphen as NOT"},"idem":"bc2"}`)
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"handoff",`+
+		`"body":{"text":"the retry path is yours"},"recipient":"human:bcm","idem":"bc3"}`)
+
+	_, body := getJSON(t, srv.URL+"/rooms/core")
+	brief := body["brief"].(map[string]any)
+
+	recent, _ := brief["recent"].([]any)
+	if len(recent) < 2 {
+		t.Fatalf("the brief must carry what the room knows, got %d entries", len(recent))
+	}
+	var sawFinding bool
+	for _, r := range recent {
+		m := r.(map[string]any)
+		if m["kind"] == "finding" {
+			sawFinding = true
+			if m["about"] != "auth.py" {
+				t.Errorf("a recent finding must carry what it is about, got %v", m["about"])
+			}
+			if m["severity"] != "p1" {
+				t.Errorf("and its severity, got %v", m["severity"])
+			}
+			if !strings.Contains(fmt.Sprint(m["text"]), "cold cache") {
+				t.Errorf("and enough text to recognise it, got %v", m["text"])
+			}
+		}
+	}
+	if !sawFinding {
+		t.Error("the brief must surface recent findings, not merely count them")
+	}
+
+	addressed, _ := brief["addressed"].([]any)
+	if len(addressed) != 1 {
+		t.Fatalf("the brief must carry recent addressed events, got %d", len(addressed))
+	}
+	if addressed[0].(map[string]any)["recipient"] != "human:bcm" {
+		t.Error("an addressed entry must say who it is for")
+	}
+}
+
+// A handoff is typed, signed, permanent, addressed — and was completely
+// advisory. The sender could not tell "not read yet" from "read and ignored".
+func TestTheBriefShowsWhetherAnAddressedEventWasDrained(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "human:bcm")
+	_, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"handoff",`+
+		`"body":{"text":"the retry path is yours"},"recipient":"human:bcm","idem":"dv1"}`)
+	handoff := int64(out["seq"].(float64))
+
+	_, body := getJSON(t, srv.URL+"/rooms/core")
+	delivery := body["brief"].(map[string]any)["delivery"].([]any)
+	if len(delivery) != 1 {
+		t.Fatalf("want one seat with something addressed to it, got %d", len(delivery))
+	}
+	d := delivery[0].(map[string]any)
+	if d["actor"] != "human:bcm" {
+		t.Errorf("want human:bcm, got %v", d["actor"])
+	}
+	if d["pending"].(float64) != 1 {
+		t.Errorf("the handoff is undrained, so pending must be 1, got %v", d["pending"])
+	}
+
+	// The recipient drains it.
+	code, _ := postTo(t, srv, "/delivered",
+		fmt.Sprintf(`{"actor":"human:bcm","room":"core","addressed_through":%d}`, handoff))
+	if code != http.StatusOK {
+		t.Fatalf("recording delivery failed: %d", code)
+	}
+
+	_, body = getJSON(t, srv.URL+"/rooms/core")
+	d = body["brief"].(map[string]any)["delivery"].([]any)[0].(map[string]any)
+	if d["pending"].(float64) != 0 {
+		t.Errorf("after draining, pending must be 0, got %v", d["pending"])
+	}
+	if int64(d["addressed_through"].(float64)) != handoff {
+		t.Errorf("the watermark must name what was drained, got %v", d["addressed_through"])
+	}
+}
+
+// Ambient read state stays private. An agent should not be judged on cursor
+// position and a human should not feel watched; what is published is only
+// whether transferred responsibility was picked up.
+func TestOnlyAddressedDeliveryIsPublished(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "human:bcm")
+	for i := 0; i < 5; i++ {
+		post(t, srv, cmd("til", "ambient "+itoa(int64(i)), "amb"+itoa(int64(i))))
+	}
+
+	_, body := getJSON(t, srv.URL+"/rooms/core")
+	delivery, _ := body["brief"].(map[string]any)["delivery"].([]any)
+	if len(delivery) != 0 {
+		t.Errorf("a room with only ambient traffic must publish no read state, got %v", delivery)
+	}
+}
+
+// A decline is a fact in the log, addressed back to whoever handed the work
+// over. Without it, "I got this and I am not doing it" has no shape and
+// divergence is indistinguishable from silence.
+func TestADeclineGoesBackToWhoeverHandedItOver(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "agent:c1")
+	seedActor(t, st, "agent:c2")
+	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"handoff",`+
+		`"body":{"text":"the retry path is yours"},"recipient":"agent:c1","idem":"h1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("setup handoff: %v", out)
+	}
+	handoff := itoa(int64(out["seq"].(float64)))
+
+	code, out = post(t, srv, `{"room":"core","author":"agent:c1","kind":"decline",`+
+		`"body":{"text":"already three deep in the auth suite"},"refs":["`+handoff+`"],"idem":"dc1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("a decline must be accepted: %v", out)
+	}
+
+	recs, _ := st.Since("core", 0, 50)
+	var found bool
+	for _, r := range recs {
+		if r.Kind != core.KindDecline {
+			continue
+		}
+		found = true
+		if string(r.Recipient) != "agent:c2" {
+			t.Errorf("a decline goes back to whoever handed it over, got %q", r.Recipient)
+		}
+		if r.Lane != core.Addressed {
+			t.Error("a decline is addressed; the sender needs to see it")
+		}
+	}
+	if !found {
+		t.Fatal("the decline was not stored")
+	}
+
+	// It refuses a handoff, not anything else.
+	code, out = post(t, srv, `{"room":"core","author":"agent:c1","kind":"decline",`+
+		`"body":{"text":"no"},"refs":["`+itoa(int64(9999))+`"],"idem":"dc2"}`)
+	if code == http.StatusOK {
+		t.Error("a decline naming nothing must be refused")
+	}
+	if out["invariant"] != "refs.unknown" {
+		t.Errorf("want refs.unknown, got %v", out["invariant"])
+	}
+}

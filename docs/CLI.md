@@ -407,6 +407,24 @@ You can redact your own event and nobody else's: `redact.not_author`. Someone el
 
 ---
 
+### `decline`
+
+```
+agent_comms decline SEQ --as <seat> --why "<why not>"
+```
+
+Refuses a handoff, out loud. It goes back to whoever handed the work over — the same derivation an `answer` uses, for the same reason: the person who needs to know is the one who thought the work was covered.
+
+```json
+{"ok":true,"outcome":"accepted","seq":20044,"applied":true}
+```
+
+Declining is not a failure and costs nothing. Saying nothing does: a handoff nobody took and nobody refused looks exactly like a handoff being worked on, and the difference surfaces when the work is due. This verb exists because in the 2026-08-07 study a coordinator handed out two slices, both landed in under a second, and both agents worked a third — the room could not represent "I got this and I am not doing it", so divergence and silence were the same shape.
+
+Refused `refs.handoff_required` if the seq is not a handoff, and `refs.unknown` if there is nothing there.
+
+---
+
 ### `escalate`
 
 ```

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -244,6 +245,12 @@ func emit(e *Env, o readOpts, events []frame, meta map[string]any) int {
 				return e.Out.Fail(ExitInternal, "internal", "cursor.unwritable", err.Error())
 			}
 			advanced = highest
+			// Tell the room that responsibility handed to this seat has been
+			// picked up. Addressed only: ambient read state stays private,
+			// because an agent should not be judged on cursor position.
+			if o.Lane == LaneAddressed {
+				reportDelivered(e, o.Actor, o.Room, highest)
+			}
 		}
 	}
 
@@ -357,3 +364,23 @@ func truncateText(s string, n int) (string, bool) {
 
 // first drops the clipped flag where the caller only wants the text.
 func first(s string, _ bool) string { return s }
+
+// reportDelivered posts a delivery receipt. It is best effort by design: a
+// receipt that failed to send must not fail the read that earned it, because
+// the events have already been printed and the cursor has already moved.
+func reportDelivered(e *Env, actor, room string, through int64) {
+	body, err := json.Marshal(map[string]any{
+		"actor": actor, "room": room, "addressed_through": through,
+	})
+	if err != nil {
+		return
+	}
+	req, err := http.NewRequest("POST", e.Server+"/delivered", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		resp.Body.Close()
+	}
+}

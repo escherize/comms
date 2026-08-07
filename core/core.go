@@ -23,7 +23,13 @@ const (
 	KindStatus   Kind = "status"
 	KindPRLink   Kind = "pr.link"
 	KindDigest   Kind = "digest"
-	KindRedact   Kind = "redact"
+	// KindDecline answers a handoff with "not me". Without it, an agent that
+	// will not take the work has no way to say so, and divergence is
+	// indistinguishable from silence — which is what happened when a
+	// coordinator handed two slices out and found six minutes later that both
+	// agents were working a third.
+	KindDecline Kind = "decline"
+	KindRedact  Kind = "redact"
 )
 
 // Lane is how an event competes for human attention. It is a static property of
@@ -41,7 +47,7 @@ const (
 // never does. Escalation (priced separately, in the shell) is the only crossing.
 func LaneOf(k Kind) Lane {
 	switch k {
-	case KindQuestion, KindAnswer, KindHandoff, KindDigest:
+	case KindQuestion, KindAnswer, KindHandoff, KindDigest, KindDecline:
 		return Addressed
 	default:
 		return Ambient
@@ -160,6 +166,32 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 	// An answer must point at a question, checked before the recipient rules:
 	// an answer with a bad ref reported as "name a recipient" sends the agent
 	// to fix the wrong thing.
+	if c.Kind == KindDecline {
+		if len(c.Refs) != 1 {
+			return nil, &Rejection{"refs.exactly_one",
+				"a decline names the one handoff it is refusing"}
+		}
+		if s.EventKind != nil {
+			k, ok := s.EventKind(c.Refs[0])
+			if !ok {
+				return nil, &Rejection{"refs.unknown",
+					"no event at " + c.Refs[0] + "; check the seq you were handed"}
+			}
+			if k != KindHandoff {
+				return nil, &Rejection{"refs.handoff_required",
+					"a decline refuses a handoff; " + c.Refs[0] + " is a " + string(k)}
+			}
+		}
+		// Back to whoever handed it over, for the same reason an answer goes
+		// back to whoever asked: the person who needs to know is the one who
+		// thought the work was covered.
+		if c.Recipient == "" {
+			if to, ok := authorOfReferenced(s, c, KindHandoff); ok {
+				c.Recipient = to
+			}
+		}
+	}
+
 	if c.Kind == KindAnswer {
 		if r := checkAnswersAQuestion(s, c); r != nil {
 			return nil, r
@@ -294,7 +326,7 @@ func checkAttachments(s State, c Command) *Rejection {
 func knownKind(k Kind) bool {
 	switch k {
 	case KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL,
-		KindHandoff, KindStatus, KindPRLink, KindDigest, KindRedact:
+		KindHandoff, KindStatus, KindPRLink, KindDigest, KindRedact, KindDecline:
 		return true
 	}
 	return false
@@ -315,7 +347,7 @@ func checkBody(c Command) *Rejection {
 			return &Rejection{"body.severity.invalid",
 				"finding requires severity in p0|p1|p2|p3, got: " + sev}
 		}
-	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDigest:
+	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDigest, KindDecline:
 		if text == "" {
 			return &Rejection{"body.text.required", string(c.Kind) + " requires text"}
 		}
@@ -346,11 +378,20 @@ func validSeverity(s string) bool {
 
 // answerRecipient finds the author of the question this answer refs.
 func answerRecipient(s State, c Command) (Actor, bool) {
+	return authorOfReferenced(s, c, KindQuestion)
+}
+
+// authorOfReferenced finds who wrote the referenced event of a given kind. Two
+// kinds derive their recipient this way for the same reason: a reply goes to
+// whoever spoke, because the person who needs it is the one who is waiting on
+// it. An answer goes to whoever asked; a decline goes to whoever thought the
+// work was covered.
+func authorOfReferenced(s State, c Command, want Kind) (Actor, bool) {
 	if s.EventKind == nil || s.EventAuthor == nil {
 		return "", false
 	}
 	for _, ref := range c.Refs {
-		if k, ok := s.EventKind(ref); ok && k == KindQuestion {
+		if k, ok := s.EventKind(ref); ok && k == want {
 			if who, ok := s.EventAuthor(ref); ok && who != "" {
 				return who, true
 			}
