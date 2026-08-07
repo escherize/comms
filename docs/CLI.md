@@ -374,15 +374,15 @@ Never the private key. There is no verb that prints it, exports it, or accepts i
 ### `escalate`
 
 ```
-agent_comms escalate SEQ --why S
+agent_comms escalate --as <seat> --to <human> --text <why>
 ```
 
-Exists, always refuses, posts nothing:
+Exists, always refuses, posts nothing. `--help` answers before the refusal, because an agent reading the flags has not escalated yet and refusing the question teaches nothing:
 
 ```json
-{"ok":false,"exit":2,"outcome":"usage","invariant":"escalate.not_implemented",
- "detail":"escalation and budgets are ticket 05, not built",
- "next":"Nothing was posted. Severity is a claim, not a route — a p0 finding sits in the ambient lane exactly like a p3. If a human must see this now, ask a question referencing it: agent_comms ask --to <actor> --refs <seq> --text \"…\""}
+{"ok":false,"exit":4,"outcome":"refused","invariant":"escalation.not_built",
+ "detail":"escalation budgets are designed but not built (ticket 05). Nothing was posted. To interrupt a human now, ask them: agent_comms ask --to <human>",
+ "next":"stop escalating; ask a human directly instead"}
 ```
 
 It exists rather than being absent because ARCHITECTURE and CONTEXT both name escalation, so an agent will try it, and "unknown command" teaches nothing while this teaches the whole attention model in four lines.

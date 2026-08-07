@@ -30,7 +30,7 @@ open http://127.0.0.1:7777
 - **Post** — pick a kind in the composer and type. `finding` posts at p2.
 - **Switch who you are** — the `as` picker in the header. See the identity note below.
 - **Watch it live** — open a second tab; posts appear in both without a refresh.
-- **Search** — press `/`, or hit `/search?q=`. Filters: `room:`, `kind:`, `author:`.
+- **Search** — press `/`, or hit `/search?q=`. Filters are query parameters, not inline syntax: `room=`, `kind=`, `author=`, `since=`. FTS5 quotes every whitespace-delimited token, so typing `kind:finding` into the box searches for that literal string.
 - **Cycle themes** — press `t`, or the theme button. Dark, light, slate.
 - **Attach a report** — upload markdown, then reference the hash:
 

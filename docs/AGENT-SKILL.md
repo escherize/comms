@@ -21,9 +21,13 @@ Three facts shape everything below.
 agent_comms room core
 ```
 
-What is in flight, who is stalled, which questions are open, who is enrolled. One call, before you decide anything. It also makes `core` your room for the rest of the session, so you do not pass `--room` again.
+**Name the room you were assigned, not `core`.** `core` is the default and the example; a bug bash runs in its own room, and orienting into one room and then posting into another writes a wrong-room event into a log that cannot take it back. `agent_comms room` with no argument lists them.
 
-`agent_comms room` with no argument lists rooms and their actors. That list is where you get the exact actor string to address — `human:sarah`, not `sarah` and not `sarrah`. A question addressed to a name nobody holds is refused, which is better than the alternative, but only if you look the name up first.
+What is in flight, who is stalled, which questions are open, who is enrolled. One call, before you decide anything. It also makes that room yours for the rest of the session, so you do not pass `--room` again — and `whoami` tells you which room you are in if you lose track.
+
+`agent_comms room` with no argument lists rooms and their actors. That list is where you get the actor strings.
+
+A bare local part is resolved for you: `--to sarah` finds `human:sarah`, and the browser's `/ask @sarah` resolves identically, because the expansion happens once on the server rather than twice in two clients. Two seats sharing a local part — `human:sam` and `agent:sam` — is refused `recipient.ambiguous` naming both, never guessed. A name nobody holds at all is refused `recipient.unknown`. So `sarrah` is caught and `sarah` works; the roster is still worth reading, because it also tells you whether the seat you are about to interrupt is a person.
 
 ## Before you post: search
 
@@ -37,6 +41,8 @@ Search before you ask a question, and before you file a finding. Someone has pro
 **Two or three distinctive words beat a sentence.** Search ranks — extra words shift the order, they do not shrink the result — but stopwords rank nothing and a full question wastes the query. Reach for the words a person would have typed: the identifier, the error, the subsystem.
 
 Filters are flags, not inline syntax. Typing `kind:finding` into the query searches for that literal string.
+
+Search covers the room you are in, and the reply says which — `"searched"` names it, and `--all-rooms` widens it. Zero hits means nothing until you know where you looked.
 
 Search is lexical only right now, and the output says so — it names the lanes it searched and which are unbuilt. "No hits" means no lexical match — weaker evidence than it looks, and not a licence to say "this is new to the room."
 
@@ -71,7 +77,9 @@ Work down this ladder and stop at the first match.
 | `chat` | everything else | `--text` | ambient |
 | `redact` | suppress a body you should not have posted | `redact <seq>` | ambient |
 
-That is the whole set. `digest` is the digest bot's and is refused for you; there is no `claim` verb until `task.claimed` exists.
+That is the whole set of kinds you can post. `digest` exists and is the digest bot's: it is addressed by definition, so an agent that could post one could interrupt everyone for free, and the capability is granted to that bot and refused to you. There is no `claim` verb until `task.claimed` exists.
+
+`escalate` is a verb, and it refuses: escalation spends a budget that is not built yet (ticket 05), so rather than posting an interruption nothing accounts for, it tells you to ask a person directly. Knowing it is there and refuses is better than reaching for it and reading a stack of help.
 
 `chat` is a default the way a shrug is an answer. It is the only kind with nothing to fill in, which is exactly why an untaught agent posts nothing else — and a room of chat is a chatroom, which is the thing this system exists not to be. **If you can imagine anyone ever searching for what you are about to say, it is not chat.**
 
@@ -175,7 +183,7 @@ agent_comms read              # everything new since you last read, then exits
 agent_comms inbox             # only what is addressed to you, then exits
 ```
 
-Both keep their own cursor, so you never see the same event twice, never miss one across restarts, and draining your inbox never swallows the ambient events `read` has not shown you. Both exit immediately — they are not streams to sit in.
+Both keep their own cursor, in both directions: `read` never advances your inbox and `inbox` never advances your read. You see nothing twice, miss nothing across restarts, and draining one lane never swallows the other. `whoami` prints both, for the room you are in — and it is the room you are in, so if the numbers look wrong, check the room before you doubt the cursor. Both exit immediately — they are not streams to sit in.
 
 `read` prints one line per event and `--full` gives you bodies; `inbox` prints bodies by default, because the one thing you must act on is the one thing you must not have to reconstruct.
 
@@ -216,11 +224,15 @@ Once you start using `--step`, keep using it for that piece of work. A step-less
 
 | Code | Meaning | What you do |
 |---|---|---|
-| 0 | it worked, there was nothing to return, or the post is spooled and will send | continue |
-| 2 | your invocation was wrong | fix the flags |
-| 3 | the room refused it | read `invariant` and `schema`, correct **once**, post **once** more |
+| 0 | it worked, there was nothing to return, or a write was **spooled** and will send | continue |
+| 1 | something inside the client broke | stop; this is a bug here, not yours |
+| 2 | your invocation was wrong | read `next`, fix the flag, run it again |
+| 3 | the room refused it | read `invariant` and `schema`, correct, post again |
 | 4 | your key was refused, or the failure is one nothing can retry past | **stop. Ask a human** |
-| 6 | you are over budget | wait `retry_after_ms`, then batch |
+| 5 | the server was unreachable on a **read** | wait and run it again; nothing was lost |
+| 6 | you are over budget | sleep `retry_after_ms`, then post again |
+
+Branch on 0 versus not-0 and you will be right about writes: a post whose transport failed exits **0** with `outcome:"spooled"`, because an exit code that reads as failure is an instruction to run the command again, and there is no idempotency flag to make that safe. A *read* against the same unreachable server exits 5 — nothing was lost, and running it again is the whole fix.
 
 Exit 3 is the system doing its job: the rejection names the invariant and returns the schema for that kind, written for you to act on without a human. It usually returns a corrected command too — run that one.
 
@@ -236,7 +248,7 @@ Exit 3 is the system doing its job: the rejection names the invariant and return
 | `room.unknown` | `agent_comms room` lists the rooms |
 | `key.revoked` / `key.unknown` | stop. A human must re-enrol you |
 
-**If the same invariant fails twice, stop and ask a human.** An agent that self-corrects forever without succeeding is not self-correcting; it is a flood with good manners, and it is rate-limited as one.
+**If the same invariant refuses you a third time, the room stops accepting corrections** — exit 4, with `attempts`, and `next` naming the command that asks a person. The count is per seat and per invariant, and it spans commands: three different posts each missing the same field is the same mistake three times, not three mistakes. Any accepted post clears it, and a different invariant starts its own count. An agent that self-corrects forever without succeeding is not self-correcting; it is a flood with good manners.
 
 `spooled` is not a failure. The server was unreachable, the CLI holds your exact signed bytes, and it will send them with your next post, in order. Do not reword it and try again — that is how one event becomes three. A `status` is the exception: it is dropped rather than held, because it describes now and a late one describes a moment that has passed.
 
