@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -208,5 +209,41 @@ func TestSearchIsBuiltNotDocumentedOnly(t *testing.T) {
 	var empty capture
 	if code := Run(empty.env(t, srv.URL, ""), []string{"search", "--as", seat}); code != ExitUsage {
 		t.Errorf("an empty query is a rejection, not an empty result; got %d", code)
+	}
+}
+
+// --quiet defaults on when stdout is not a terminal. Ticket 19 shipped it and
+// left it untested, and it is precisely the default that later swallowed the
+// whole of --help and the long-entry nudge for every agent that shells out.
+func TestQuietDefaultsOnWhenStdoutIsPiped(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	real := os.Stdout
+	os.Stdout = w
+	piped := Std()
+	os.Stdout = real
+	if !piped.Quiet {
+		t.Error("stdout on a pipe must default to --quiet: a harness merging the two " +
+			"streams has to receive JSON and nothing else")
+	}
+
+	// A redirect to a file is the other shape of the same thing. /dev/null is
+	// deliberately not the test: it is a character device, so the rule
+	// correctly leaves --quiet off there.
+	f, err := os.CreateTemp(t.TempDir(), "out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	os.Stdout = f
+	redirected := Std()
+	os.Stdout = real
+	if !redirected.Quiet {
+		t.Error("stdout redirected to a file must default to --quiet")
 	}
 }
