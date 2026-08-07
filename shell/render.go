@@ -335,6 +335,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 
 	var rows strings.Builder
 	var n int
+	var highest int64
 	if q != "" {
 		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
 			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
@@ -346,14 +347,27 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, hit := range hits {
 			rows.WriteString(searchRow(hit))
+			if hit.Seq > highest {
+				highest = hit.Seq
+			}
 		}
 		n = len(hits)
 	}
 
+	// The live stream resumes after the highest hit already rendered, so nothing
+	// on the page arrives again. Zero when nothing matched, because then
+	// everything is new from here.
+	head := highest
+	room := r.URL.Query().Get("room")
+	if room == "" {
+		room = "core"
+	}
 	page := strings.NewReplacer(
 		"{{Q}}", html.EscapeString(q),
 		"{{ROWS}}", rows.String(),
 		"{{N}}", fmt.Sprint(n),
+		"{{ROOM}}", html.EscapeString(room),
+		"{{HEAD}}", fmt.Sprint(head),
 	).Replace(searchHTML)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

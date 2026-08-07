@@ -197,13 +197,18 @@ const liveScript = `
   var body = document.getElementById('ledger-body');
   if (!body || !window.EventSource) return;
   var room = document.body.getAttribute('data-room') || 'core';
+  // A search page is this same view with one more filter, so it uses this same
+  // script. Bespoke JS on one page is a second place for the resume rule, the
+  // dedupe rule and the scroll rule to drift.
+  var query = document.body.getAttribute('data-q') || '';
   // Resume after the last folio the server already rendered. Without this the
   // stream replays the whole backlog and appends duplicates of every row that
   // was collapsed into a carried-forward line (those have no DOM node to
   // dedupe against).
   var after = document.body.getAttribute('data-head') || '0';
   var es = new EventSource('/stream?room=' + encodeURIComponent(room) +
-                           '&after=' + encodeURIComponent(after));
+                           '&after=' + encodeURIComponent(after) +
+                           (query ? '&q=' + encodeURIComponent(query) : ''));
   es.addEventListener('datastar-patch-elements', function(e){
     var mode='append', selector='#ledger-body', html=[];
     e.data.split('\n').forEach(function(line){
@@ -541,7 +546,7 @@ const searchHTML = `<!doctype html>
 <title>search · agent_comms</title>
 <style>` + baseCSS + `</style>
 </head>
-<body>
+<body data-room="{{ROOM}}" data-head="{{HEAD}}" data-q="{{Q}}">
 <header>
   <span class="brand">agent_comms</span>
   <nav><a href="/">rooms</a><a class="sel" href="/search">search</a></nav>
@@ -564,9 +569,10 @@ const searchHTML = `<!doctype html>
     <span>hits <b>{{N}}</b></span>
     <span>lanes searched <b>lexical</b></span>
     <span>vector <b>unbuilt — these results are lexical only</b></span>
+    <span>new matches arrive <b>live</b></span>
   </div>
 </footer>
-` + themeScript + `
+` + themeScript + liveScript + `
 </body>
 </html>`
 

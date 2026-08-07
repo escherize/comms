@@ -560,6 +560,14 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The same filters the JSON lane applies. They were applied on one path and
+	// not the other, and the symptom was a live search page appending events
+	// that did not match its query — a filter that holds for a program reading
+	// JSON and not for the person reading the page.
+	recipient := r.URL.Query().Get("recipient")
+	kindFilter := r.URL.Query().Get("kind")
+	queryFilter := r.URL.Query().Get("q")
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -571,7 +579,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	after := lastEventID(r)
 	if backlog, err := s.st.Since(room, after, 500); err == nil {
 		for _, rec := range backlog {
-			writeSSE(w, rec)
+			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
+				continue
+			}
+			writeSSE(w, rec, queryFilter != "")
 		}
 		flusher.Flush()
 	}
@@ -599,7 +610,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 				// reconnects on its own and replays from Last-Event-ID.
 				return
 			}
-			writeSSE(w, rec)
+			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
+				continue
+			}
+			writeSSE(w, rec, queryFilter != "")
 			flusher.Flush()
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
@@ -619,6 +633,10 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 	}
 	recipient := r.URL.Query().Get("recipient")
 	kindFilter := r.URL.Query().Get("kind")
+	// A search page is a room view with one more filter on it. Without this the
+	// results are a snapshot that goes stale the moment a matching event lands
+	// — which during a bug bash is immediately, and silently.
+	queryFilter := r.URL.Query().Get("q")
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -647,7 +665,7 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 	}
 	var lastSeq int64 = after
 	for _, rec := range backlog {
-		if !matchesFilter(rec, recipient, kindFilter) {
+		if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
 			lastSeq = rec.Seq
 			continue
 		}
@@ -700,7 +718,7 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 				flusher.Flush()
 				return
 			}
-			if !matchesFilter(rec, recipient, kindFilter) {
+			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
 				continue
 			}
 			writeFrame(w, "event", rec.Seq, s.eventFrame(rec))
@@ -712,11 +730,18 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 	}
 }
 
-func matchesFilter(rec store.Record, recipient, kind string) bool {
+func (s *Server) matchesFilter(rec store.Record, recipient, kind, query string) bool {
 	if recipient != "" && string(rec.Recipient) != recipient {
 		return false
 	}
 	if kind != "" && string(rec.Kind) != kind {
+		return false
+	}
+	// The query is checked last and against the index, not the record: the
+	// tokenizer that decided this event was a hit is the one that must decide
+	// it again, or the live rows and the rendered ones disagree about what the
+	// search meant.
+	if query != "" && !s.st.MatchesQuery(rec.Seq, query) {
 		return false
 	}
 	return true
@@ -752,12 +777,20 @@ func lastEventID(r *http.Request) int64 {
 
 // writeSSE emits a datastar element patch: the row's HTML appended to the
 // ledger body. id: is the seq, which is what makes Last-Event-ID resume work.
-func writeSSE(w http.ResponseWriter, rec store.Record) {
+// writeSSE appends one row. asSearchHit picks the row shape: a search page
+// renders folio, ranks, author, kind, entry, and a room row dropped into it
+// lands in the wrong columns — the live rows would not line up with the ones
+// the page was served with.
+func writeSSE(w http.ResponseWriter, rec store.Record, asSearchHit bool) {
+	row := renderRow(rec)
+	if asSearchHit {
+		row = searchRow(rec)
+	}
 	fmt.Fprintf(w, "id: %d\n", rec.Seq)
 	fmt.Fprint(w, "event: datastar-patch-elements\n")
 	fmt.Fprint(w, "data: mode append\n")
 	fmt.Fprint(w, "data: selector #ledger-body\n")
-	for _, line := range strings.Split(renderRow(rec), "\n") {
+	for _, line := range strings.Split(row, "\n") {
 		fmt.Fprintf(w, "data: elements %s\n", line)
 	}
 	fmt.Fprint(w, "\n")

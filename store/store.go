@@ -557,6 +557,20 @@ func idemFingerprint(ev core.Event) string {
 // events forever: past 500, the page freezes on ancient history and the live
 // tail is unreachable, while the SSE stream keeps appending to a head nobody
 // can see the body of.
+// MatchesQuery reports whether one event satisfies a search. It is a single
+// indexed lookup against the same FTS table Search reads, so a live search page
+// costs one row probe per arriving event rather than re-running the query.
+func (s *Store) MatchesQuery(seq int64, query string) bool {
+	fts := ftsQuery(query)
+	if fts == "" {
+		return false
+	}
+	var one int
+	err := s.db.QueryRow(
+		`SELECT 1 FROM search WHERE seq = ? AND search MATCH ? LIMIT 1`, seq, fts).Scan(&one)
+	return err == nil
+}
+
 func (s *Store) Latest(room string, limit int) ([]Record, error) {
 	rows, err := s.db.Query(`
 		SELECT seq, server_ts, room, author, kind, recipient, lane,

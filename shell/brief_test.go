@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/bcm/agent_comms/core"
@@ -695,5 +696,129 @@ func TestABurstOfWorkCoordinationIsNeverDelayed(t *testing.T) {
 	}
 	if !refused {
 		t.Error("the exemption must not disable the budget for everything else")
+	}
+}
+
+// A search page that does not update is a snapshot presented as an answer.
+// During a bug bash the answer changes while you are reading it.
+func TestTheSearchPageIsLive(t *testing.T) {
+	srv, _ := newServer(t)
+	post(t, srv, cmd("til", "FTS5 reads a hyphen as NOT", "s1"))
+
+	resp, err := http.Get(srv.URL + "/search?q=hyphen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	page := buf.String()
+
+	if !strings.Contains(page, "hyphen") {
+		t.Fatal("the query should have matched the seeded entry")
+	}
+	// One script, two pages: bespoke JS on one of them is a second place for
+	// the resume, dedupe and scroll rules to drift apart.
+	if !strings.Contains(page, "new EventSource('/stream?room=") {
+		t.Error("the search page must subscribe to the same stream the room does")
+	}
+	if !strings.Contains(page, `data-q="hyphen"`) {
+		t.Error("the page must carry its query so the stream can filter on it")
+	}
+	if !strings.Contains(page, "data-head=") {
+		t.Error("the page must carry a resume point, or a reconnect re-appends every hit")
+	}
+	if strings.Count(page, "new EventSource") != 1 {
+		t.Error("the search page must not open a second, bespoke subscription")
+	}
+}
+
+// The stream's query filter uses the same index the rendered results came from,
+// so live rows and rendered rows cannot disagree about what the search meant.
+func TestTheStreamFiltersByQuery(t *testing.T) {
+	srv, st := newServer(t)
+	post(t, srv, cmd("til", "the cold cache flake is run order", "q1"))
+	post(t, srv, cmd("til", "unrelated note about deploys", "q2"))
+
+	fs := frames(t, srv.URL+"/stream?room=core&q=flake", "", 500*time.Millisecond)
+	if n := countOf(fs, "event"); n != 1 {
+		t.Errorf("q= must filter server-side; want 1 event, got %d", n)
+	}
+
+	// And it agrees with what Search itself would return.
+	hits, err := st.Search("flake", "core", "", "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("setup: Search should find one, got %d", len(hits))
+	}
+	if !st.MatchesQuery(hits[0].Seq, "flake") {
+		t.Error("MatchesQuery and Search disagree about the same event")
+	}
+	if st.MatchesQuery(hits[0].Seq, "deploys") {
+		t.Error("MatchesQuery matched an event that does not contain the term")
+	}
+	if st.MatchesQuery(hits[0].Seq, "") {
+		t.Error("an empty query must match nothing, not everything")
+	}
+}
+
+// The browser reads the HTML lane, not the JSON one, and the filters were
+// applied to only one of them. A query filter that holds for a program reading
+// JSON and not for the person reading the page is not a filter.
+func TestTheHTMLStreamAppliesTheSameFiltersAsTheJSONOne(t *testing.T) {
+	srv, _ := newServer(t)
+	post(t, srv, cmd("til", "the cold cache flake is run order", "h1"))
+	post(t, srv, cmd("til", "unrelated note about deploys", "h2"))
+
+	// No Accept header: this is the lane the page uses.
+	req, _ := http.NewRequest("GET", srv.URL+"/stream?room=core&q=flake", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	body := buf.String()
+
+	if !strings.Contains(body, "cold cache flake") {
+		t.Error("the matching event must be sent")
+	}
+	if strings.Contains(body, "unrelated note about deploys") {
+		t.Error("a non-matching event reached the page; the filter is on one lane only")
+	}
+	// And it arrives in the shape the page was served with. A room row dropped
+	// into a search page lands in the wrong columns.
+	if !strings.Contains(body, "srow") {
+		t.Error("a live search hit must render as a search row, not a room row")
+	}
+}
+
+// Without a query it is still the room, and still room-shaped.
+func TestTheHTMLStreamStillSendsRoomRowsWithoutAQuery(t *testing.T) {
+	srv, _ := newServer(t)
+	post(t, srv, cmd("til", "an ordinary entry", "h3"))
+
+	req, _ := http.NewRequest("GET", srv.URL+"/stream?room=core", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	body := buf.String()
+
+	if !strings.Contains(body, "an ordinary entry") {
+		t.Fatal("the room stream must still send its events")
+	}
+	if strings.Contains(body, "srow") {
+		t.Error("a room row must not be search-shaped")
 	}
 }
