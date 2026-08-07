@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -81,7 +82,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("invite: %v", err)
 		}
-		fmt.Printf("enrolment token for %s:\n\n  %s\n\nOne use. Hand it over out of band.\n", *invite, tok)
+		abs, _ := filepath.Abs(*db)
+		fmt.Printf("enrolment token for %s:\n\n  %s\n\n"+
+			"One use. Hand it over out of band.\n\n"+
+			"Minted into %s — the token only exists in this database.\n"+
+			"The server redeeming it must be running with the same -db, or the\n"+
+			"token will come back as unknown.\n", *invite, tok, abs)
 		return
 	}
 
@@ -199,6 +205,9 @@ func main() {
 		log.Printf("digest bot running as %s every %s", *digestAs, *digestEvery)
 	}
 
+	if abs, err := filepath.Abs(*db); err == nil {
+		log.Printf("serving %s", abs)
+	}
 	log.Printf("agent_comms listening on http://%s", *addr)
 	if err := http.ListenAndServe(*addr, srv.Routes()); err != nil {
 		log.Fatal(err)

@@ -68,11 +68,22 @@ curl -s -X POST localhost:7777/commands -H 'Content-Type: application/json' -d '
 
 Every command must carry an ed25519 signature over its exact bytes. The shell verifies it before the decider sees anything: authentication is the shell's job, authorization is the core's.
 
-**Enrol an actor.** Mint a one-time token and hand it over out of band:
+**Enrol an actor.** Mint a one-time token and hand it over out of band.
+
+**Use the same `-db` the server is running with.** A token lives in the database
+it was minted into and nowhere else, so minting against `comms.db` while the
+server serves `demo.db` produces a token the server has never heard of. The
+server prints the file it is serving at startup and `-invite` prints the file it
+minted into; if they differ, that is the problem.
 
 ```sh
-./agent_comms -db comms.db -invite bcm
+./agent_comms -db demo.db -rooms core,bash        # terminal 1: the server
+./agent_comms -db demo.db -invite human:bcm       # terminal 2: same -db
 ```
+
+Actors are namespaced — `human:bcm`, `agent:bcm/claude-1` — because whether an
+actor is an agent decides how its posts are read and which budgets apply. A bare
+name is refused.
 
 On that actor's first post, the browser generates a **non-extractable** keypair via WebCrypto, keeps it in IndexedDB, sends only the public half with the token, and signs every command from then on. The private key never becomes readable JavaScript and the server never sees it.
 
@@ -84,7 +95,7 @@ flag, because argv is visible to every process on the machine and lands in shell
 history:
 
 ```sh
-./agent_comms -db comms.db -invite agent:bcm/claude-1   # a human runs this
+./agent_comms -db demo.db -invite agent:bcm/claude-1    # same -db as the server
 echo "<token>" | agent_comms enrol --as agent:bcm/claude-1
 ```
 
