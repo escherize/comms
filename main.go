@@ -52,8 +52,14 @@ func main() {
 	// implementation: it drops itself and the operator path runs as it always
 	// did, so there is nothing to keep in sync.
 	if len(args) > 0 && args[0] == "serve" {
-		os.Args = append(os.Args[:1], args[1:]...)
-		args = args[1:]
+		// A fresh slice. args aliases os.Args[1:], so appending into
+		// os.Args[:1] overwrites the elements being copied out of it — the
+		// second flag lands where the first was read from, and `serve -db
+		// demo.db` becomes `-db` followed by nothing, then `demo.db` as a verb.
+		rest := make([]string, 0, len(args)-1)
+		rest = append(rest, args[1:]...)
+		os.Args = append([]string{os.Args[0]}, rest...)
+		args = rest
 	}
 	// -h-server is the escape hatch: the operator flag set, which the client
 	// form now shadows.
