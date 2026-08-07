@@ -337,7 +337,12 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 				"invariant":      "rate.exceeded",
 				"detail":         "this seat is posting faster than the room can be read",
 				"retry_after_ms": ms,
-				"next":           "sleep retry_after_ms, then batch what you were going to say",
+				// Say what happened to the event. `spooled` and `dropped` both
+				// name the fate of the bytes; a throttle that does not is the
+				// one reply where an agent cannot tell whether to post again.
+				"applied": false,
+				"kept":    false,
+				"next":    "this post was not kept: sleep retry_after_ms, then post it again",
 			})
 			return
 		}

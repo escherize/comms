@@ -7,6 +7,8 @@
 // for a domain reason lives outside.
 package core
 
+import "strings"
+
 // Kind identifies an event type. Past tense throughout: an event is a fact that
 // already happened and can never be invalid.
 type Kind string
@@ -357,6 +359,9 @@ func answerRecipient(s State, c Command) (Actor, bool) {
 	return "", false
 }
 
+// checkAnswersAQuestion distinguishes the two ways an answer's ref can be
+// wrong. redact already tells them apart, and an agent that cannot tell "I
+// named the wrong seq" from "I named a chat" retries the same mistake.
 func checkAnswersAQuestion(s State, c Command) *Rejection {
 	if len(c.Refs) == 0 {
 		return &Rejection{"refs.question_required",
@@ -365,11 +370,25 @@ func checkAnswersAQuestion(s State, c Command) *Rejection {
 	if s.EventKind == nil {
 		return nil
 	}
+	var sawSomething bool
 	for _, ref := range c.Refs {
-		if k, ok := s.EventKind(ref); ok && k == KindQuestion {
+		k, ok := s.EventKind(ref)
+		if !ok {
+			continue
+		}
+		sawSomething = true
+		if k == KindQuestion {
 			return nil
 		}
 	}
+	if !sawSomething {
+		// A seq that is not there and a seq that is the wrong kind call for
+		// different corrections: look up the right number, versus point at a
+		// different event. redact already tells these apart.
+		return &Rejection{"refs.unknown",
+			"no event at " + strings.Join(c.Refs, ", ") + " in this room; " +
+				"check the seq you read it from"}
+	}
 	return &Rejection{"refs.question_required",
-		"answer must reference an event of kind question"}
+		"answer must reference an event of kind question; that seq is a different kind"}
 }
