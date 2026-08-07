@@ -551,6 +551,36 @@ func idemFingerprint(ev core.Event) string {
 
 // Since returns a room's records with seq greater than after, oldest first.
 // Passing 0 returns the whole room.
+// Latest returns the newest `limit` events, oldest-first so a renderer can walk
+// them in order. It exists because Since is the resume path — "everything after
+// my cursor, capped" — and a room page that used it showed the *first* 500
+// events forever: past 500, the page freezes on ancient history and the live
+// tail is unreachable, while the SSE stream keeps appending to a head nobody
+// can see the body of.
+func (s *Store) Latest(room string, limit int) ([]Record, error) {
+	rows, err := s.db.Query(`
+		SELECT seq, server_ts, room, author, kind, recipient, lane,
+		       refs, body_hash, prev_hash, json, attach FROM (
+		  SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,
+		         e.refs, e.body_hash, e.prev_hash, b.json, e.attach
+		  FROM envelope e LEFT JOIN body b ON b.seq = e.seq
+		  WHERE e.room = ?
+		  ORDER BY e.seq DESC
+		  LIMIT ?
+		) ORDER BY seq`, room, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	recs, err := scanRecords(rows)
+	if err != nil {
+		return nil, err
+	}
+	// The same suppression Since applies. A read path that skipped it would
+	// serve a redacted body from the one surface a human actually opens.
+	return s.markRedactions(recs), nil
+}
+
 func (s *Store) Since(room string, after int64, limit int) ([]Record, error) {
 	rows, err := s.db.Query(`
 		SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,

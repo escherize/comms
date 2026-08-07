@@ -138,7 +138,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	recs, err := s.st.Since(room, 0, 500)
+	recs, err := s.st.Latest(room, roomPageRows)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -230,6 +230,10 @@ const carryThreshold = 3
 // stallWindow is how long an actor may go quiet before the room says so.
 // Evaluated against the server clock, never a client timestamp.
 const stallWindow = store.StallWindow
+
+// roomPageRows is how much of the tail the page renders. The tail, not the
+// head: a reader opening the room wants what just happened.
+const roomPageRows = 500
 
 // renderProgress folds each working actor's latest status into one live line
 // for the balance foot, so a human can see where the agents are without

@@ -1,12 +1,14 @@
 package shell
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/bcm/agent_comms/core"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // getJSON asks a lane for JSON and decodes it.
@@ -328,5 +330,61 @@ func TestASuccessOrADifferentInvariantResetsTheCount(t *testing.T) {
 			`"body":{"text":"x"},"idem":"r`+itoa(int64(i))+`"}`); code != http.StatusUnprocessableEntity {
 			t.Errorf("after a success the budget restarts; attempt %d got %d", i, code)
 		}
+	}
+}
+
+// The room page must show the tail. Rendering the oldest N means that past N
+// events the page freezes on ancient history forever, while the stream keeps
+// appending to a head whose body nobody can see.
+func TestTheRoomPageShowsTheNewestEventsNotTheOldest(t *testing.T) {
+	srv, st := newServer(t)
+	for i := 0; i < roomPageRows+20; i++ {
+		if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
+			Kind: core.KindChat, Body: map[string]any{"text": "entry " + itoa(int64(i))},
+			Lane: core.LaneOf(core.KindChat)}, "p"+itoa(int64(i)), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	page := buf.String()
+
+	newest := "entry " + itoa(int64(roomPageRows+19))
+	if !strings.Contains(page, newest) {
+		t.Errorf("the page does not contain the most recent entry %q", newest)
+	}
+	if strings.Contains(page, "entry 0<") || strings.Contains(page, ">entry 0") {
+		t.Error("the page still starts at the oldest event")
+	}
+}
+
+// Latest returns the tail, oldest-first, so a renderer walks it in order.
+func TestLatestReturnsTheTailInOrder(t *testing.T) {
+	_, st := newServer(t)
+	for i := 0; i < 10; i++ {
+		if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
+			Kind: core.KindChat, Body: map[string]any{"text": itoa(int64(i))},
+			Lane: core.LaneOf(core.KindChat)}, "l"+itoa(int64(i)), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recs, err := st.Latest("core", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("want 3, got %d", len(recs))
+	}
+	if recs[0].Text() != "7" || recs[2].Text() != "9" {
+		t.Errorf("want the last three ascending, got %q..%q", recs[0].Text(), recs[2].Text())
+	}
+	if recs[0].Seq > recs[2].Seq {
+		t.Error("Latest must return oldest-first so a renderer can walk it")
 	}
 }
