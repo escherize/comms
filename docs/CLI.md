@@ -78,6 +78,25 @@ On transport failure: three attempts, 1s/2s/4s jittered, then write the pair to 
 
 ---
 
+### `serve`
+
+```
+agent_comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
+```
+
+Starts the hub. It is the one verb the client does not send anywhere — it is the thing every other verb talks to — and it is in the verb list because starting the hub is the first thing anyone does, so it must appear when somebody types the binary's name.
+
+The bare binary prints the verb list rather than serving. That was ticket 19's criterion and it is right; naming this verb is what makes the README's first command true at the same time.
+
+```sh
+agent_comms serve                                  # 127.0.0.1:7777, ./comms.db
+agent_comms serve -db demo.db -seed -rooms core,bash
+```
+
+Every operator flag is listed by `agent_comms -h-server`. Operator actions that are not "run the hub" — `-invite`, `-purge`, `-grant`, `-rebuild`, `-reembed`, `-verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
+
+---
+
 ### `enrol`
 
 ```

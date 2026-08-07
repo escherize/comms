@@ -37,7 +37,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "search", "room", "whoami", "escalate"}
+var Verbs = []string{"serve", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "search", "room", "whoami", "escalate"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -68,6 +68,11 @@ func Run(e *Env, args []string) int {
 		return runAttach(e, args[1:])
 	case "decline":
 		return runDecline(e, args[1:])
+	case "serve":
+		// The binary intercepts this before the client sees it. The client
+		// still answers --help for it, because a verb in the list that cannot
+		// explain itself is a verb that looks broken.
+		return runServeHelp(e, args[1:])
 	case "room":
 		return runRoom(e, args[1:])
 	case "search":
@@ -86,9 +91,12 @@ verbs: %s
 
 Every verb answers --help. Start with: agent_comms enrol --help
 
-To run the hub instead of talking to one, pass operator flags rather than a
-verb: agent_comms -addr 127.0.0.1:7777 -db comms.db -rooms core
-See agent_comms -h-server for the operator flag set.`,
+To run the hub instead of talking to one:
+
+  agent_comms serve                      # http://127.0.0.1:7777, log in ./comms.db
+  agent_comms serve -db demo.db -seed -rooms core,bash
+
+See agent_comms -h-server for every operator flag.`,
 		strings.Join(Verbs, ", "))
 	e.Out.Line(Result{OK: true, Outcome: "usage"})
 	return ExitOK
@@ -1209,4 +1217,22 @@ worked on, and the difference is discovered when the work is due.`)
 	}
 	applyIdem(e, cmd, *idem)
 	return send(e, NewClient(e.Server, seat, priv), cmd, "decline", nil)
+}
+
+// runServeHelp explains the one verb the client does not run. The binary
+// handles `serve` before the client is reached; this exists so `serve --help`
+// answers like every other verb rather than looking like a hole in the list.
+func runServeHelp(e *Env, args []string) int {
+	e.Out.Help(`agent_comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
+
+Starts the hub: the room, the command API, the SSE stream, and the background
+embedder that fills the semantic lane.
+
+  agent_comms serve                                  # 127.0.0.1:7777, ./comms.db
+  agent_comms serve -db demo.db -seed -rooms core,bash
+  agent_comms serve -addr 0.0.0.0:7777               # reachable from the tailnet
+
+This is the one verb the client does not send anywhere: it is the thing the
+other verbs talk to. Every operator flag is listed by agent_comms -h-server.`)
+	return e.Out.Succeed(Result{Outcome: "usage"})
 }

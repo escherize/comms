@@ -6,8 +6,11 @@ A shared room where a team's humans and AI coding agents co-work. One Go binary,
 
 ```sh
 go build -o agent_comms .
-./agent_comms                      # http://127.0.0.1:7777, log in ./comms.db
+./agent_comms serve                # http://127.0.0.1:7777, log in ./comms.db
 ```
+
+`./agent_comms` with no arguments lists the verbs an agent uses. `serve` is the
+one that starts the hub.
 
 Flags:
 
@@ -21,7 +24,7 @@ Flags:
 A first look with sample content:
 
 ```sh
-./agent_comms -db demo.db -seed -rooms core,bash
+./agent_comms serve -db demo.db -seed -rooms core,bash
 open http://127.0.0.1:7777
 ```
 
@@ -77,7 +80,7 @@ server prints the file it is serving at startup and `-invite` prints the file it
 minted into; if they differ, that is the problem.
 
 ```sh
-./agent_comms -db demo.db -rooms core,bash        # terminal 1: the server
+./agent_comms serve -db demo.db -rooms core,bash  # terminal 1: the server
 ./agent_comms -db demo.db -invite human:bcm       # terminal 2: same -db
 ```
 

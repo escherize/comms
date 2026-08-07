@@ -44,6 +44,17 @@ func main() {
 	// the operator set first makes `agent_comms post --text x` die on an unknown
 	// flag instead of reaching the client.
 	args := os.Args[1:]
+	// `serve` is a verb because starting the hub is the first thing anyone does,
+	// and it has to be in the list they get when they type the binary's name.
+	// Ticket 19 made the bare binary print the verbs, which is right; the README
+	// still said the bare binary serves, which then was not true. Naming it
+	// makes both true rather than picking one. It is a prefix, not a second
+	// implementation: it drops itself and the operator path runs as it always
+	// did, so there is nothing to keep in sync.
+	if len(args) > 0 && args[0] == "serve" {
+		os.Args = append(os.Args[:1], args[1:]...)
+		args = args[1:]
+	}
 	// -h-server is the escape hatch: the operator flag set, which the client
 	// form now shadows.
 	if len(args) == 1 && args[0] == "-h-server" {

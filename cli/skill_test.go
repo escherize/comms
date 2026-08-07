@@ -586,3 +586,45 @@ func mustRead(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// The first command in the README must start the hub. Ticket 19 made the bare
+// binary print the verb list, which is right, and left the README saying the
+// bare binary serves, which then was not — the single worst place for a
+// documentation defect, because it is the first thing anyone types.
+func TestTheREADMEStartsTheHubWithACommandThatExists(t *testing.T) {
+	readme := mustRead(t, "../README.md")
+
+	var starts bool
+	for _, block := range fencedBlocks(readme) {
+		for _, line := range strings.Split(block, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.Contains(line, "agent_comms") {
+				continue
+			}
+			// Any line that means "run the hub" must say serve, or pass an
+			// operator flag. A bare invocation prints the verb list.
+			if strings.HasSuffix(line, "agent_comms") ||
+				strings.HasPrefix(line, "./agent_comms  ") {
+				t.Errorf("README runs the bare binary as though it serves: %q", line)
+			}
+			if strings.Contains(line, "agent_comms serve") {
+				starts = true
+			}
+		}
+	}
+	if !starts {
+		t.Error("the README never shows how to start the hub")
+	}
+
+	// And serve is a verb the binary lists, so somebody who types the binary's
+	// name is told about it.
+	var listed bool
+	for _, v := range Verbs {
+		if v == "serve" {
+			listed = true
+		}
+	}
+	if !listed {
+		t.Error("serve must be in the verb list; it is the first thing anyone runs")
+	}
+}
