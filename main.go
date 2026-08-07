@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -25,6 +26,7 @@ func main() {
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
 	purge := flag.Int64("purge", 0, "erase one event's body and attachments permanently, then exit")
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
+	reembed := flag.Int64("reembed", -1, "rebuild the semantic lane from this seq, then exit")
 	// Verb form: agent_comms <verb> ... is the agent client (ADR-0012). Flag
 	// form is the operator surface. A verb is never also a flag.
 	//
@@ -78,6 +80,18 @@ func main() {
 	// Operator capabilities. Flags on the server binary rather than verbs an
 	// agent seat can reach, because both act on other actors' events and the
 	// only credential they need is holding the database.
+	if *reembed >= 0 {
+		// The rebuild runs on the operator surface, not as a verb: it rewrites a
+		// projection for the whole hub, which is not an agent's to do.
+		sv := shell.New(st, time.Now)
+		n, err := sv.Reembed(context.Background(), *reembed)
+		if err != nil {
+			log.Fatalf("reembed: %v", err)
+		}
+		fmt.Printf("rebuilt the semantic lane from %d: %d event(s) embedded\n", *reembed, n)
+		return
+	}
+
 	if *purge > 0 {
 		if err := st.Purge(*purge); err != nil {
 			log.Fatalf("purge: %v", err)
@@ -119,6 +133,10 @@ func main() {
 		log.Printf("WARNING: -insecure is set. Unsigned commands are accepted, so anyone " +
 			"who can reach this port can post as anyone. Localhost demos only.")
 	}
+	// The semantic lane fills in the background. It is eventually consistent by
+	// design; /index and the search foot both publish how far behind it is.
+	srv.StartEmbedder(context.Background(), time.Second)
+
 	log.Printf("agent_comms listening on http://%s", *addr)
 	if err := http.ListenAndServe(*addr, srv.Routes()); err != nil {
 		log.Fatal(err)

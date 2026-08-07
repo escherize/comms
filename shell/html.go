@@ -567,8 +567,7 @@ const searchHTML = `<!doctype html>
 <footer>
   <div class="balance">
     <span>hits <b>{{N}}</b></span>
-    <span>lanes searched <b>lexical</b></span>
-    <span>vector <b>unbuilt — these results are lexical only</b></span>
+    {{LANES}}
     <span>new matches arrive <b>live</b></span>
   </div>
 </footer>

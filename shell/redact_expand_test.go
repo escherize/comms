@@ -325,10 +325,21 @@ func TestSearchPageStillRendersAndNamesLanes(t *testing.T) {
 	if !strings.Contains(page, "sqlite-vec rejects long bodies") {
 		t.Error("the HTML page must still render hits")
 	}
-	if !strings.Contains(page, "lanes searched") {
-		t.Error("the page must say which lanes were searched")
+	// The page names each lane and what it did. It used to hardcode "vector
+	// unbuilt"; now the lane is built and reports its own state, and the
+	// invariant is that a reader can always tell which lanes actually ran —
+	// a lexical-only result over an absent or stale semantic lane is a true
+	// result somebody draws a false conclusion from.
+	if !strings.Contains(page, "lexical") {
+		t.Error("the page must name the lexical lane")
 	}
-	if !strings.Contains(page, "unbuilt") {
-		t.Error("the page must state the vector lane is unbuilt")
+	if !strings.Contains(page, "vector") {
+		t.Error("the page must name the vector lane and what it did")
 	}
+	for _, state := range []string{"searched", "stale", "unbuilt", "failed"} {
+		if strings.Contains(page, "<b>"+state+"</b>") {
+			return
+		}
+	}
+	t.Error("the page must state each lane's state, not merely list the lanes")
 }

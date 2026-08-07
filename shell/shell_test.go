@@ -30,6 +30,14 @@ func newServer(t *testing.T) (*httptest.Server, *store.Store) {
 // is the regime the budget exists for.
 func newServerEvery(t *testing.T, step time.Duration) (*httptest.Server, *store.Store) {
 	t.Helper()
+	srv, st, _ := newServerFull(t, step)
+	return srv, st
+}
+
+// newServerFull also hands back the Server, for tests about machinery that has
+// no HTTP surface of its own — the embedder's watermark, for one.
+func newServerFull(t *testing.T, step time.Duration) (*httptest.Server, *store.Store, *Server) {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "shell.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -58,7 +66,7 @@ func newServerEvery(t *testing.T, step time.Duration) (*httptest.Server, *store.
 	sv.RequireSignature = false
 	srv := httptest.NewServer(sv.Routes())
 	t.Cleanup(srv.Close)
-	return srv, st
+	return srv, st, sv
 }
 
 // newSigningServer keeps the production default: every command must be signed.

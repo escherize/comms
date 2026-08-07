@@ -315,7 +315,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if wantsJSON(r) {
-		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
+		fused, lanes, err := s.searchBoth(r.Context(), q, r.URL.Query().Get("room"),
 			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
 			r.URL.Query().Get("since"), 100)
 		if err != nil {
@@ -325,10 +325,29 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		hits := make([]store.Record, 0, len(fused))
+		ranks := map[int64]map[string]any{}
+		for _, f := range fused {
+			hits = append(hits, f.Rec)
+			// Both ranks, per hit. A result that ranked 1st lexically and 40th
+			// semantically is a different fact than one that ranked 20th in
+			// each, and a single fused number throws that away.
+			ranks[f.Rec.Seq] = map[string]any{
+				"lexical": f.LexRank, "vector": f.VecRank,
+				"similarity": f.VecScore, "fused": f.Score,
+			}
+		}
+		watermark, at, stale := s.lagFor()
+		dead, _ := s.st.DeadLettered()
 		writeJSONL(w, http.StatusOK, hits, map[string]any{
 			"ok": true, "outcome": "read", "count": len(hits),
-			"lanes": s.st.Lanes(),
-			"query": q,
+			"lanes": lanes, "query": q, "ranks": ranks,
+			"vector_index": map[string]any{
+				"embedded_through_seq": watermark,
+				"current_to":           at.UTC().Format(time.RFC3339),
+				"stale":                stale,
+				"dead_lettered":        len(dead),
+			},
 		})
 		return
 	}
@@ -336,22 +355,24 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	var rows strings.Builder
 	var n int
 	var highest int64
+	var lanes []store.LaneStatus
 	if q != "" {
-		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
+		fused, laneStatus, err := s.searchBoth(r.Context(), q, r.URL.Query().Get("room"),
 			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
 			r.URL.Query().Get("since"), 100)
+		lanes = laneStatus
 		if err != nil {
 			rows.WriteString(`<div class="row"><div class="folio">!</div>` +
 				`<div class="author">—</div><div class="kind">ERR</div>` +
 				`<div class="body">` + html.EscapeString(err.Error()) + `</div></div>`)
 		}
-		for _, hit := range hits {
-			rows.WriteString(searchRow(hit))
-			if hit.Seq > highest {
-				highest = hit.Seq
+		for _, f := range fused {
+			rows.WriteString(fusedRow(f))
+			if f.Rec.Seq > highest {
+				highest = f.Rec.Seq
 			}
 		}
-		n = len(hits)
+		n = len(fused)
 	}
 
 	// The live stream resumes after the highest hit already rendered, so nothing
@@ -368,6 +389,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		"{{N}}", fmt.Sprint(n),
 		"{{ROOM}}", html.EscapeString(room),
 		"{{HEAD}}", fmt.Sprint(head),
+		"{{LANES}}", laneFoot(lanes),
 	).Replace(searchHTML)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -416,4 +438,50 @@ func renderEntryText(txt string, seq int64) string {
 		fmt.Sprintf("%d more line(s)", len(lines)-entryLineCeiling) +
 		`</span></button><span class="more-body" id="` + id + `" hidden>` +
 		html.EscapeString("\n"+rest) + `</span>`
+}
+
+// fusedRow renders one hit with both ranks. An em dash in a rank column means
+// that lane did not return this event, which is information: it is how a reader
+// sees that a hit is lexical-only, or that the semantic lane found something
+// the words did not.
+func fusedRow(f Fused) string {
+	lex, vec := "—", "—"
+	if f.LexRank > 0 {
+		lex = fmt.Sprintf("%d", f.LexRank)
+	}
+	if f.VecRank > 0 {
+		vec = fmt.Sprintf("%d", f.VecRank)
+	}
+	r := f.Rec
+	return fmt.Sprintf(
+		`<div class="row srow">`+
+			`<div class="folio">%d</div>`+
+			`<div class="rank">%s</div>`+
+			`<div class="rank vec">%s</div>`+
+			`<div class="author">%s</div>`+
+			`<div class="kind">%s</div>`+
+			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
+		r.Seq, lex, vec,
+		html.EscapeString(shortActor(r.Author)), kindCode(r.Kind),
+		html.EscapeString(r.Room), r.Seq,
+		html.EscapeString(truncate(r.Text(), 160)))
+}
+
+// laneFoot states what each lane actually did. A lexical-only result over an
+// absent or stale semantic lane is a true result an agent draws a false
+// conclusion from, so the page says which it is rather than implying both ran.
+func laneFoot(lanes []store.LaneStatus) string {
+	if len(lanes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, l := range lanes {
+		b.WriteString(`<span>` + html.EscapeString(l.Name) + ` <b>` +
+			html.EscapeString(l.State) + `</b>`)
+		if l.Detail != "" {
+			b.WriteString(` — ` + html.EscapeString(l.Detail))
+		}
+		b.WriteString(`</span>`)
+	}
+	return b.String()
 }

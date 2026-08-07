@@ -7,6 +7,7 @@
 package shell
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -45,6 +46,7 @@ type Server struct {
 	correct  *corrections
 	escalate *escalations
 	posting  *posting
+	embed    *embedder
 }
 
 // PostsPerMinute and PostBurst bound one seat. The burst is what an agent
@@ -59,12 +61,17 @@ func New(st *store.Store, now Clock) *Server {
 	if now == nil {
 		now = time.Now
 	}
-	return &Server{st: st, now: now, subs: map[chan store.Record]string{},
+	sv := &Server{st: st, now: now, subs: map[chan store.Record]string{},
 		RequireSignature: true,
 		limit:            newLimiter(PostsPerMinute, PostBurst, now),
 		correct:          newCorrections(),
 		escalate:         newEscalations(now),
 		posting:          newPosting(now)}
+	// The lane ships wired to a stand-in rather than dark. An adapter seam
+	// nobody runs is a seam nobody knows is broken, and the watermark, the
+	// retries and the fusion are all real whatever produces the numbers.
+	sv.embed = newEmbedder(st, HashEmbedder{}, sv.now)
+	return sv
 }
 
 func (s *Server) Routes() *http.ServeMux {
@@ -78,6 +85,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /rooms/{name}", s.roomBrief)
 	mux.HandleFunc("GET /actors", s.actorsList)
 	mux.HandleFunc("POST /escalate", s.postEscalation)
+	mux.HandleFunc("GET /index", s.indexStatus)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
@@ -992,5 +1000,48 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		"remaining": remaining,
 		"detail": fmt.Sprintf("%d escalation(s) left in this %s window",
 			remaining, EscalationWindow),
+	})
+}
+
+// StartEmbedder runs the semantic lane in the background until ctx ends. It is
+// started by the operator surface rather than by New, so a test drives step()
+// deterministically instead of racing a ticker.
+func (s *Server) StartEmbedder(ctx context.Context, every time.Duration) {
+	if s.embed == nil {
+		return
+	}
+	go s.embed.run(ctx, every)
+}
+
+// Reembed rebuilds the semantic lane from a seq.
+func (s *Server) Reembed(ctx context.Context, from int64) (int, error) {
+	if s.embed == nil {
+		return 0, errors.New("no embedder is configured")
+	}
+	return s.embed.Reembed(ctx, from)
+}
+
+// indexStatus is the lane's own page: how far behind it is, and everything it
+// gave up on. A dead-letter list nobody can read is a list that does not exist.
+func (s *Server) indexStatus(w http.ResponseWriter, r *http.Request) {
+	watermark, at, stale := s.lagFor()
+	dead, err := s.st.DeadLettered()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			rejectedResponse{"index.failed", err.Error(), ""})
+		return
+	}
+	if dead == nil {
+		dead = []store.DeadLetter{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": "read",
+		"embedded_through_seq": watermark,
+		"current_to":           at.UTC().Format(time.RFC3339),
+		"head":                 s.st.Head(),
+		"stale":                stale,
+		"dead_lettered":        dead,
+		"detail": "events on the dead-letter list are absent from the semantic lane " +
+			"and present in the lexical one; rebuild with: agent_comms -reembed <seq>",
 	})
 }

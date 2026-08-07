@@ -223,6 +223,10 @@ func Open(path string) (*Store, error) {
 	// One writer. The whole ordering story depends on it.
 	db.SetMaxOpenConns(1)
 
+	if _, err := db.Exec(vectorSchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("vector schema: %w", err)
+	}
 	if _, err := db.Exec(capabilitySchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("capability schema: %w", err)
@@ -869,4 +873,24 @@ func scanRanked(rows *sql.Rows) ([]Record, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// RecordAt loads one event by seq, with redaction applied. The semantic lane
+// finds seqs the lexical one did not, and a hit whose body cannot be loaded is
+// a row that says nothing.
+func (s *Store) RecordAt(seq int64) (Record, bool) {
+	rows, err := s.db.Query(`
+		SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,
+		       e.refs, e.body_hash, e.prev_hash, b.json, e.attach
+		FROM envelope e LEFT JOIN body b ON b.seq = e.seq
+		WHERE e.seq = ?`, seq)
+	if err != nil {
+		return Record{}, false
+	}
+	defer rows.Close()
+	recs, err := scanRecords(rows)
+	if err != nil || len(recs) == 0 {
+		return Record{}, false
+	}
+	return s.markRedactions(recs)[0], true
 }

@@ -164,6 +164,14 @@ func (s *Store) ApplyRedaction(targetSeq, bySeq int64, byActor string, now time.
 		targetSeq, byActor, bySeq, now.UTC().Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
+	// The embedding dies with the body, in the same transaction. It is derived
+	// from the secret; an embedding that outlives a redaction is the secret in
+	// a form nobody thinks to look at. This is ticket 08's remaining criterion,
+	// satisfied here because the transaction that suppresses is the only place
+	// it can be satisfied.
+	if _, err := tx.Exec(`DELETE FROM vector WHERE seq = ?`, targetSeq); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM search WHERE seq = ?`, targetSeq); err != nil {
 		return err
 	}
