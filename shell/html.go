@@ -103,6 +103,14 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
 .folio { color: var(--ink-faint); text-align:right; font-variant-numeric: tabular-nums; }
 .author { color: var(--ink-mute); overflow:hidden; text-overflow:ellipsis; }
 .kind { color: var(--ink-faint); font-size:.72rem; letter-spacing:.05em; }
+/* A folded body reuses the carried-forward control, so one toggle serves both
+   page-break conventions. It sits on its own line because it interrupts the
+   text it is folding. */
+.more { margin:.15rem 0 0 0; padding:0; }
+/* :not([hidden]) is load-bearing. The hidden attribute works by a UA rule of
+   display:none, and any author display rule outranks it — an unscoped
+   display:block on this class silently unhides every folded body. */
+.more-body:not([hidden]) { display:block; }
 .about { color: var(--ink-faint); font-size:.78rem; border:1px solid var(--rule);
   padding:0 .3rem; border-radius:2px; margin-right:.35rem; }
 .tick { color: var(--ok); text-align:center; opacity:.55; }
@@ -142,6 +150,14 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
 .carried .cf::after { content:" ▸"; }
 .carried[aria-expanded="true"] .cf::after { content:" ▾"; }
 .carried-body[hidden] { display:none; }
+
+/* The fold control reuses the carried-forward button's look, not its layout:
+   .carried is a two-column grid whose first track is the folio width, and a
+   fold label dropped into that track wraps to three lines. It sits inside the
+   entry column already, so it needs no columns of its own. This rule follows
+   .carried deliberately — equal specificity, and the later rule wins. */
+.carried.more { display:block; width:auto; border-bottom:0; background:none; }
+.carried.more > span { padding:0; }
 
 /* ---- foot ---- */
 footer {

@@ -486,3 +486,111 @@ func TestAnEscalationIsAnOrdinaryAddressedQuestion(t *testing.T) {
 		t.Error("nothing was appended")
 	}
 }
+
+// A row with no ceiling destroys what a ledger is for: scanning by folio. A
+// fourteen-line trace was 850px of a 981px viewport. The overflow is folded,
+// not dropped, behind the same control the collapsed ambient run uses.
+func TestALongBodyIsFoldedNotUnbounded(t *testing.T) {
+	srv, st := newServer(t)
+	long := "panic under -race:\n" + strings.Repeat("goroutine 1 [running]:\n", 40)
+	if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
+		Kind: core.KindFinding, Body: map[string]any{"text": long, "severity": "p2"},
+		Lane: core.LaneOf(core.KindFinding)}, "long", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	page := buf.String()
+
+	if !strings.Contains(page, "more line(s)") {
+		t.Error("a body past the ceiling must offer to unfold the rest")
+	}
+	if !strings.Contains(page, `class="more-body"`) {
+		t.Error("the overflow must be rendered, not dropped: folding is not truncation")
+	}
+	if n := strings.Count(page, "goroutine 1 [running]:"); n != 40 {
+		t.Errorf("every line must still be on the page, got %d of 40", n)
+	}
+
+	// The hidden attribute works by a UA display:none rule, so any author
+	// display rule on the same element outranks it and silently unhides
+	// everything. This caught exactly that, once.
+	if !strings.Contains(page, ".more-body:not([hidden])") {
+		t.Error("the folded body's display rule must be scoped to :not([hidden])")
+	}
+
+	// .carried is a two-column grid whose first track is the folio width. The
+	// fold control lives inside the entry column and needs none of that; at
+	// equal specificity the later rule wins, so the override must come after.
+	base := strings.Index(page, ".carried {")
+	override := strings.Index(page, ".carried.more {")
+	if base == -1 || override == -1 {
+		t.Fatal("the fold control must reuse the carried-forward look")
+	}
+	if override < base {
+		t.Error("the .carried.more override must follow .carried, or the grid wins " +
+			"and the fold label wraps into the folio column")
+	}
+}
+
+// A body inside the ceiling is left alone: folding a three-line finding would
+// be ceremony, not structure.
+func TestAShortBodyIsNotFolded(t *testing.T) {
+	srv, st := newServer(t)
+	if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
+		Kind: core.KindTIL, Body: map[string]any{"text": "one\ntwo\nthree"},
+		Lane: core.LaneOf(core.KindTIL)}, "short", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	if strings.Contains(buf.String(), "more line(s)") {
+		t.Error("a short body must not be folded")
+	}
+}
+
+// Kind-specific rendering: a finding shows its severity and what it is about, a
+// handoff names who is taking over, a status shows its position.
+func TestEachKindRendersItsOwnFields(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "human:bcm")
+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding","body":{`+
+		`"text":"TokenCache.warm() runs after the first assertion","severity":"p1",`+
+		`"about":"auth.py:88"},"idem":"k1"}`)
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"handoff","body":{`+
+		`"text":"the retry path is yours"},"recipient":"human:bcm","idem":"k2"}`)
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"status","body":{`+
+		`"text":"migrating","step":3,"of":7},"idem":"k3"}`)
+
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	page := buf.String()
+
+	for what, want := range map[string]string{
+		"a finding's severity":    `class="sev sev-p1"`,
+		"what a finding is about": `class="about">auth.py:88`,
+		"a handoff's recipient":   `class="to">human:bcm`,
+		"a status's position":     `class="step">3/7`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the row does not render %s (looking for %q)", what, want)
+		}
+	}
+}

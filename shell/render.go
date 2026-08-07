@@ -77,7 +77,7 @@ func renderRow(r store.Record) string {
 			}
 		}
 		if txt := r.Text(); txt != "" {
-			body.WriteString(html.EscapeString(txt))
+			body.WriteString(renderEntryText(txt, r.Seq))
 		} else if u := r.URL(); u != "" {
 			// A pr.link carries a url, not text. Rendering r.Text() alone left
 			// the entry column blank.
@@ -374,4 +374,32 @@ func searchRow(r store.Record) string {
 			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
 		r.Seq, r.Rank, html.EscapeString(shortActor(r.Author)), kindCode(r.Kind),
 		html.EscapeString(r.Room), r.Seq, html.EscapeString(r.Text()))
+}
+
+// entryLineCeiling is how much of a body a row shows before it folds. A ledger
+// is a thing you scan by folio, and a row with no ceiling destroys that: a
+// fourteen-line stack trace is 850px of a 981px viewport, and a fifty-line one
+// is a page with a single entry on it. The overflow is rendered, not dropped —
+// folding is the ledger's own page-break convention, the same one the
+// carried-forward line uses, so it reuses that control verbatim.
+const entryLineCeiling = 12
+
+// renderEntryText writes a body, folding everything past the ceiling behind the
+// same button the collapsed ambient run uses.
+func renderEntryText(txt string, seq int64) string {
+	lines := strings.Split(txt, "\n")
+	if len(lines) <= entryLineCeiling {
+		return html.EscapeString(txt)
+	}
+
+	id := fmt.Sprintf("more%d", seq)
+	shown := strings.Join(lines[:entryLineCeiling], "\n")
+	rest := strings.Join(lines[entryLineCeiling:], "\n")
+
+	return html.EscapeString(shown) +
+		`<button class="carried more" type="button" aria-expanded="false" aria-controls="` +
+		id + `"><span class="cf">` +
+		fmt.Sprintf("%d more line(s)", len(lines)-entryLineCeiling) +
+		`</span></button><span class="more-body" id="` + id + `" hidden>` +
+		html.EscapeString("\n"+rest) + `</span>`
 }
