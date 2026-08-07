@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/bcm/agent_comms/core"
 	"log"
 	"net/http"
 	"os"
@@ -27,6 +28,10 @@ func main() {
 	purge := flag.Int64("purge", 0, "erase one event's body and attachments permanently, then exit")
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
 	reembed := flag.Int64("reembed", -1, "rebuild the semantic lane from this seq, then exit")
+	digestAs := flag.String("digest-as", "", "run the digest bot under this seat (must hold the digest capability)")
+	digestTo := flag.String("digest-to", "", "who the digest is addressed to")
+	digestEvery := flag.Duration("digest-every", time.Hour, "how often the digest bot considers posting")
+	grant := flag.String("grant", "", "grant the digest capability to a seat, then exit")
 	// Verb form: agent_comms <verb> ... is the agent client (ADR-0012). Flag
 	// form is the operator surface. A verb is never also a flag.
 	//
@@ -80,6 +85,16 @@ func main() {
 	// Operator capabilities. Flags on the server binary rather than verbs an
 	// agent seat can reach, because both act on other actors' events and the
 	// only credential they need is holding the database.
+	if *grant != "" {
+		// Granting is an operator act with no verb, by construction: a
+		// capability an agent could give itself is not a capability.
+		if err := st.Grant(*grant, core.CapDigest, "operator", time.Now()); err != nil {
+			log.Fatalf("grant: %v", err)
+		}
+		fmt.Printf("granted %q the digest capability\n", *grant)
+		return
+	}
+
 	if *reembed >= 0 {
 		// The rebuild runs on the operator surface, not as a verb: it rewrites a
 		// projection for the whole hub, which is not an agent's to do.
@@ -136,6 +151,24 @@ func main() {
 	// The semantic lane fills in the background. It is eventually consistent by
 	// design; /index and the search foot both publish how far behind it is.
 	srv.StartEmbedder(context.Background(), time.Second)
+
+	if *digestAs != "" {
+		if *digestTo == "" {
+			log.Fatal("-digest-as needs -digest-to: a digest with no recipient is ambient, " +
+				"which is a summary that interrupts nobody and is therefore a second copy of the room")
+		}
+		for _, room := range strings.Split(*rooms, ",") {
+			room = strings.TrimSpace(room)
+			if room == "" {
+				continue
+			}
+			go srv.RunDigest(context.Background(), shell.DigestBot{
+				Actor: core.Actor(*digestAs), Room: room,
+				To: core.Actor(*digestTo), Every: *digestEvery,
+			})
+		}
+		log.Printf("digest bot running as %s every %s", *digestAs, *digestEvery)
+	}
 
 	log.Printf("agent_comms listening on http://%s", *addr)
 	if err := http.ListenAndServe(*addr, srv.Routes()); err != nil {
