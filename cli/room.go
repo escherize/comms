@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -86,26 +87,17 @@ merely misspelt would otherwise be accepted, addressed to nobody, permanently.
   agent_comms room                       # rooms and roster
   agent_comms room bash-2026-08-05       # switch, then orient`)
 	}
-	// Go's flag package stops at the first non-flag argument, so `room bash
-	// --as x` would leave --as unparsed and report actor.required. The room
-	// name is a positional in the natural spelling; take it, then parse on.
+	positional, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
+	}
+	if len(positional) > 1 {
+		return e.Out.Fail(ExitUsage, "usage", "room.ambiguous",
+			"name one room, got "+positional[0]+" and "+positional[1])
+	}
 	var name string
-	for {
-		if err := fs.Parse(args); err != nil {
-			if isHelp(err) {
-				return e.Out.Succeed(Result{Outcome: "usage"})
-			}
-			return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
-		}
-		if fs.NArg() == 0 {
-			break
-		}
-		if name != "" {
-			return e.Out.Fail(ExitUsage, "usage", "room.ambiguous",
-				"name one room, got "+name+" and "+fs.Arg(0))
-		}
-		name = fs.Arg(0)
-		args = fs.Args()[1:]
+	if len(positional) == 1 {
+		name = positional[0]
 	}
 
 	seat, code := resolveSeat(e, *actor)
@@ -219,20 +211,9 @@ lexical-only result over an absent semantic lane is a true result that an agent
 can draw a false conclusion from.`)
 	}
 
-	// The query is positional, and flags may follow it.
-	var terms []string
-	for {
-		if err := fs.Parse(args); err != nil {
-			if isHelp(err) {
-				return e.Out.Succeed(Result{Outcome: "usage"})
-			}
-			return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
-		}
-		if fs.NArg() == 0 {
-			break
-		}
-		terms = append(terms, fs.Arg(0))
-		args = fs.Args()[1:]
+	terms, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
 	}
 
 	seat, code := resolveSeat(e, *actor)
@@ -323,4 +304,30 @@ can draw a false conclusion from.`)
 	}
 	e.Out.Line(term)
 	return ExitOK
+}
+
+// parsePositional gathers positional arguments that may be interleaved with
+// flags. Go's flag package stops at the first non-flag argument, so
+// `room bash --as x` and `search foo --kind finding` both leave the flags
+// unparsed and report a missing seat — the natural spelling of every verb that
+// takes an argument. Written once here rather than a third time in the next
+// verb that needs it.
+// It returns done=true when the verb is finished — help was asked for, or the
+// flags were wrong — with the exit code to hand back. A zero code alone cannot
+// carry that: help exits 0 and must still stop.
+func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []string) (out []string, code int, done bool) {
+	for {
+		if err := fs.Parse(args); err != nil {
+			if isHelp(err) {
+				return nil, e.Out.Succeed(Result{Outcome: "usage"}), true
+			}
+			return nil, e.Out.Fail(ExitUsage, "usage", "flags.invalid",
+				strings.TrimSpace(sink.String())), true
+		}
+		if fs.NArg() == 0 {
+			return out, 0, false
+		}
+		out = append(out, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
 }
