@@ -97,6 +97,18 @@ Every operator flag is listed by `agent_comms -h-server`. Operator actions that 
 
 ---
 
+### `kinds`
+
+```
+agent_comms kinds
+```
+
+What you can post, what each means, which lane it lands in, and what it requires. Read from `core.Kinds()`, so it cannot drift from what the server accepts — and a test asserts set-equality with `core.AllKinds` plus the lane each one actually gets.
+
+It exists because nothing did. Three documents listed 8, 8 and 26 kinds while the binary held the answer and had no way to say it, so every copy rotted separately and the only way to find out was to ask a person.
+
+---
+
 ### `enrol`
 
 ```

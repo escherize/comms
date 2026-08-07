@@ -433,3 +433,52 @@ func checkAnswersAQuestion(s State, c Command) *Rejection {
 	return &Rejection{"refs.question_required",
 		"answer must reference an event of kind question; that seq is a different kind"}
 }
+
+// KindDoc is what a kind means and what it needs, so the binary can answer
+// "what are the kinds" instead of a person having to. Three documents listed
+// 8, 8 and 26 kinds while this list held the answer and would not say it.
+type KindDoc struct {
+	Kind     Kind
+	Lane     Lane
+	Means    string
+	Requires string
+	Agent    bool // may an ordinary agent seat post it
+}
+
+// AllKinds is the enumeration every switch in this package must handle. Go has
+// no exhaustive matching, so a Kind added without updating knownKind, LaneOf or
+// checkBody would fall through a default and ship.
+//
+// It is derived from Kinds() rather than written out beside it. It used to be a
+// second list, in a _test.go file — which meant no production code could read
+// it, so `agent_comms kinds` could not exist and three documents each kept
+// their own copy. It also meant the guard could rot: `decline` was added and
+// the list was not updated, so the check against forgetting a kind had itself
+// forgotten one. One list, and adding a kind is one edit.
+var AllKinds = allKinds()
+
+func allKinds() []Kind {
+	out := make([]Kind, 0, len(Kinds()))
+	for _, k := range Kinds() {
+		out = append(out, k.Kind)
+	}
+	return out
+}
+
+// Kinds describes every kind, in the order an agent should consider them: the
+// ladder from "something is wrong" down to "it still needs saying".
+func Kinds() []KindDoc {
+	return []KindDoc{
+		{KindFinding, LaneOf(KindFinding), "a defect, gotcha or surprise worth keeping", "--text, --severity p0|p1|p2|p3", true},
+		{KindTIL, LaneOf(KindTIL), "a lesson the team can reuse (today I learned)", "--text", true},
+		{KindQuestion, LaneOf(KindQuestion), "a decision or fact you need from a person", "--text, --to", true},
+		{KindAnswer, LaneOf(KindAnswer), "a reply, pointed at the question", "--text, --to-question", true},
+		{KindHandoff, LaneOf(KindHandoff), "transfer of responsibility, with context", "--text, --to", true},
+		{KindDecline, LaneOf(KindDecline), "refusing a handoff, out loud", "<seq>, --why", true},
+		{KindStatus, LaneOf(KindStatus), "progress on work in flight", "--text, optional --step/--of", true},
+		{KindPRLink, LaneOf(KindPRLink), "a PR that exists", "--url", true},
+		{KindChat, LaneOf(KindChat), "everything else, and a shrug of an answer", "--text", true},
+		{KindRedact, LaneOf(KindRedact), "suppress a body you should not have posted", "redact <seq> --why", true},
+		{KindDigest, LaneOf(KindDigest), "a periodic summary of a window", "operator capability; the digest bot's", false},
+	}
+}

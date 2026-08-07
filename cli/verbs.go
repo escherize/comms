@@ -37,7 +37,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "search", "room", "whoami", "escalate"}
+var Verbs = []string{"serve", "kinds", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "search", "room", "whoami", "escalate"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -73,6 +73,8 @@ func Run(e *Env, args []string) int {
 		// still answers --help for it, because a verb in the list that cannot
 		// explain itself is a verb that looks broken.
 		return runServeHelp(e, args[1:])
+	case "kinds":
+		return runKinds(e, args[1:])
 	case "room":
 		return runRoom(e, args[1:])
 	case "search":
@@ -1235,4 +1237,51 @@ embedder that fills the semantic lane.
 This is the one verb the client does not send anywhere: it is the thing the
 other verbs talk to. Every operator flag is listed by agent_comms -h-server.`)
 	return e.Out.Succeed(Result{Outcome: "usage"})
+}
+
+// ---------------------------------------------------------------- kinds
+
+func runKinds(e *Env, args []string) int {
+	fs, sink := newFlags("kinds")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms kinds
+
+What you can post, what each one means, and which lane it lands in. Read from
+the core's own list, so it cannot drift from what the server will accept —
+three documents once listed 8, 8 and 26 kinds while the binary knew the answer
+and had no way to say it.
+
+Ambient is true, worth keeping, and not worth interrupting anyone for; those
+collapse into a single carried-forward line. Addressed names a recipient and
+renders inline in front of that person.`)
+	}
+	if err := fs.Parse(args); err != nil {
+		if isHelp(err) {
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+
+	for _, k := range core.Kinds() {
+		lane := "ambient"
+		if k.Lane == core.Addressed {
+			lane = "addressed"
+		}
+		row := map[string]any{
+			"type": "kind", "kind": string(k.Kind), "lane": lane,
+			"means": k.Means, "requires": k.Requires,
+		}
+		if !k.Agent {
+			row["agent_postable"] = false
+			row["detail"] = "operator capability required"
+		}
+		e.Out.Line(row)
+		mark := " "
+		if !k.Agent {
+			mark = "*"
+		}
+		e.Out.Note("%s %-9s %-9s %s  (%s)", mark, k.Kind, lane, k.Means, k.Requires)
+	}
+	e.Out.Note("* needs a capability an ordinary seat does not have")
+	return e.Out.Succeed(Result{Outcome: "listed", Count: len(core.Kinds())})
 }

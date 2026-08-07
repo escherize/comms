@@ -628,3 +628,51 @@ func TestTheREADMEStartsTheHubWithACommandThatExists(t *testing.T) {
 		t.Error("serve must be in the verb list; it is the first thing anyone runs")
 	}
 }
+
+// The binary must be able to answer "what can I post". Three documents once
+// listed 8, 8 and 26 kinds while core held the answer and had no way to say it,
+// so every copy rotted separately and a human had to be asked.
+func TestTheKindsVerbMatchesTheCore(t *testing.T) {
+	isolateKeys(t)
+	var c capture
+	env := c.env(t, "http://127.0.0.1:1", "")
+	env.Out.Quiet = true
+	if code := Run(env, []string{"kinds"}); code != ExitOK {
+		t.Fatalf("kinds exited %d", code)
+	}
+
+	printed := map[string]string{}
+	for _, l := range lines(t, &c) {
+		if l["type"] != "kind" {
+			continue
+		}
+		printed[l["kind"].(string)] = l["lane"].(string)
+	}
+
+	// Set equality with the core, and the lane it actually assigns.
+	for _, k := range core.AllKinds {
+		lane, ok := printed[string(k)]
+		if !ok {
+			t.Errorf("kind %q exists and `agent_comms kinds` does not print it", k)
+			continue
+		}
+		want := "ambient"
+		if core.LaneOf(k) == core.Addressed {
+			want = "addressed"
+		}
+		if lane != want {
+			t.Errorf("kinds says %q is %s; LaneOf says %s", k, lane, want)
+		}
+	}
+	for k := range printed {
+		var known bool
+		for _, real := range core.AllKinds {
+			if string(real) == k {
+				known = true
+			}
+		}
+		if !known {
+			t.Errorf("kinds prints %q and the core does not know it", k)
+		}
+	}
+}

@@ -54,7 +54,9 @@ agent_comms post finding --severity p2 --about auth.py --text "TokenCache.warm()
 
 ## Choose the kind
 
-Work down this ladder and stop at the first match.
+`agent_comms kinds` prints this table from the core's own list, so it cannot be
+out of date with what the server will accept. Work down the ladder and stop at
+the first match.
 
 1. Something is wrong, surprising, or will cost someone time → **finding**
 2. Something is true, non-obvious, and still true next month → **til**
