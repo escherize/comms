@@ -339,3 +339,14 @@ func (s *Store) ServerTSOf(seq int64) (time.Time, bool) {
 	at, err := time.Parse(time.RFC3339Nano, ts)
 	return at, err == nil
 }
+
+// NextSeq is the seq the next append will take. A drill prints it beside the
+// head to show the gap a restart opened: the jump is what makes a fencing
+// token issued before a restore unissuable after one.
+func (s *Store) NextSeq() int64 {
+	var next int64
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'next_seq'`).Scan(&next); err != nil {
+		return 0
+	}
+	return next
+}

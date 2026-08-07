@@ -32,6 +32,9 @@ func main() {
 	digestTo := flag.String("digest-to", "", "who the digest is addressed to")
 	digestEvery := flag.Duration("digest-every", time.Hour, "how often the digest bot considers posting")
 	grant := flag.String("grant", "", "grant the digest capability to a seat, then exit")
+	rebuild := flag.Bool("rebuild", false, "recompute every log-derived projection from the log, then exit")
+	verify := flag.Bool("verify", false, "check the log chain end to end, then exit")
+	seqReport := flag.Bool("seq-report", false, "print the head and the next seq, then exit")
 	// Verb form: agent_comms <verb> ... is the agent client (ADR-0012). Flag
 	// form is the operator surface. A verb is never also a flag.
 	//
@@ -85,6 +88,32 @@ func main() {
 	// Operator capabilities. Flags on the server binary rather than verbs an
 	// agent seat can reach, because both act on other actors' events and the
 	// only credential they need is holding the database.
+	if *verify {
+		// The question a restore actually raises: did we get the whole file, or
+		// a torn one? A non-zero exit is what lets a drill script fail.
+		if err := st.Verify(); err != nil {
+			fmt.Fprintf(os.Stderr, "the log chain does not verify: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("the log chain verifies end to end")
+		return
+	}
+
+	if *seqReport {
+		fmt.Printf("head %d, next %d (every start jumps %d, so a seq issued before a "+
+			"restore can never be issued again)\n", st.Head(), st.NextSeq(), store.SeqJump)
+		return
+	}
+
+	if *rebuild {
+		if err := st.Rebuild(); err != nil {
+			log.Fatalf("rebuild: %v", err)
+		}
+		fmt.Println("rebuilt every log-derived projection from the log. " +
+			"Keys, invites and capabilities were not touched: they are records, not projections")
+		return
+	}
+
 	if *grant != "" {
 		// Granting is an operator act with no verb, by construction: a
 		// capability an agent could give itself is not a capability.

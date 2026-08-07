@@ -1,0 +1,37 @@
+# Continuous replication for the event log.
+#
+# The log is the only authoritative state in this system — every projection is
+# a fold over it, and `agent_comms -rebuild` proves that by recomputing them.
+# So the backup story is one file, and the restore story is: fetch the file,
+# start the binary. Nothing else needs to survive.
+#
+# Litestream ships SQLite's WAL frames continuously rather than copying the
+# database periodically, which is what keeps the recovery point at seconds
+# instead of at whenever the last copy ran.
+#
+#   litestream replicate -config litestream.yml       # run beside the server
+#   litestream restore -config litestream.yml comms.db
+#
+# The restore drill in scripts/restore-drill.sh runs the whole path against a
+# scratch copy and is the only evidence that any of this works.
+
+dbs:
+  - path: comms.db
+    replicas:
+      # A second disk is the minimum useful replica: it survives the process,
+      # the filesystem filling, and a bad migration. It does not survive the
+      # machine, which is what the object-store replica below is for.
+      - type: file
+        path: /var/backups/agent_comms
+        retention: 720h          # 30 days
+        snapshot-interval: 1h
+
+      # Uncomment and fill in for off-machine durability. Litestream reads
+      # credentials from the environment; do not put them in this file, which
+      # is in the repository.
+      # - type: s3
+      #   bucket: agent-comms-backups
+      #   path: comms
+      #   region: us-east-1
+      #   retention: 720h
+      #   snapshot-interval: 1h
