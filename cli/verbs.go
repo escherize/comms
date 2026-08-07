@@ -78,7 +78,15 @@ func Run(e *Env, args []string) int {
 }
 
 func usage(e *Env) int {
-	e.Out.Help("agent_comms <verb> [flags]\n\nverbs: %s\n\nEvery verb answers --help. Start with: agent_comms enrol --help",
+	e.Out.Help(`agent_comms <verb> [flags]
+
+verbs: %s
+
+Every verb answers --help. Start with: agent_comms enrol --help
+
+To run the hub instead of talking to one, pass operator flags rather than a
+verb: agent_comms -addr 127.0.0.1:7777 -db comms.db -rooms core
+See agent_comms -h-server for the operator flag set.`,
 		strings.Join(Verbs, ", "))
 	e.Out.Line(Result{OK: true, Outcome: "usage"})
 	return ExitOK

@@ -25,11 +25,23 @@ func main() {
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
 	purge := flag.Int64("purge", 0, "erase one event's body and attachments permanently, then exit")
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
-	flag.Parse()
-
 	// Verb form: agent_comms <verb> ... is the agent client (ADR-0012). Flag
 	// form is the operator surface. A verb is never also a flag.
-	if args := os.Args[1:]; len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+	//
+	// This runs before flag.Parse because the client owns its own flags: parsing
+	// the operator set first makes `agent_comms post --text x` die on an unknown
+	// flag instead of reaching the client.
+	args := os.Args[1:]
+	// -h-server is the escape hatch: the operator flag set, which the client
+	// form now shadows.
+	if len(args) == 1 && args[0] == "-h-server" {
+		flag.Usage()
+		return
+	}
+	clientForm := len(args) == 0 ||
+		!strings.HasPrefix(args[0], "-") ||
+		args[0] == "-h" || args[0] == "--help" || args[0] == "help"
+	if clientForm {
 		os.Exit(cli.Run(&cli.Env{
 			Out:    cli.Std(),
 			Stdin:  os.Stdin,
@@ -37,6 +49,8 @@ func main() {
 			Host:   hostname(),
 		}, args))
 	}
+
+	flag.Parse()
 
 	st, err := store.Open(*db)
 	if err != nil {
