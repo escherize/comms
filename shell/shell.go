@@ -7,6 +7,8 @@
 package shell
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,24 +34,76 @@ type Server struct {
 	mu    sync.Mutex
 	subs  map[chan store.Record]string // subscriber -> room
 	rooms []string
+
+	// RequireSignature makes authentication mandatory. It defaults to on; the
+	// only way to turn it off is an explicit flag, so an unauthenticated
+	// deployment is a decision someone made rather than one they inherited.
+	RequireSignature bool
 }
 
 func New(st *store.Store, now Clock) *Server {
 	if now == nil {
 		now = time.Now
 	}
-	return &Server{st: st, now: now, subs: map[chan store.Record]string{}}
+	return &Server{st: st, now: now, subs: map[chan store.Record]string{},
+		RequireSignature: true}
 }
 
 func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /commands", s.postCommand)
+	mux.HandleFunc("POST /keys", s.postKey)
 	mux.HandleFunc("POST /artifacts", s.postArtifact)
 	mux.HandleFunc("GET /a/{hash}", s.getArtifact)
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
+}
+
+// postKey enrols an actor's public key against a one-time invite token.
+//
+// The token is what stops this being trust-on-first-use: without it, whoever
+// POSTed an actor name first would own it, including yours. The operator mints
+// tokens with -invite and hands them over out of band.
+func (s *Server) postKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actor     string `json:"actor"`
+		PublicKey string `json:"public_key"`
+		Token     string `json:"token"`
+	}
+	raw, err := readLimited(r.Body, 8192)
+	if err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge,
+			rejectedResponse{"body.too_large", err.Error(), ""})
+		return
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			rejectedResponse{"parse.failed", err.Error(), ""})
+		return
+	}
+
+	pub, err := hex.DecodeString(req.PublicKey)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		writeJSON(w, http.StatusBadRequest, rejectedResponse{
+			"public_key.invalid",
+			fmt.Sprintf("public_key must be %d hex-encoded bytes", ed25519.PublicKeySize), ""})
+		return
+	}
+	if req.Actor == "" {
+		writeJSON(w, http.StatusBadRequest,
+			rejectedResponse{"actor.required", "enrolment names an actor", ""})
+		return
+	}
+
+	if err := s.st.RedeemInvite(req.Token, req.Actor, pub, s.now()); err != nil {
+		writeJSON(w, http.StatusForbidden, rejectedResponse{
+			"enrolment.refused", err.Error(),
+			"mint one with: agent_comms -invite <actor>"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"actor": req.Actor, "enrolled": true})
 }
 
 // postArtifact stores GFM content-addressed and returns its hash. Only markdown
@@ -104,6 +158,22 @@ func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 		"default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	fmt.Fprint(w, artifactPage(hash, RenderMarkdown(content)))
+}
+
+// decodeSig parses the hex signature header.
+func decodeSig(h string) ([]byte, error) {
+	if h == "" {
+		return nil, errors.New("no X-Signature header")
+	}
+	sig, err := hex.DecodeString(strings.TrimSpace(h))
+	if err != nil {
+		return nil, fmt.Errorf("X-Signature must be hex: %w", err)
+	}
+	if len(sig) != ed25519.SignatureSize {
+		return nil, fmt.Errorf("X-Signature must be %d bytes, got %d",
+			ed25519.SignatureSize, len(sig))
+	}
+	return sig, nil
 }
 
 func readLimited(rc io.Reader, max int) ([]byte, error) {
@@ -206,6 +276,28 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest,
 			rejectedResponse{"parse.failed", err.Error(), ""})
 		return
+	}
+
+	// Authentication is the shell's job and happens before the decider sees
+	// anything: is this signature valid for a registered, unrevoked key. The
+	// signature covers the exact bytes received, not a re-serialized object,
+	// so a swapped room or author fails here rather than being trusted.
+	// Authorization — may this actor do this, in this state — is entirely the
+	// core's, below.
+	if s.RequireSignature {
+		sig, err := decodeSig(r.Header.Get("X-Signature"))
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, rejectedResponse{
+				"signature.missing",
+				"every command must carry X-Signature: a hex ed25519 signature over the request body",
+				"X-Signature: <128 hex chars>"})
+			return
+		}
+		if err := s.st.VerifySignature(cmd.Author, raw, sig, s.now()); err != nil {
+			writeJSON(w, http.StatusUnauthorized,
+				rejectedResponse{"signature.invalid", err.Error(), ""})
+			return
+		}
 	}
 
 	state := core.State{

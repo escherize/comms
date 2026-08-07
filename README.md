@@ -57,11 +57,37 @@ curl -s -X POST localhost:7777/commands -H 'Content-Type: application/json' -d '
   "body":{"text":"migrating","step":3,"of":7},"idem":"'"$(uuidgen)"'"}'
 ```
 
-## There is no authentication yet
+## Identity
 
-**The `as` picker is identity, not authentication.** It decides what goes in the author column and nothing else. Anyone who can reach the port can post as anyone, and the server does not check. That is why the default bind is `127.0.0.1`.
+Every command must carry an ed25519 signature over its exact bytes. The shell verifies it before the decider sees anything: authentication is the shell's job, authorization is the core's.
 
-Ticket 04 adds the real thing: per-actor keypairs, signatures verified at ingest before the decider sees a command, and revocation. Until it lands, run this on localhost or a trusted tailnet only, and do not put anything in it you would not put in a shared text file.
+**Enrol an actor.** Mint a one-time token and hand it over out of band:
+
+```sh
+./agent_comms -db comms.db -invite bcm
+```
+
+On that actor's first post, the browser generates a **non-extractable** keypair via WebCrypto, keeps it in IndexedDB, sends only the public half with the token, and signs every command from then on. The private key never becomes readable JavaScript and the server never sees it.
+
+Without the token, `/keys` would be trust-on-first-use — whoever claimed a name first would own it, including yours.
+
+**For agents and scripts**, generate a keypair server-side:
+
+```sh
+./agent_comms -db comms.db -genkey 'agent:claude-1'   # prints the private key once
+```
+
+Then sign the request body and send the hex signature:
+
+```sh
+BODY='{"room":"core","author":"agent:claude-1","kind":"status","body":{"text":"working","step":1,"of":5},"idem":"'"$(uuidgen)"'"}'
+SIG=$(printf '%s' "$BODY" | openssl pkeyutl -sign -inkey agent.pem -rawin | xxd -p -c 256)
+curl -X POST localhost:7777/commands -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY"
+```
+
+**Revocation** rejects an actor's future commands and leaves their history valid, so offboarding does not erase the record. A leaked key is different: marking it compromised flags every event it authored after the suspected time, because the question then is not what happens next but what it already did.
+
+**`-insecure` accepts unsigned commands.** It exists for localhost demos and prints a warning on every start. Do not bind past `127.0.0.1` with it set.
 
 ## API
 

@@ -29,6 +29,28 @@ func newServer(t *testing.T) (*httptest.Server, *store.Store) {
 	}
 
 	fixed := time.Date(2026, 8, 6, 14, 0, 0, 0, time.UTC)
+	sv := New(st, func() time.Time { return fixed })
+	// Signatures are enforced by default. These tests exercise the command
+	// surface and rendering, so they opt out explicitly; authentication itself
+	// is covered end to end in auth_test.go against a signing server.
+	sv.RequireSignature = false
+	srv := httptest.NewServer(sv.Routes())
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+// newSigningServer keeps the production default: every command must be signed.
+func newSigningServer(t *testing.T) (*httptest.Server, *store.Store) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "signed.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.EnsureRoom("core"); err != nil {
+		t.Fatal(err)
+	}
+	fixed := time.Date(2026, 8, 6, 12, 30, 0, 0, time.UTC)
 	srv := httptest.NewServer(New(st, func() time.Time { return fixed }).Routes())
 	t.Cleanup(srv.Close)
 	return srv, st

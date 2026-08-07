@@ -139,6 +139,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+` + keySchema + inviteSchema + `
 
 -- Artifacts: content-addressed GFM, deduped by hash, referenced by events.
 -- Stored beside the log so litestream covers them with no second backup path.

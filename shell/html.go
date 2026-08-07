@@ -307,28 +307,90 @@ finish review, the verdict, and DESIGN.md.
 </body>
 </html>`
 
-// composeScript turns the composer into a command submission. It exists because
-// the command surface takes JSON, and the browser is just another client of it.
+// composeScript turns the composer into a signed command submission.
+//
+// The private key is generated in the browser as NON-EXTRACTABLE and kept in
+// IndexedDB, so it never becomes readable JavaScript and cannot be exfiltrated
+// by script that reaches this page. Only the public half is ever sent, and only
+// once, when the actor enrolls. The server stores public keys and verifies; it
+// never sees a private key.
 const composeScript = `
 <script>
 (function(){
   var f=document.getElementById('composer');
   if(!f) return;
+
+  var DB='agent_comms.keys', STORE='keys';
+  function idb(){ return new Promise(function(res,rej){
+    var r=indexedDB.open(DB,1);
+    r.onupgradeneeded=function(){ r.result.createObjectStore(STORE); };
+    r.onsuccess=function(){ res(r.result); }; r.onerror=function(){ rej(r.error); };
+  });}
+  function idbGet(k){ return idb().then(function(db){ return new Promise(function(res,rej){
+    var t=db.transaction(STORE,'readonly').objectStore(STORE).get(k);
+    t.onsuccess=function(){ res(t.result); }; t.onerror=function(){ rej(t.error); };
+  });});}
+  function idbPut(k,v){ return idb().then(function(db){ return new Promise(function(res,rej){
+    var t=db.transaction(STORE,'readwrite').objectStore(STORE).put(v,k);
+    t.onsuccess=function(){ res(); }; t.onerror=function(){ rej(t.error); };
+  });});}
+
+  function hex(buf){ return Array.prototype.map.call(new Uint8Array(buf),
+    function(b){ return ('0'+b.toString(16)).slice(-2); }).join(''); }
+
+  // Returns the actor's keypair, enrolling a new one the first time. The
+  // private key is created non-extractable, so this handle is the only way to
+  // use it and there is no way to read it out.
+  function keyFor(actor){
+    return idbGet(actor).then(function(pair){
+      if(pair) return pair;
+      var token=prompt('First post as '+actor+'.\n\nPaste the enrolment token:\n  agent_comms -invite '+actor);
+      if(!token) return Promise.reject(new Error('enrolment needs a token'));
+      return crypto.subtle.generateKey({name:'Ed25519'}, false, ['sign','verify'])
+        .then(function(kp){
+          return crypto.subtle.exportKey('raw', kp.publicKey).then(function(raw){
+            return fetch('/keys',{method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({actor:actor, public_key:hex(raw), token:token.trim()})
+            }).then(function(r){
+              if(!r.ok) return r.json().then(function(j){
+                throw new Error(j.detail||'enrolment refused'); });
+              return idbPut(actor, kp).then(function(){ return kp; });
+            });
+          });
+        });
+    });
+  }
+
+  function fail(text, msg){
+    text.setAttribute('title', msg);
+    text.style.borderColor='var(--sev-hi)';
+  }
+
   f.addEventListener('submit', function(e){
     e.preventDefault();
     var text=document.getElementById('ctext'), kind=document.getElementById('ckind');
     if(!text.value.trim()) return;
+    var actor=(document.getElementById('actor')||{value:'bcm'}).value;
     var body={text:text.value};
     if(kind.value==='finding') body.severity='p2';
-    fetch('/commands',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({room:document.body.getAttribute('data-room'),
-        author:(document.getElementById('actor')||{value:'bcm'}).value,
-        kind:kind.value, body:body,
-        idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))})
-    }).then(function(r){return r.json()}).then(function(j){
-      if(j.invariant){ text.setAttribute('title', j.invariant+': '+j.detail); text.style.borderColor='var(--sev-hi)'; }
+    var payload=JSON.stringify({room:document.body.getAttribute('data-room'),
+      author:actor, kind:kind.value, body:body,
+      idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))});
+
+    if(!crypto.subtle){ fail(text,'this browser cannot sign; serve over https or localhost'); return; }
+
+    keyFor(actor).then(function(kp){
+      return crypto.subtle.sign({name:'Ed25519'}, kp.privateKey,
+        new TextEncoder().encode(payload));
+    }).then(function(sig){
+      return fetch('/commands',{method:'POST',
+        headers:{'Content-Type':'application/json','X-Signature':hex(sig)},
+        body:payload});
+    }).then(function(r){ return r.json(); }).then(function(j){
+      if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
       else { text.value=''; text.style.borderColor=''; text.removeAttribute('title'); }
-    });
+    }).catch(function(err){ fail(text, String(err && err.message || err)); });
   });
 })();
 </script>`
