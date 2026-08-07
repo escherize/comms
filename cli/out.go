@@ -94,6 +94,7 @@ type Result struct {
 	Attempts     int              `json:"attempts,omitempty"`
 	PubKey       string           `json:"public_key,omitempty"`
 	Hash         string           `json:"hash,omitempty"`
+	Title        string           `json:"title,omitempty"`
 	Size         int              `json:"size,omitempty"`
 	Count        int              `json:"count,omitempty"`
 

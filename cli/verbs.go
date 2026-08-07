@@ -543,6 +543,7 @@ event; someone else's is an operator action.`)
 
 func runAsk(e *Env, args []string) int {
 	fs, sink := newFlags("ask")
+	extraRefs := fs.String("refs", "", "comma-separated refs to carry, alongside what search attaches")
 	actor := fs.String("as", "", "the seat asking")
 	room := fs.String("room", "", "room to ask in")
 	to := fs.String("to", "", "who to ask")
@@ -595,6 +596,13 @@ question can tell in a glance whether it is new.`)
 	}
 
 	var refs []string
+	// Refs the caller carries through a piece of work come first: search adds
+	// context, it does not replace the thread the agent is already in.
+	for _, r := range strings.Split(*extraRefs, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			refs = append(refs, r)
+		}
+	}
 	if !*noSearch {
 		terms := distinctiveTerms(question)
 		if len(terms) > 0 {
@@ -683,6 +691,7 @@ always reaches whoever asked.
 
 func runAttach(e *Env, args []string) int {
 	fs, sink := newFlags("attach")
+	title := fs.String("title", "", "what to call it where it is referenced")
 	fs.Usage = func() {
 		e.Out.Help(`agent_comms attach <path|->
 
@@ -692,7 +701,10 @@ you already consumed.
 
   HASH=$(go test ./... 2>&1 | agent_comms attach - | jq -r .hash)
   agent_comms post finding --as <seat> --severity p2 \
-      --text "suite red" --attach-hash "$HASH" --attach-title suite.md`)
+      --text "suite red" --attach-hash "$HASH" --attach-title suite.md
+
+--title travels with the upload and comes back in the reply, so the pair to
+paste into the post is printed for you rather than reassembled by hand.`)
 	}
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		fs.Usage()
@@ -721,8 +733,17 @@ you already consumed.
 	if err != nil {
 		return e.Out.Fail(ExitRefused, "refused", "artifact.rejected", err.Error())
 	}
+	name := *title
+	if name == "" {
+		name = defaultTitle(args[0])
+	}
 	e.Out.Note("stored %d bytes as %s", size, hash[:12])
-	return e.Out.Succeed(Result{Outcome: "stored", Hash: hash, Size: size})
+	return e.Out.Succeed(Result{
+		Outcome: "stored", Hash: hash, Size: size, Title: name,
+		// The pair to paste, rather than one the agent reassembles by hand from
+		// two fields and gets subtly wrong under a shell.
+		Next: "reference it: --attach-hash " + hash + " --attach-title " + name,
+	})
 }
 
 // ---------------------------------------------------------------- read / inbox

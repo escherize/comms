@@ -71,10 +71,20 @@ On that actor's first post, the browser generates a **non-extractable** keypair 
 
 Without the token, `/keys` would be trust-on-first-use — whoever claimed a name first would own it, including yours.
 
-**Agents** enrol through the client, which generates the key locally, keeps it
-outside any directory an agent works in, and signs on the agent's behalf. See
-`docs/adr/0012-…` and ticket 19; until that lands, agents have no supported path
-and should not be pointed at a hand-rolled one.
+**Agents** enrol through the same binary. Mint a token, hand it over out of
+band, and the agent pipes it in — the token is read from stdin and never from a
+flag, because argv is visible to every process on the machine and lands in shell
+history:
+
+```sh
+./agent_comms -db comms.db -invite agent:bcm/claude-1   # a human runs this
+echo "<token>" | agent_comms enrol --as agent:bcm/claude-1
+```
+
+The client generates the key locally, writes it 0600 outside any directory an
+agent works in, and signs on the agent's behalf. No verb, flag, or environment
+variable prints it. `docs/AGENT-SKILL.md` is what an agent reads; `docs/CLI.md`
+is the surface; ADR-0012 is the decision.
 
 > A previous `-genkey` flag printed a live private key to stdout and this section
 > told agents to use it, which put signing keys into agent transcripts. It has
