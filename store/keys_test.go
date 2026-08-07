@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -289,5 +290,205 @@ func TestBothEnrolmentAndPostingPutASeatOnTheRoster(t *testing.T) {
 	if status["human:poster"] != "unsigned" {
 		t.Errorf("a seat that only ever posted unsigned should read unsigned, got %q",
 			status["human:poster"])
+	}
+}
+
+// An unspent invite from a three-month-old scrollback must not be able to undo
+// an offboarding. Rotation after revocation is an operator act.
+func TestAnInviteCannotUndoARevocation(t *testing.T) {
+	s, _, pub := keyStore(t)
+
+	tok, err := s.MintInvite("agent:leaver", kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RedeemInvite(tok, "agent:leaver", pub, kt0); err != nil {
+		t.Fatal(err)
+	}
+
+	// The operator mints a replacement, then offboards the seat before it is
+	// spent — the scrollback case.
+	stale, err := s.MintInvite("agent:leaver", kt0.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokeKey("agent:leaver", kt0.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.RedeemInvite(stale, "agent:leaver", pub, kt0.Add(3*time.Minute))
+	if err == nil {
+		t.Fatal("a token minted before a revocation must not re-enrol the seat")
+	}
+	if !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("the refusal must name the revocation, got %v", err)
+	}
+	if st, _ := s.KeyStatus("agent:leaver", kt0.Add(3*time.Minute)); st != "revoked" {
+		t.Errorf("the seat must still be revoked, got %q", st)
+	}
+}
+
+// A key marked compromised is a claim about what it already did, and a new key
+// does not make that untrue.
+func TestRotationDoesNotClearCompromise(t *testing.T) {
+	s, _, pub := keyStore(t)
+	if err := s.RegisterKey("agent:leaky", pub, kt0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkCompromised("agent:leaky", kt0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RegisterKey("agent:leaky", pub, kt0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := s.KeyStatus("agent:leaky", kt0.Add(time.Hour)); st != "compromised" {
+		t.Errorf("rotation cleared a compromise flag; got %q", st)
+	}
+
+	tok, _ := s.MintInvite("agent:leaky", kt0.Add(time.Hour))
+	if err := s.RedeemInvite(tok, "agent:leaky", pub, kt0.Add(2*time.Hour)); err == nil {
+		t.Error("an invite must not clear a compromise either")
+	}
+}
+
+// An invite with no expiry is a permanent credential sitting in whatever
+// channel it was sent through.
+func TestInvitesExpireAndTheRefusalSaysHowLongAgo(t *testing.T) {
+	s, _, pub := keyStore(t)
+	tok, err := s.MintInvite("agent:slow", kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.RedeemInvite(tok, "agent:slow", pub, kt0.Add(InviteTTL+time.Hour))
+	if err == nil {
+		t.Fatal("an expired token must be refused")
+	}
+	if !strings.Contains(err.Error(), "expired") {
+		t.Errorf("the refusal must say it expired, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "ago") {
+		t.Errorf("the refusal must say how long ago, so the reader knows it is not a typo: %v", err)
+	}
+
+	// Just inside the window still works.
+	fresh, _ := s.MintInvite("agent:quick", kt0)
+	if err := s.RedeemInvite(fresh, "agent:quick", pub, kt0.Add(InviteTTL-time.Minute)); err != nil {
+		t.Errorf("a token inside its window must work: %v", err)
+	}
+}
+
+// One live invite per actor: a second mint retires the first, so a token in an
+// old scrollback stops working the moment a replacement is issued.
+func TestMintingAnInviteRetiresTheOutstandingOne(t *testing.T) {
+	s, _, pub := keyStore(t)
+	first, _ := s.MintInvite("agent:two", kt0)
+	second, _ := s.MintInvite("agent:two", kt0.Add(time.Minute))
+
+	if err := s.RedeemInvite(first, "agent:two", pub, kt0.Add(2*time.Minute)); err == nil {
+		t.Error("the superseded token must not enrol")
+	}
+	if err := s.RedeemInvite(second, "agent:two", pub, kt0.Add(3*time.Minute)); err != nil {
+		t.Errorf("the live token must enrol: %v", err)
+	}
+}
+
+// The digest capability is an operator grant. No verb reaches it.
+func TestCapabilitiesAreGrantedNotClaimed(t *testing.T) {
+	s, _, _ := keyStore(t)
+	if s.HasCapability("agent:c1", core.CapDigest) {
+		t.Error("no seat holds a capability by default")
+	}
+	if err := s.Grant("agent:digest-bot", core.CapDigest, "human:bcm", kt0); err != nil {
+		t.Fatal(err)
+	}
+	if !s.HasCapability("agent:digest-bot", core.CapDigest) {
+		t.Error("a granted capability must be visible to the decider")
+	}
+	if s.HasCapability("agent:digest-bot", "purge") {
+		t.Error("a grant is per capability, not a blanket")
+	}
+	if err := s.Grant("digest-bot", core.CapDigest, "human:bcm", kt0); err == nil {
+		t.Error("a grant to an un-namespaced seat must be refused")
+	}
+}
+
+// Progress does not run backwards within one piece of work.
+//
+// The guard cannot be a timestamp or a seq, which is worth stating because the
+// ticket proposed one: a delayed status arrives with a later server_ts and a
+// higher seq, since the server stamps and numbers at arrival, and the only
+// earlier time available would be a client-declared one — the adversarial
+// created_at this design refuses. So the guard is on the meaning of the field.
+func TestAnOutOfOrderStatusCannotRewindProgress(t *testing.T) {
+	s, _, _ := keyStore(t)
+	if err := s.EnsureRoom("core"); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(step, of int, idem string, at time.Time) {
+		t.Helper()
+		if _, err := s.Append(core.Event{Room: "core", Author: "agent:w",
+			Kind: core.KindStatus,
+			Body: map[string]any{"text": "working", "step": float64(step), "of": float64(of)},
+			Lane: core.LaneOf(core.KindStatus)}, idem, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(5, 7, "s5", kt0)
+	mk(2, 7, "s2", kt0.Add(time.Minute)) // delayed, lands after the one it precedes
+
+	rows, err := s.ProgressFor("core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want one row, got %d", len(rows))
+	}
+	if rows[0].Step != 5 {
+		t.Errorf("progress rewound to step %d; a late status must not move the bar back", rows[0].Step)
+	}
+	// The actor did post, so it is not stalled. Liveness is a separate question
+	// from how far along the work is.
+	if !rows[0].Updated.Equal(kt0.Add(time.Minute).UTC()) {
+		t.Errorf("a post is evidence of life; the clock should have moved, got %v", rows[0].Updated)
+	}
+
+	// A new piece of work is not a rewind: step 1 of 4 after step 5 of 7 is
+	// progress.
+	mk(1, 4, "s-new", kt0.Add(2*time.Minute))
+	rows, _ = s.ProgressFor("core")
+	if rows[0].Step != 1 || rows[0].Of != 4 {
+		t.Errorf("a new total must reset the bar, got %d/%d", rows[0].Step, rows[0].Of)
+	}
+}
+
+// "still working on the migration" is not a claim that the work went back to
+// step 0 of 0.
+func TestAStepLessStatusCarriesTheCounterForward(t *testing.T) {
+	s, _, _ := keyStore(t)
+	if err := s.EnsureRoom("core"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:w", Kind: core.KindStatus,
+		Body: map[string]any{"text": "migrating", "step": float64(3), "of": float64(7)},
+		Lane: core.LaneOf(core.KindStatus)}, "p1", kt0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:w", Kind: core.KindStatus,
+		Body: map[string]any{"text": "still migrating"},
+		Lane: core.LaneOf(core.KindStatus)}, "p2", kt0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, _ := s.ProgressFor("core")
+	if len(rows) != 1 {
+		t.Fatalf("want one row, got %d", len(rows))
+	}
+	if rows[0].Step != 3 || rows[0].Of != 7 {
+		t.Errorf("a step-less status zeroed the counter: %d/%d", rows[0].Step, rows[0].Of)
+	}
+	if rows[0].Note != "still migrating" {
+		t.Errorf("the note must still update, got %q", rows[0].Note)
 	}
 }

@@ -90,6 +90,10 @@ type Event struct {
 	Attachments []Attachment
 }
 
+// CapDigest is the one capability today: the right to post an addressed
+// summary nobody asked for.
+const CapDigest = "digest"
+
 // Rejection names the invariant that failed. An agent self-corrects against
 // Invariant; a human reads Detail.
 type Rejection struct {
@@ -115,6 +119,10 @@ type State struct {
 	EventRoom func(ref string) (string, bool)
 	// IsRedacted reports whether an event is already suppressed.
 	IsRedacted func(ref string) bool
+	// HasCapability reports whether a seat holds a named capability. It is the
+	// same shape as the author check on redact: authorization inside the
+	// decider, not a privileged write path around it.
+	HasCapability func(a Actor, capability string) bool
 	// ActorEnrolled reports whether a seat has ever held a key. An addressed
 	// event to a seat that does not exist is worse than a rejection: it is
 	// accepted, addressed to nobody, permanently, and its author waits.
@@ -172,6 +180,19 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, &Rejection{"recipient.required",
 			"kind " + string(c.Kind) + " is addressed and must name a recipient"}
 	}
+	// A digest is addressed by definition (ADR-0008), so an agent that could
+	// post one could interrupt everyone, for free, on a loop. The capability
+	// lives with the digest bot, which authenticates with its own key and whose
+	// commands travel this same path.
+	if c.Kind == KindDigest {
+		if s.HasCapability == nil || !s.HasCapability(c.Author, CapDigest) {
+			return nil, &Rejection{"digest.not_authorized",
+				"digest is addressed by definition, so posting one interrupts everyone " +
+					"without spending a budget. The capability belongs to the digest bot; " +
+					"post a til or a finding instead"}
+		}
+	}
+
 	// A recipient nobody enrolled as is a typo the log keeps forever. The check
 	// is here rather than in the shell because it decides whether an event is
 	// admissible, and both clients must get the same answer.

@@ -40,14 +40,27 @@ type Server struct {
 	// only way to turn it off is an explicit flag, so an unauthenticated
 	// deployment is a decision someone made rather than one they inherited.
 	RequireSignature bool
+
+	limit   *limiter
+	correct *corrections
 }
+
+// PostsPerMinute and PostBurst bound one seat. The burst is what an agent
+// posting a finished batch of findings legitimately needs; the rate is what a
+// room can be read at.
+const (
+	PostsPerMinute = 60
+	PostBurst      = 20
+)
 
 func New(st *store.Store, now Clock) *Server {
 	if now == nil {
 		now = time.Now
 	}
 	return &Server{st: st, now: now, subs: map[chan store.Record]string{},
-		RequireSignature: true}
+		RequireSignature: true,
+		limit:            newLimiter(PostsPerMinute, PostBurst, now),
+		correct:          newCorrections()}
 }
 
 func (s *Server) Routes() *http.ServeMux {
@@ -310,6 +323,26 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Per-key rate limit. 429 carries retry_after_ms because "slow down" without
+	// a number is an invitation to guess, and every agent guesses differently.
+	if s.limit != nil {
+		if ok, wait := s.limit.allow(cmd.Author, cmd.Kind); !ok {
+			ms := wait.Milliseconds()
+			if ms < 1 {
+				ms = 1
+			}
+			w.Header().Set("Retry-After", fmt.Sprint((ms+999)/1000))
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{
+				"ok": false, "outcome": "throttled", "exit": 6,
+				"invariant":      "rate.exceeded",
+				"detail":         "this seat is posting faster than the room can be read",
+				"retry_after_ms": ms,
+				"next":           "sleep retry_after_ms, then batch what you were going to say",
+			})
+			return
+		}
+	}
+
 	// A shorthand recipient is expanded here, at the boundary, so the browser's
 	// /ask @sarah and the client's --to sarah name the same seat. The core sees
 	// a canonical actor or a rejection, never a guess.
@@ -335,16 +368,35 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		EventAuthor:    s.st.EventAuthor,
 		EventRoom:      s.st.EventRoom,
 		IsRedacted:     s.st.IsRedactedRef,
+		HasCapability: func(a core.Actor, capability string) bool {
+			return s.st.HasCapability(string(a), capability)
+		},
 		ActorEnrolled: func(a core.Actor) bool {
 			return s.st.ActorEnrolled(string(a))
 		},
 	}
 	events, rej := core.Decide(state, cmd)
 	if rej != nil {
+		attempts, exhausted := s.correct.rejected(cmd.Author, rej.Invariant)
+		if exhausted {
+			// Not a different rejection — the same one, for the third time. The
+			// schema is not the problem any more; the agent's model of the rule
+			// is, and another attempt cannot discover that.
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"ok": false, "outcome": "refused", "exit": 4,
+				"invariant": rej.Invariant, "detail": rej.Detail,
+				"schema":   schemaFor(cmd.Kind),
+				"attempts": attempts,
+				"next": "stop correcting and ask a person: agent_comms ask --to <human> " +
+					"--text \"I keep getting " + rej.Invariant + " on a " + string(cmd.Kind) + "\"",
+			})
+			return
+		}
 		writeJSON(w, http.StatusUnprocessableEntity,
 			rejectedResponse{rej.Invariant, rej.Detail, schemaFor(cmd.Kind)})
 		return
 	}
+	s.correct.accepted(cmd.Author)
 
 	var last int64
 	for _, ev := range events {

@@ -33,14 +33,23 @@ type wireResponse struct {
 	Invariant string `json:"invariant"`
 	Detail    string `json:"detail"`
 	Schema    string `json:"schema"`
+
+	// Guidance the server computed and the client must not re-derive. The
+	// server knows things the client cannot: how long to wait, and how many
+	// times this seat has already failed this way.
+	Exit         int    `json:"exit"`
+	Next         string `json:"next"`
+	RetryAfterMS int64  `json:"retry_after_ms"`
+	Attempts     int    `json:"attempts"`
 }
 
 // Sent is the outcome of one post, including the exact bytes that were signed
 // and sent. Tests assert these are the same bytes; nothing else reads Bytes.
 type Sent struct {
-	Status int
-	Body   wireResponse
-	Bytes  []byte
+	Status    int
+	Body      wireResponse
+	Bytes     []byte
+	Signature string
 }
 
 // Post builds, signs, and sends one command without the bytes leaving this
@@ -53,26 +62,58 @@ func (c *Client) Post(cmd map[string]any) (Sent, error) {
 		return Sent{}, fmt.Errorf("building command: %w", err)
 	}
 
-	sig := ed25519.Sign(c.priv, payload)
+	// Signed once, retried as a pair. The retry unit is (bytes, signature), so
+	// a re-serialize between attempts is impossible by construction and the
+	// idem key inside the payload cannot drift across attempts either.
+	sig := hex.EncodeToString(ed25519.Sign(c.priv, payload))
 
-	req, err := http.NewRequest("POST", c.Server+"/commands", bytes.NewReader(payload))
+	var lastErr error
+	for attempt := 0; attempt < transportAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryBackoff * time.Duration(attempt))
+		}
+		status, out, err := postExactWith(c.HTTP, c.Server, payload, sig)
+		if err == nil {
+			return Sent{Status: status, Body: out, Bytes: payload, Signature: sig}, nil
+		}
+		lastErr = err
+	}
+	return Sent{Bytes: payload, Signature: sig}, lastErr
+}
+
+// transportAttempts is three tries over the identical pair. More would delay
+// the spool, which is the thing that actually makes the loss recoverable.
+const (
+	transportAttempts = 3
+	retryBackoff      = 200 * time.Millisecond
+)
+
+// postExactWith sends bytes that are already signed. Nothing here may rebuild
+// the payload: these are the bytes the signature covers.
+func postExactWith(hc *http.Client, server string, payload []byte, sig string) (int, wireResponse, error) {
+	req, err := http.NewRequest("POST", server+"/commands", bytes.NewReader(payload))
 	if err != nil {
-		return Sent{}, err
+		return 0, wireResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Signature", hex.EncodeToString(sig))
+	req.Header.Set("X-Signature", sig)
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
-		return Sent{Bytes: payload}, err
+		return 0, wireResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	var out wireResponse
 	raw, _ := io.ReadAll(resp.Body)
 	_ = json.Unmarshal(raw, &out)
+	return resp.StatusCode, out, nil
+}
 
-	return Sent{Status: resp.StatusCode, Body: out, Bytes: payload}, nil
+// postExact is the drain path: one attempt, because the drain is already a
+// retry.
+func postExact(server string, payload []byte, sig string) (int, wireResponse, error) {
+	return postExactWith(&http.Client{Timeout: 30 * time.Second}, server, payload, sig)
 }
 
 // Preview returns the exact bytes and signature a Post would send, without

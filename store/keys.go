@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -136,7 +137,11 @@ func (s *Store) RegisterKey(actor string, pub ed25519.PublicKey, now time.Time) 
 		 ON CONFLICT(actor) DO UPDATE SET
 		   public_key = excluded.public_key,
 		   active_from = excluded.active_from,
-		   revoked_at = '', compromised = ''`,
+		   revoked_at = '',
+		   -- Revocation is routine and rotation clears it. Compromise is not:
+		   -- it is a claim about what a key already did, and a new key does not
+		   -- make that untrue. MarkCompromised is cleared by nothing.
+		   compromised = actor_key.compromised`,
 		actor, hex.EncodeToString(pub), now.UTC().Format(time.RFC3339Nano))
 	return err
 }
@@ -283,9 +288,15 @@ CREATE TABLE IF NOT EXISTS invite (
   token   TEXT PRIMARY KEY,
   actor   TEXT NOT NULL,
   created TEXT NOT NULL,
-  used_at TEXT NOT NULL DEFAULT ''
+  used_at TEXT NOT NULL DEFAULT '',
+  expires TEXT NOT NULL DEFAULT ''
 );
 `
+
+// InviteTTL bounds how long an enrolment token is worth pasting. An invite
+// with no expiry is a permanent credential sitting in whatever channel it was
+// sent through.
+const InviteTTL = 24 * time.Hour
 
 // MintInvite creates a one-time enrolment token for an actor. The operator
 // hands it over out of band; it is the only way to register a key over HTTP.
@@ -300,9 +311,20 @@ func (s *Store) MintInvite(actor string, now time.Time) (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(buf)
+
+	// One live invite per actor. Two outstanding tokens for one seat means a
+	// token in a three-month-old scrollback still enrols after the seat was
+	// offboarded — minting a new one retires the old.
+	if _, err := s.db.Exec(
+		`UPDATE invite SET used_at = ? WHERE actor = ? AND used_at = ''`,
+		"superseded:"+now.UTC().Format(time.RFC3339Nano), actor); err != nil {
+		return "", err
+	}
+
 	_, err := s.db.Exec(
-		`INSERT INTO invite(token, actor, created) VALUES(?,?,?)`,
-		token, actor, now.UTC().Format(time.RFC3339Nano))
+		`INSERT INTO invite(token, actor, created, expires) VALUES(?,?,?,?)`,
+		token, actor, now.UTC().Format(time.RFC3339Nano),
+		now.Add(InviteTTL).UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return "", err
 	}
@@ -320,9 +342,10 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 	}
 	defer tx.Rollback()
 
-	var forActor, usedAt string
-	err = tx.QueryRow(`SELECT actor, used_at FROM invite WHERE token = ?`, token).
-		Scan(&forActor, &usedAt)
+	var forActor, usedAt, expires string
+	err = tx.QueryRow(
+		`SELECT actor, used_at, COALESCE(expires,'') FROM invite WHERE token = ?`, token).
+		Scan(&forActor, &usedAt, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errors.New("unknown enrolment token")
 	}
@@ -334,6 +357,30 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 	}
 	if forActor != actor {
 		return errors.New("enrolment token was issued for a different actor")
+	}
+	if expires != "" {
+		exp, perr := time.Parse(time.RFC3339Nano, expires)
+		if perr == nil && now.After(exp) {
+			return fmt.Errorf("enrolment token expired %s ago; ask the operator for another",
+				now.Sub(exp).Round(time.Minute))
+		}
+	}
+	// Rotation after revocation is an operator act. An unspent invite must not
+	// be able to undo an offboarding, and a compromised key must not be cleared
+	// by anything an agent can run.
+	var revoked, compromised string
+	switch err := tx.QueryRow(
+		`SELECT revoked_at, compromised FROM actor_key WHERE actor = ?`, actor).
+		Scan(&revoked, &compromised); {
+	case errors.Is(err, sql.ErrNoRows): // first enrolment
+	case err != nil:
+		return err
+	case compromised != "":
+		return errors.New("key for " + actor + " is marked compromised; " +
+			"an invite cannot clear that. The operator re-enrols the seat deliberately")
+	case revoked != "":
+		return errors.New("seat " + actor + " was revoked; " +
+			"an invite cannot undo an offboarding. The operator re-enrols the seat deliberately")
 	}
 
 	if err := ValidActor(actor); err != nil {
@@ -401,4 +448,42 @@ func (s *Store) ResolveActor(name string) []string {
 		out = append(out, a)
 	}
 	return out
+}
+
+// capability is granted by the operator, never by an agent. It is a table
+// rather than a flag on actor_key because a capability is a grant with a
+// grantor, and "who gave the digest bot this" is the question asked during an
+// incident.
+const capabilitySchema = `
+CREATE TABLE IF NOT EXISTS capability (
+  actor      TEXT NOT NULL,
+  capability TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  PRIMARY KEY (actor, capability)
+);
+`
+
+// Grant gives a seat a capability. There is no verb for this: it is an
+// operator act on the server binary, so no agent can reach it.
+func (s *Store) Grant(actor, capability, by string, now time.Time) error {
+	if err := ValidActor(actor); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO capability(actor, capability, granted_at, granted_by) VALUES(?,?,?,?)
+		 ON CONFLICT(actor, capability) DO NOTHING`,
+		actor, capability, now.UTC().Format(time.RFC3339Nano), by)
+	return err
+}
+
+// HasCapability is the decision projection the core reads.
+func (s *Store) HasCapability(actor, capability string) bool {
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM capability WHERE actor = ? AND capability = ?`,
+		actor, capability).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
 }

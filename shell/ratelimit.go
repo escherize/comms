@@ -1,0 +1,127 @@
+package shell
+
+import (
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/bcm/agent_comms/core"
+)
+
+// An unattended agent can fill the log at wire speed: 700 signed posts landed
+// in 227ms against this server with nothing in the way. The limit is per key,
+// because the thing being bounded is one seat's loop, not the hub's capacity.
+//
+// It is a token bucket rather than a fixed window: a fixed window admits twice
+// the nominal rate across a boundary, and the burst it allows is exactly the
+// burst an agent posting a finished batch of findings legitimately needs.
+type limiter struct {
+	mu      sync.Mutex
+	buckets map[core.Actor]*bucket
+	rate    float64 // tokens per second
+	burst   float64
+	now     func() time.Time
+}
+
+type bucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func newLimiter(perMinute int, burst int, now func() time.Time) *limiter {
+	return &limiter{
+		buckets: map[core.Actor]*bucket{},
+		rate:    float64(perMinute) / 60,
+		burst:   float64(burst),
+		now:     now,
+	}
+}
+
+// allow reports whether this actor may post now, and how long to wait if not.
+func (l *limiter) allow(actor core.Actor, kind core.Kind) (bool, time.Duration) {
+	// ADR-0008: budgets never touch task.* or offer.*. Work coordination is not
+	// chatter, and a rate limit that could stall a claim would turn a busy room
+	// into a stuck one.
+	if exemptFromBudget(kind) {
+		return true, 0
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := l.now()
+	b, ok := l.buckets[actor]
+	if !ok {
+		b = &bucket{tokens: l.burst, last: now}
+		l.buckets[actor] = b
+	}
+	b.tokens += now.Sub(b.last).Seconds() * l.rate
+	if b.tokens > l.burst {
+		b.tokens = l.burst
+	}
+	b.last = now
+
+	if b.tokens >= 1 {
+		b.tokens--
+		return true, 0
+	}
+	// Time until one whole token exists.
+	wait := time.Duration((1 - b.tokens) / l.rate * float64(time.Second))
+	return false, wait
+}
+
+// exemptFromBudget names the kinds that coordinate work rather than fill a
+// room. It is a prefix rule so a new task.* kind is exempt by construction
+// rather than by remembering to add it here.
+func exemptFromBudget(kind core.Kind) bool {
+	k := string(kind)
+	return strings.HasPrefix(k, "task.") || strings.HasPrefix(k, "offer.")
+}
+
+// corrections counts consecutive rejections of the same invariant per seat.
+//
+// docs/CLI.md promises "at most two self-corrections, then exit 4". The client
+// cannot keep that promise: a self-correction is a fresh process with a fresh
+// idem, so there is no lineage in the client to count. The server has one — it
+// sees every rejection this seat has had — so the counter lives here, which
+// also makes the rule true for the browser rather than only for the CLI.
+type corrections struct {
+	mu   sync.Mutex
+	runs map[core.Actor]*run
+}
+
+type run struct {
+	invariant string
+	n         int
+}
+
+func newCorrections() *corrections {
+	return &corrections{runs: map[core.Actor]*run{}}
+}
+
+// rejected records a rejection and reports whether this seat has now failed the
+// same way often enough to stop. An agent that self-corrects forever without
+// succeeding is not self-correcting; it is a flood with good manners.
+func (c *corrections) rejected(actor core.Actor, invariant string) (attempts int, exhausted bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[actor]
+	if !ok || r.invariant != invariant {
+		r = &run{invariant: invariant}
+		c.runs[actor] = r
+	}
+	r.n++
+	return r.n, r.n > maxSelfCorrections
+}
+
+// accepted clears the run: the seat got somewhere, so the count starts over.
+func (c *corrections) accepted(actor core.Actor) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.runs, actor)
+}
+
+// maxSelfCorrections is two, matching docs/CLI.md. The first rejection teaches
+// the schema; the second says the agent misread it; a third says the invariant
+// is not what the agent thinks it is, and no further attempt will discover that.
+const maxSelfCorrections = 2

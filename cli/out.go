@@ -82,18 +82,20 @@ type Result struct {
 	Outcome string `json:"outcome"`
 	Exit    int    `json:"exit,omitempty"`
 
-	Seq       int64            `json:"seq,omitempty"`
-	Applied   *bool            `json:"applied,omitempty"`
-	Actor     string           `json:"actor,omitempty"`
-	Host      string           `json:"host,omitempty"`
-	Server    string           `json:"server,omitempty"`
-	Room      string           `json:"room,omitempty"`
-	KeyStatus string           `json:"key_status,omitempty"`
-	Cursors   map[string]int64 `json:"cursors,omitempty"`
-	PubKey    string           `json:"public_key,omitempty"`
-	Hash      string           `json:"hash,omitempty"`
-	Size      int              `json:"size,omitempty"`
-	Count     int              `json:"count,omitempty"`
+	Seq          int64            `json:"seq,omitempty"`
+	Applied      *bool            `json:"applied,omitempty"`
+	Actor        string           `json:"actor,omitempty"`
+	Host         string           `json:"host,omitempty"`
+	Server       string           `json:"server,omitempty"`
+	Room         string           `json:"room,omitempty"`
+	KeyStatus    string           `json:"key_status,omitempty"`
+	Cursors      map[string]int64 `json:"cursors,omitempty"`
+	RetryAfterMS int64            `json:"retry_after_ms,omitempty"`
+	Attempts     int              `json:"attempts,omitempty"`
+	PubKey       string           `json:"public_key,omitempty"`
+	Hash         string           `json:"hash,omitempty"`
+	Size         int              `json:"size,omitempty"`
+	Count        int              `json:"count,omitempty"`
 
 	Invariant string `json:"invariant,omitempty"`
 	Detail    string `json:"detail,omitempty"`
@@ -126,6 +128,14 @@ func (o *Out) FailWith(r Result) int {
 	o.Line(r)
 	o.Note("%s: %s", r.Invariant, r.Detail)
 	return r.Exit
+}
+
+// stricter reports whether the server's exit stops sooner than the local one.
+// Only ExitRefused — stop, ask a person — is stricter than a correctable
+// rejection; every other direction is the server asking the client to keep
+// trying, which is the one thing the local table exists to refuse.
+func stricter(fromServer, local int) bool {
+	return fromServer == ExitRefused && local == ExitRejected
 }
 
 // verdicts maps an invariant to what the agent should do next. The table is

@@ -185,6 +185,7 @@ CREATE TABLE IF NOT EXISTS progress (
   of        INTEGER NOT NULL DEFAULT 0,
   note      TEXT NOT NULL DEFAULT '',
   server_ts TEXT NOT NULL,
+  seq       INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (room, author)
 );
 
@@ -222,9 +223,26 @@ func Open(path string) (*Store, error) {
 	// One writer. The whole ordering story depends on it.
 	db.SetMaxOpenConns(1)
 
+	if _, err := db.Exec(capabilitySchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("capability schema: %w", err)
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
+	}
+
+	// CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so
+	// a column added later has to be added explicitly. Adding a column that is
+	// already there is the expected case, not an error.
+	for _, alter := range []string{
+		`ALTER TABLE progress ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE invite ADD COLUMN expires TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := db.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			db.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
 	}
 
 	s := &Store{db: db}
@@ -424,14 +442,48 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 	// Decision projection, same transaction: a status event folds into the
 	// author's current progress rather than being replayed to reconstruct it.
 	if ev.Kind == core.KindStatus {
-		step, _ := ev.Body["step"].(float64)
-		of, _ := ev.Body["of"].(float64)
+		step, hasStep := ev.Body["step"].(float64)
+		of, hasOf := ev.Body["of"].(float64)
+		// "still working on the migration" is not a claim that the work went
+		// back to step 0 of 0. A step-less status carries the author's existing
+		// counter forward rather than erasing it.
+		if !hasStep && !hasOf {
+			var priorStep, priorOf int
+			if err := tx.QueryRow(
+				`SELECT step, of FROM progress WHERE room = ? AND author = ?`,
+				ev.Room, string(ev.Author)).Scan(&priorStep, &priorOf); err == nil {
+				step, of = float64(priorStep), float64(priorOf)
+			}
+		}
+		_, _ = hasStep, hasOf
 		if _, err := tx.Exec(
-			`INSERT INTO progress(room, author, step, of, note, server_ts) VALUES(?,?,?,?,?,?)
+			`INSERT INTO progress(room, author, step, of, note, server_ts, seq)
+			 VALUES(?,?,?,?,?,?,?)
 			 ON CONFLICT(room, author) DO UPDATE SET
-			   step = excluded.step, of = excluded.of,
-			   note = excluded.note, server_ts = excluded.server_ts`,
-			ev.Room, string(ev.Author), int(step), int(of), text, ts); err != nil {
+			   -- Progress does not run backwards within one piece of work. A
+			   -- --step 2 landing after a --step 5 moves the bar back and makes
+			   -- a room read as though work were undone.
+			   --
+			   -- The guard is on the step, not on a timestamp or a seq, and that
+			   -- is not a stylistic choice: a delayed status arrives with a
+			   -- later server_ts and a higher seq, because the server stamps and
+			   -- numbers at arrival. There is no trustworthy earlier time to
+			   -- compare against — a client-declared one would be exactly the
+			   -- adversarial created_at this design refuses. So the ordering
+			   -- guard cannot come from ordering; it comes from the meaning of
+			   -- the field.
+			   --
+			   -- A changed total is a new piece of work, and step 1 of 4 after
+			   -- step 5 of 7 is progress, not a rewind.
+			   step      = CASE WHEN excluded.of = progress.of AND excluded.step < progress.step
+			                    THEN progress.step ELSE excluded.step END,
+			   of        = excluded.of,
+			   -- The note and the clock always move: the actor posted, so it is
+			   -- alive, whatever the step says.
+			   note      = excluded.note,
+			   server_ts = excluded.server_ts,
+			   seq       = excluded.seq`,
+			ev.Room, string(ev.Author), int(step), int(of), text, ts, next); err != nil {
 			return 0, err
 		}
 	}

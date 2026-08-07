@@ -2,6 +2,8 @@ package shell
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/bcm/agent_comms/core"
 	"net/http"
 	"strings"
 	"testing"
@@ -208,5 +210,123 @@ func TestAmbiguousShorthandIsRefusedNotGuessed(t *testing.T) {
 	if !strings.Contains(out["detail"].(string), "human:sam") ||
 		!strings.Contains(out["detail"].(string), "agent:sam") {
 		t.Errorf("the refusal must name both candidates: %v", out["detail"])
+	}
+}
+
+// An unattended agent can fill the log at wire speed. The limit is per key,
+// because what is being bounded is one seat's loop.
+func TestAPerKeyRateLimitReturns429WithARetryAfter(t *testing.T) {
+	srv, _ := newServer(t)
+
+	var throttled map[string]any
+	var code int
+	for i := 0; i < PostBurst+5; i++ {
+		code, throttled = post(t, srv, cmd("chat", "flood", itoa(int64(i))))
+		if code == http.StatusTooManyRequests {
+			break
+		}
+	}
+	if code != http.StatusTooManyRequests {
+		t.Fatalf("a seat must not be able to post without bound; got %d after %d posts",
+			code, PostBurst+5)
+	}
+	if throttled["invariant"] != "rate.exceeded" {
+		t.Errorf("want rate.exceeded, got %v", throttled["invariant"])
+	}
+	ms, ok := throttled["retry_after_ms"].(float64)
+	if !ok || ms <= 0 {
+		t.Errorf(`"slow down" without a number is an invitation to guess: %v`, throttled)
+	}
+	if throttled["exit"].(float64) != 6 {
+		t.Errorf("the throttle must map to the client's exit 6, got %v", throttled["exit"])
+	}
+
+	// A different seat is unaffected: the bound is per key.
+	if c, _ := post(t, srv, `{"room":"core","author":"agent:other","kind":"chat",`+
+		`"body":{"text":"still fine"},"idem":"other1"}`); c != http.StatusOK {
+		t.Errorf("one seat's flood must not throttle another, got %d", c)
+	}
+}
+
+// ADR-0008: budgets never touch task.* or offer.*. Work coordination is not
+// chatter, and a limit that could stall a claim turns a busy room into a stuck
+// one. The rule is a prefix so a new task.* kind is exempt by construction.
+func TestWorkCoordinationIsExemptFromTheBudget(t *testing.T) {
+	for _, k := range []string{"task.claim", "task.release", "offer.propose", "offer.settle"} {
+		if !exemptFromBudget(core.Kind(k)) {
+			t.Errorf("%s must be exempt from the posting budget", k)
+		}
+	}
+	for _, k := range []string{"chat", "finding", "til", "question", "digest"} {
+		if exemptFromBudget(core.Kind(k)) {
+			t.Errorf("%s is chatter and must be budgeted", k)
+		}
+	}
+}
+
+// docs/CLI.md promises at most two self-corrections. The client cannot keep
+// that promise — a self-correction is a fresh process with a fresh idem, so
+// there is no lineage in the client to count — but the server sees every
+// rejection this seat has had.
+func TestTheThirdIdenticalRejectionSaysAskAPerson(t *testing.T) {
+	srv, _ := newServer(t)
+
+	bad := func(n int) string {
+		return `{"room":"core","author":"agent:c1","kind":"finding",` +
+			`"body":{"text":"no severity"},"idem":"sc` + itoa(int64(n)) + `"}`
+	}
+
+	for i := 1; i <= 2; i++ {
+		code, out := post(t, srv, bad(i))
+		if code != http.StatusUnprocessableEntity {
+			t.Fatalf("attempt %d should be an ordinary rejection, got %d %v", i, code, out)
+		}
+		if out["next"] != nil && strings.Contains(fmt.Sprint(out["next"]), "ask a person") {
+			t.Errorf("attempt %d gave up too early", i)
+		}
+	}
+
+	code, out := post(t, srv, bad(3))
+	if code != http.StatusConflict {
+		t.Fatalf("the third identical rejection must escalate, got %d", code)
+	}
+	if out["exit"].(float64) != 4 {
+		t.Errorf("escalation must be exit 4, not exit 3: %v", out["exit"])
+	}
+	if !strings.Contains(fmt.Sprint(out["next"]), "agent_comms ask") {
+		t.Errorf("the escalation must name the command that asks a human: %v", out["next"])
+	}
+	if out["invariant"] != "body.severity.invalid" {
+		t.Errorf("the escalation must still name what failed, got %v", out["invariant"])
+	}
+}
+
+// A different invariant is a different problem, and progress resets the count:
+// an agent that fixes one thing and hits the next is working, not looping.
+func TestASuccessOrADifferentInvariantResetsTheCount(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "human:bcm")
+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
+		`"body":{"text":"x"},"idem":"r1"}`)
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
+		`"body":{"text":"x"},"idem":"r2"}`)
+
+	// A different invariant: the run starts over rather than inheriting a
+	// count from an unrelated mistake.
+	if code, _ := post(t, srv, `{"room":"core","author":"agent:c1","kind":"question",`+
+		`"body":{"text":"x"},"idem":"r3"}`); code != http.StatusUnprocessableEntity {
+		t.Errorf("a different invariant must be an ordinary rejection, got %d", code)
+	}
+
+	// A success clears the run entirely.
+	if code, _ := post(t, srv, cmd("chat", "got somewhere", "r4")); code != http.StatusOK {
+		t.Fatal("setup: the accepted post should succeed")
+	}
+	for i := 5; i <= 6; i++ {
+		if code, _ := post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
+			`"body":{"text":"x"},"idem":"r`+itoa(int64(i))+`"}`); code != http.StatusUnprocessableEntity {
+			t.Errorf("after a success the budget restarts; attempt %d got %d", i, code)
+		}
 	}
 }

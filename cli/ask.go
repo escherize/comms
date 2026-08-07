@@ -194,16 +194,24 @@ func claimStdinForAttach(e *Env) int {
 func send(e *Env, c *Client, cmd map[string]any, what string, retry func(string) string) int {
 	sent, err := c.Post(cmd)
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return spoolOrFail(e, c, cmd, sent, err)
 	}
 	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
 	if exit != ExitOK {
+		if sent.Body.Exit != 0 && stricter(sent.Body.Exit, exit) {
+			exit = sent.Body.Exit
+			outcome = "refused"
+		}
 		r := Result{
 			Outcome: outcome, Exit: exit,
 			Invariant: sent.Body.Invariant, Detail: sent.Body.Detail, Schema: sent.Body.Schema,
+			RetryAfterMS: sent.Body.RetryAfterMS, Attempts: sent.Body.Attempts,
 		}
 		if retry != nil {
 			r.Retry = retry(sent.Body.Invariant)
+		}
+		if sent.Body.Next != "" {
+			r.Next = sent.Body.Next
 		}
 		return e.Out.FailWith(r)
 	}

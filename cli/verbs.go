@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -167,6 +168,9 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 		})
 	}
 
+	if err := PinServer(*actor, e.Server); err != nil {
+		return e.Out.Fail(ExitInternal, "internal", "pin.unwritable", err.Error())
+	}
 	if err := SaveSeat(*actor, priv); err != nil {
 		return e.Out.Fail(ExitInternal, "internal", "key.unwritable", err.Error())
 	}
@@ -261,6 +265,10 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	if code != 0 {
 		return code
 	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	drainFirst(e, seat)
 	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
@@ -281,6 +289,9 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 			if c := claimStdinForAttach(e); c != 0 {
 				return c
 			}
+		}
+		if err := WithinTree(path); err != nil {
+			return e.Out.Fail(ExitUsage, "usage", "attach.outside_tree", err.Error())
 		}
 		content, err := readContent(e, path)
 		if err != nil {
@@ -363,23 +374,59 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 		if err != nil {
 			return e.Out.Fail(ExitInternal, "internal", "build.failed", err.Error())
 		}
-		e.Out.Line(map[string]any{"type": "event", "bytes": string(payload), "signature": sig})
+		// The signature is never printed. It is a portable, replayable
+		// capability over these exact bytes: anything that reads the transcript
+		// could post as this seat. The bytes go to a file, and what is printed
+		// is a digest, which is enough to compare two runs and useless to
+		// replay.
+		path := filepath.Join(stateDir(), "dry-run-"+safeName(seat)+".json")
+		if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+			return e.Out.Fail(ExitInternal, "internal", "dryrun.unwritable", err.Error())
+		}
+		if err := os.WriteFile(path, payload, 0o600); err != nil {
+			return e.Out.Fail(ExitInternal, "internal", "dryrun.unwritable", err.Error())
+		}
+		e.Out.Line(map[string]any{
+			"type": "dry-run", "bytes_path": path, "bytes_len": len(payload),
+			"signature_sha256": SignatureDigest(sig),
+			"detail": "the signature itself is not printed: it is a replayable " +
+				"capability over exactly these bytes",
+		})
 		return e.Out.Succeed(Result{Outcome: "dry-run"})
 	}
 
 	sent, err := c.Post(cmd)
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return spoolOrFail(e, c, cmd, sent, err)
 	}
 
 	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
 	if exit != ExitOK {
-		return e.Out.FailWith(Result{
+		if sent.Body.Invariant == "key.revoked" || sent.Body.Invariant == "key.compromised" {
+			// A dead seat must not keep a queue of signed bytes that lands the
+			// moment somebody re-enrols it.
+			DropSpool(seat)
+		}
+		// The server may tighten the verdict, never loosen it. The local table
+		// exists so an unknown future invariant cannot become a retry storm in
+		// an unattended run, and that property survives only if a server can
+		// turn "retry with a correction" into "stop", but not the reverse.
+		if sent.Body.Exit != 0 && stricter(sent.Body.Exit, exit) {
+			exit = sent.Body.Exit
+			outcome = "refused"
+		}
+		r := Result{
 			Outcome: outcome, Exit: exit,
 			Invariant: sent.Body.Invariant, Detail: sent.Body.Detail,
-			Schema: sent.Body.Schema,
-			Retry:  retryFor(sent.Body.Invariant, kind, args),
-		})
+			Schema:       sent.Body.Schema,
+			RetryAfterMS: sent.Body.RetryAfterMS,
+			Attempts:     sent.Body.Attempts,
+			Retry:        retryFor(sent.Body.Invariant, kind, args),
+		}
+		if sent.Body.Next != "" {
+			r.Next = sent.Body.Next
+		}
+		return e.Out.FailWith(r)
 	}
 
 	applied := sent.Body.Applied
@@ -460,6 +507,10 @@ event; someone else's is an operator action.`)
 	if code != 0 {
 		return code
 	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	drainFirst(e, seat)
 	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
@@ -533,6 +584,10 @@ question can tell in a glance whether it is new.`)
 	if code != 0 {
 		return code
 	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	drainFirst(e, seat)
 	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
@@ -606,6 +661,10 @@ always reaches whoever asked.
 	if code != 0 {
 		return code
 	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	drainFirst(e, seat)
 	inRoom := resolveRoom(seat, *room)
 	priv, err := LoadSeat(seat)
 	if err != nil {
@@ -647,6 +706,9 @@ you already consumed.
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
 
+	if err := WithinTree(args[0]); err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "attach.outside_tree", err.Error())
+	}
 	content, err := readContent(e, args[0])
 	if err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "content.unreadable", err.Error())
@@ -711,6 +773,10 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 	if code != 0 {
 		return code
 	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	drainFirst(e, seat)
 	inRoom := resolveRoom(seat, *room)
 	if *reset {
 		if err := ResetCursor(seat, inRoom, LaneAll); err != nil {
@@ -782,6 +848,10 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 	if code != 0 {
 		return code
 	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	drainFirst(e, seat)
 	inRoom := resolveRoom(seat, *room)
 
 	o := readOpts{

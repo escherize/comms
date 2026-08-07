@@ -45,9 +45,12 @@ func TestEveryKindHasADeliberateLane(t *testing.T) {
 // Every kind must be reachable through Decide with some body. A kind that
 // cannot be accepted at all is a kind nobody can post.
 func TestEveryKindIsPostable(t *testing.T) {
+	// Every capability granted: this test asks whether a kind can be posted at
+	// all, not who may post it. Authorization has its own tests.
 	state := State{
-		RoomExists: okRoom,
-		EventKind:  func(string) (Kind, bool) { return KindQuestion, true },
+		RoomExists:    okRoom,
+		EventKind:     func(string) (Kind, bool) { return KindQuestion, true },
+		HasCapability: func(Actor, string) bool { return true },
 	}
 
 	for _, k := range AllKinds {
