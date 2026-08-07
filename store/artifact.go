@@ -139,3 +139,44 @@ func intField(body map[string]any, key string) int {
 	}
 	return 0
 }
+
+// ApplyRedaction folds a redact event into the projection and drops the target
+// from search in the same transaction. Suppression that left the text findable
+// would be worse than no redaction at all, because the room implies it worked.
+func (s *Store) ApplyRedaction(targetSeq, bySeq int64, byActor string, now time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`INSERT INTO redacted(seq, by_actor, by_seq, server_ts) VALUES(?,?,?,?)
+		 ON CONFLICT(seq) DO NOTHING`,
+		targetSeq, byActor, bySeq, now.UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM search WHERE seq = ?`, targetSeq); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// IsRedacted backs both the renderer and the decider.
+func (s *Store) IsRedacted(seq int64) bool {
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM redacted WHERE seq = ?`, seq).Scan(&n)
+	return n > 0
+}
+
+// Redaction reports who suppressed an event and when.
+func (s *Store) Redaction(seq int64) (actor string, at time.Time, ok bool) {
+	var ts string
+	err := s.db.QueryRow(`SELECT by_actor, server_ts FROM redacted WHERE seq = ?`, seq).
+		Scan(&actor, &ts)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	at, _ = time.Parse(time.RFC3339Nano, ts)
+	return actor, at, true
+}

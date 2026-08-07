@@ -327,6 +327,20 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		last = seq
+
+		// A redact event must actually suppress its target. Rendering it
+		// struck-through while leaving the body readable and searchable is
+		// worse than no redaction, because the room implies it worked.
+		if ev.Kind == core.KindRedact && len(ev.Refs) == 1 {
+			if target, convErr := strconv.ParseInt(ev.Refs[0], 10, 64); convErr == nil {
+				if err := s.st.ApplyRedaction(target, seq, string(ev.Author), s.now()); err != nil {
+					writeJSON(w, http.StatusInternalServerError,
+						rejectedResponse{"redaction.failed", err.Error(), ""})
+					return
+				}
+			}
+		}
+
 		s.fanout(ev.Room, seq)
 	}
 	writeJSON(w, http.StatusOK, acceptedResponse{Seq: last, Applied: true})

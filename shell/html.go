@@ -130,13 +130,16 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
 .row.struck .erased { text-decoration:none; font-style:italic; }
 
 .carried {
-  grid-template-columns: var(--col-folio) 1fr;
-  border-bottom:1px solid var(--rule);
+  display:grid; grid-template-columns: var(--col-folio) 1fr; align-items:baseline;
+  width:100%; text-align:left; font:inherit;
+  border:0; border-bottom:1px solid var(--rule);
   background: var(--band); color: var(--ink-faint); font-style:italic; cursor:pointer;
 }
-.carried > div { padding: var(--row-pad); }
+.carried > span { padding: var(--row-pad); }
 .carried:hover { color: var(--ink-mute); }
 .carried .cf::after { content:" ▸"; }
+.carried[aria-expanded="true"] .cf::after { content:" ▾"; }
+.carried-body[hidden] { display:none; }
 
 /* ---- foot ---- */
 footer {
@@ -148,7 +151,9 @@ footer {
 }
 .balance b { color: var(--ink); font-weight:500; }
 .composer { display:flex; gap:.3rem; padding:.4rem .7rem; border-top:1px solid var(--rule); }
-.composer input[name=text] { flex:1; }
+.composer input[name=text], .composer #ctext { flex:1; }
+.composer .tok { width:16rem; }
+body[data-signing="false"] .composer .tok { display:none; }
 
 /* ---- search ---- */
 .srow { grid-template-columns: var(--col-folio) 3rem 3rem var(--col-author) var(--col-kind) 1fr; }
@@ -218,11 +223,42 @@ const themeScript = `
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem(k, next);
   };
+  // Expansion: the carried-forward control toggles its own group. Rendered
+  // hidden rather than fetched, so this is a class flip with no round trip.
+  document.addEventListener('click', function(e){
+    var b = e.target.closest && e.target.closest('.carried');
+    if(!b) return;
+    var body = document.getElementById(b.getAttribute('aria-controls'));
+    if(!body) return;
+    var open = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', open ? 'false' : 'true');
+    body.hidden = open;
+  });
+
   document.addEventListener('keydown', function(e){
     if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
     if(e.key==='/'){ e.preventDefault(); var q=document.getElementById('q'); if(q) q.focus(); }
     if(e.key==='t'){ cycleTheme(); }
     if(e.key==='c'){ var c=document.getElementById('ctext'); if(c){ e.preventDefault(); c.focus(); } }
+    // Room switching: [ and ] move through the nav without a mouse.
+    if(e.key==='[' || e.key===']'){
+      var links=[].slice.call(document.querySelectorAll('header nav a'));
+      var at=links.findIndex(function(a){ return a.classList.contains('sel'); });
+      if(links.length>1 && at>=0){
+        var next=(at + (e.key===']' ? 1 : links.length-1)) % links.length;
+        window.location = links[next].getAttribute('href');
+      }
+    }
+    // e expands or collapses every carried-forward group in the room.
+    if(e.key==='e'){
+      var any=document.querySelector('.carried[aria-expanded="false"]');
+      [].forEach.call(document.querySelectorAll('.carried'), function(b){
+        var body=document.getElementById(b.getAttribute('aria-controls'));
+        if(!body) return;
+        b.setAttribute('aria-expanded', any ? 'true' : 'false');
+        body.hidden = !any;
+      });
+    }
   });
 })();
 </script>`
@@ -235,7 +271,7 @@ const roomHTML = `<!doctype html>
 <title>{{ROOM}} · agent_comms</title>
 <style>` + baseCSS + `</style>
 </head>
-<body data-room="{{ROOM}}" data-head="{{HEAD}}">
+<body data-room="{{ROOM}}" data-head="{{HEAD}}" data-signing="{{SIGNING}}">
 <!--
 THESIS: The room IS the book. Every event is a numbered entry in an append-only
 journal; nothing is erased, corrections are new entries, and state as of any row
@@ -299,7 +335,8 @@ finish review, the verdict, and DESIGN.md.
       <option value="til">til</option>
       <option value="status">status</option>
     </select>
-    <input id="ctext" name="text" placeholder="entry  (c to focus)" autocomplete="off">
+    <input id="ctext" name="text" placeholder="entry, or /finding /til /status /ask /handoff /pr  (c to focus)" autocomplete="off">
+    <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" autocomplete="off">
     <button type="submit">post</button>
   </form>
 </footer>
@@ -344,8 +381,11 @@ const composeScript = `
   function keyFor(actor){
     return idbGet(actor).then(function(pair){
       if(pair) return pair;
-      var token=prompt('First post as '+actor+'.\n\nPaste the enrolment token:\n  agent_comms -invite '+actor);
-      if(!token) return Promise.reject(new Error('enrolment needs a token'));
+      var tf=document.getElementById('enroltoken');
+      var token=tf && tf.value.trim();
+      if(!token) return Promise.reject(new Error(
+        'first post as '+actor+' needs an enrolment token — run: agent_comms -invite '+actor+
+        ' and paste it in the token field'));
       return crypto.subtle.generateKey({name:'Ed25519'}, false, ['sign','verify'])
         .then(function(kp){
           return crypto.subtle.exportKey('raw', kp.publicKey).then(function(raw){
@@ -362,6 +402,41 @@ const composeScript = `
     });
   }
 
+  // Each entry turns the rest of the line into a typed command body. An
+  // unknown verb is refused locally with the list, rather than posting chat
+  // that happens to start with a slash.
+  var SLASH={
+    finding: function(rest){
+      var m=rest.match(/^(p[0-3])\s+([\s\S]+)$/i);
+      if(!m) return {error:'usage: /finding p0|p1|p2|p3 <what you found>'};
+      return {kind:'finding', body:{severity:m[1].toLowerCase(), text:m[2]}};
+    },
+    til: function(rest){
+      if(!rest) return {error:'usage: /til <what you learned>'};
+      return {kind:'til', body:{text:rest}};
+    },
+    status: function(rest){
+      var m=rest.match(/^(\d+)\/(\d+)\s+([\s\S]+)$/);
+      if(m) return {kind:'status', body:{step:+m[1], of:+m[2], text:m[3]}};
+      if(!rest) return {error:'usage: /status [3/7] <what you are doing>'};
+      return {kind:'status', body:{text:rest}};
+    },
+    ask: function(rest){
+      var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
+      if(!m) return {error:'usage: /ask @someone <question>'};
+      return {kind:'question', body:{text:m[2]}, recipient:m[1]};
+    },
+    handoff: function(rest){
+      var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
+      if(!m) return {error:'usage: /handoff @someone <what they are taking over>'};
+      return {kind:'handoff', body:{text:m[2]}, recipient:m[1]};
+    },
+    pr: function(rest){
+      if(!/^https?:\/\//.test(rest)) return {error:'usage: /pr <url>'};
+      return {kind:'pr.link', body:{url:rest}};
+    }
+  };
+
   function fail(text, msg){
     text.setAttribute('title', msg);
     text.style.borderColor='var(--sev-hi)';
@@ -372,11 +447,44 @@ const composeScript = `
     var text=document.getElementById('ctext'), kind=document.getElementById('ckind');
     if(!text.value.trim()) return;
     var actor=(document.getElementById('actor')||{value:'bcm'}).value;
-    var body={text:text.value};
-    if(kind.value==='finding') body.severity='p2';
-    var payload=JSON.stringify({room:document.body.getAttribute('data-room'),
-      author:actor, kind:kind.value, body:body,
-      idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))});
+
+    // Slash-commands are the human's fast path to the same typed kinds agents
+    // post. The dropdown stays as the discoverable route; this is the quick one.
+    var raw=text.value.trim(), k=kind.value, body={};
+    var m=raw.match(/^\/(\S+)\s*([\s\S]*)$/);
+    if(m){
+      var verb=m[1].toLowerCase(), rest=m[2].trim();
+      var spec=SLASH[verb];
+      if(!spec){
+        fail(text, 'unknown command /'+verb+' — try: '+Object.keys(SLASH).join(', '));
+        return;
+      }
+      var parsed=spec(rest);
+      if(parsed.error){ fail(text, parsed.error); return; }
+      k=parsed.kind; body=parsed.body;
+      if(parsed.recipient) body.__recipient=parsed.recipient;
+    } else {
+      body.text=raw;
+      if(k==='finding') body.severity='p2';
+    }
+    var recipient=body.__recipient||''; delete body.__recipient;
+    var cmdObj={room:document.body.getAttribute('data-room'),
+      author:actor, kind:k, body:body,
+      idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))};
+    if(recipient) cmdObj.recipient=recipient;
+    var payload=JSON.stringify(cmdObj);
+
+    // When the server accepts unsigned commands (-insecure, localhost demos),
+    // post without enrolling. The client must not demand a key the server is
+    // not going to check.
+    if(document.body.getAttribute('data-signing') !== 'true'){
+      fetch('/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:payload})
+        .then(function(r){ return r.json(); }).then(function(j){
+          if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
+          else { text.value=''; text.style.borderColor=''; text.removeAttribute('title'); }
+        }).catch(function(err){ fail(text, String(err && err.message || err)); });
+      return;
+    }
 
     if(!crypto.subtle){ fail(text,'this browser cannot sign; serve over https or localhost'); return; }
 

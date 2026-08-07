@@ -191,7 +191,7 @@ func TestPurgeRemovesFromSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hits, err := s.Search("hunter2", "", "", "", 10)
+	hits, err := s.Search("hunter2", "", "", "", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestPurgeRemovesFromSearch(t *testing.T) {
 	if err := s.Purge(seq); err != nil {
 		t.Fatal(err)
 	}
-	hits, err = s.Search("hunter2", "", "", "", 10)
+	hits, err = s.Search("hunter2", "", "", "", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestEventIsSearchableImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hits, err := s.Search("deref", "", "", "", 10)
+	hits, err := s.Search("deref", "", "", "", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,22 +242,22 @@ func TestSearchFilters(t *testing.T) {
 	mustAppend(t, s, core.Event{Room: "bash", Author: "agent:claude-1", Kind: core.KindFinding,
 		Body: map[string]any{"text": "migration order", "severity": "p1"}}, "i2")
 
-	all, _ := s.Search("migration", "", "", "", 10)
+	all, _ := s.Search("migration", "", "", "", "", 10)
 	if len(all) != 2 {
 		t.Fatalf("unfiltered: expected 2, got %d", len(all))
 	}
 
-	byRoom, _ := s.Search("migration", "bash", "", "", 10)
+	byRoom, _ := s.Search("migration", "bash", "", "", "", 10)
 	if len(byRoom) != 1 || byRoom[0].Room != "bash" {
 		t.Errorf("room filter failed: %+v", byRoom)
 	}
 
-	byKind, _ := s.Search("migration", "", "finding", "", 10)
+	byKind, _ := s.Search("migration", "", "finding", "", "", 10)
 	if len(byKind) != 1 || byKind[0].Kind != core.KindFinding {
 		t.Errorf("kind filter failed: %+v", byKind)
 	}
 
-	byAuthor, _ := s.Search("migration", "", "", "bcm", 10)
+	byAuthor, _ := s.Search("migration", "", "", "bcm", "", 10)
 	if len(byAuthor) != 1 || byAuthor[0].Author != "bcm" {
 		t.Errorf("author filter failed: %+v", byAuthor)
 	}
@@ -397,4 +397,65 @@ func itoa(n int64) string {
 		n /= 10
 	}
 	return string(b)
+}
+
+// The since: filter — the one a bug-bash room needs most, to cut a search to
+// today's hunt. RFC3339 sorts lexically, so a plain comparison is correct.
+func TestSearchSinceFilter(t *testing.T) {
+	s := newStore(t)
+	old := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+
+	if _, err := s.Append(ev(core.KindFinding, "bcm", "migration order old"), "s1", old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ev(core.KindFinding, "bcm", "migration order new"), "s2", recent); err != nil {
+		t.Fatal(err)
+	}
+
+	all, _ := s.Search("migration", "", "", "", "", 10)
+	if len(all) != 2 {
+		t.Fatalf("unfiltered: want 2, got %d", len(all))
+	}
+
+	sinceRecent, _ := s.Search("migration", "", "", "", "2026-08-05", 10)
+	if len(sinceRecent) != 1 {
+		t.Fatalf("since: want 1 hit after 2026-08-05, got %d", len(sinceRecent))
+	}
+	if sinceRecent[0].Text() != "migration order new" {
+		t.Errorf("since: returned the wrong record: %q", sinceRecent[0].Text())
+	}
+
+	// A full timestamp works too, and composes with the other filters.
+	composed, _ := s.Search("migration", "core", "finding", "bcm", "2026-08-05T00:00:00Z", 10)
+	if len(composed) != 1 {
+		t.Errorf("filters must compose: want 1, got %d", len(composed))
+	}
+}
+
+// A redacted body must not survive in search, the same as a purged one.
+func TestRedactedBodyLeavesSearch(t *testing.T) {
+	s := newStore(t)
+	seq := mustAppend(t, s, ev(core.KindChat, "bcm", "hunter2 secret"), "r1")
+
+	if hits, _ := s.Search("hunter2", "", "", "", "", 10); len(hits) != 1 {
+		t.Fatal("setup: should be searchable before redaction")
+	}
+	if err := s.ApplyRedaction(seq, seq+1, "bcm", t0); err != nil {
+		t.Fatal(err)
+	}
+	if hits, _ := s.Search("hunter2", "", "", "", "", 10); len(hits) != 0 {
+		t.Errorf("a redacted body must not survive in search, got %d hits", len(hits))
+	}
+
+	recs, _ := s.Since("core", 0, 10)
+	if len(recs) != 1 {
+		t.Fatalf("redaction must not remove the event, got %d", len(recs))
+	}
+	if !recs[0].Redacted || recs[0].Text() != "" {
+		t.Error("a redacted record must report itself redacted with no body")
+	}
+	if recs[0].RedactedBy != "bcm" {
+		t.Errorf("redaction must record who did it, got %q", recs[0].RedactedBy)
+	}
 }

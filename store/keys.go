@@ -229,3 +229,16 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 	}
 	return tx.Commit()
 }
+
+const redactSchema = `
+-- Redaction is a decision projection folded from redact events. The envelope is
+-- append-only, so suppression cannot be a column update on the target; it is
+-- state derived from a later event, which is what "corrections are new entries"
+-- means in practice.
+CREATE TABLE IF NOT EXISTS redacted (
+  seq        INTEGER PRIMARY KEY,
+  by_actor   TEXT NOT NULL,
+  by_seq     INTEGER NOT NULL,
+  server_ts  TEXT NOT NULL
+);
+`

@@ -223,3 +223,29 @@ func TestInviteIsBoundToItsActor(t *testing.T) {
 		t.Errorf("a token issued for sarah must not enrol mallory, got %d", resp.StatusCode)
 	}
 }
+
+// The client must not demand a key the server is not going to check. With
+// -insecure the composer posts unsigned; with signing on it enrols. Getting
+// this wrong froze a browser on a modal enrolment prompt.
+func TestPageAdvertisesWhetherSigningIsRequired(t *testing.T) {
+	insecure, _ := newServer(t) // RequireSignature = false
+	if page := getPage(t, insecure.URL+"/?room=core"); !strings.Contains(page, `data-signing="false"`) {
+		t.Error("an insecure server must tell the page not to enrol or sign")
+	}
+
+	signing, _ := newSigningServer(t)
+	if page := getPage(t, signing.URL+"/?room=core"); !strings.Contains(page, `data-signing="true"`) {
+		t.Error("a signing server must tell the page to enrol and sign")
+	}
+}
+
+// No modal dialogs: prompt/alert/confirm block the whole renderer.
+func TestNoBlockingDialogsInPageScripts(t *testing.T) {
+	srv, _ := newServer(t)
+	page := getPage(t, srv.URL+"/?room=core")
+	for _, banned := range []string{"prompt(", "alert(", "confirm("} {
+		if strings.Contains(page, banned) {
+			t.Errorf("page scripts must not call %s — it blocks every subsequent event", banned)
+		}
+	}
+}

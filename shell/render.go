@@ -47,15 +47,20 @@ func renderRow(r store.Record) string {
 	if r.Lane == core.Addressed {
 		classes = append(classes, "addressed")
 	}
-	if r.BodyErased || r.Kind == core.KindRedact {
+	if r.BodyErased || r.Redacted || r.Kind == core.KindRedact {
 		classes = append(classes, "struck")
 	}
 
 	var body strings.Builder
-	if r.BodyErased {
+	switch {
+	case r.BodyErased:
 		body.WriteString(`<span class="erased">body erased · hash attested ` +
 			html.EscapeString(short(r.BodyHash)) + `</span>`)
-	} else {
+	case r.Redacted:
+		body.WriteString(`<span class="erased">redacted by ` +
+			html.EscapeString(shortActor(core.Actor(r.RedactedBy))) +
+			` · hash attested ` + html.EscapeString(short(r.BodyHash)) + `</span>`)
+	default:
 		if sev := r.Severity(); sev != "" {
 			body.WriteString(`<span class="sev sev-` + html.EscapeString(sev) + `">` +
 				html.EscapeString(strings.ToUpper(sev)) + `</span> `)
@@ -136,13 +141,25 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 	// Consecutive ambient rows collapse into a carried-forward line — the
 	// ledger's own page-break convention doing the attention work.
 	run := 0
-	flush := func() {
-		if run >= carryThreshold {
-			rows.WriteString(fmt.Sprintf(
-				`<div class="carried" tabindex="0" role="button" aria-expanded="false">`+
-					`<div class="folio">·</div>`+
-					`<div class="cf">carried forward — %d entries</div></div>`, run))
+	group := 0
+	// The collapsed rows are rendered hidden rather than dropped, so expanding
+	// is a class toggle and not a fetch. The control is a real button with
+	// aria-expanded wired to its state.
+	flush := func(hidden []store.Record) {
+		if run < carryThreshold {
+			return
 		}
+		group++
+		id := fmt.Sprintf("cf%d", group)
+		rows.WriteString(fmt.Sprintf(
+			`<button class="carried" type="button" aria-expanded="false" aria-controls="%s">`+
+				`<span class="folio">·</span>`+
+				`<span class="cf">carried forward — %d entries</span></button>`+
+				`<div class="carried-body" id="%s" hidden>`, id, run, id))
+		for _, h := range hidden {
+			rows.WriteString(renderRow(h))
+		}
+		rows.WriteString(`</div>`)
 		run = 0
 	}
 	var pending []store.Record
@@ -153,7 +170,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if run >= carryThreshold {
-			flush()
+			flush(pending)
 			pending = nil
 		} else {
 			for _, p := range pending {
@@ -164,7 +181,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		rows.WriteString(renderRow(rec))
 	}
 	if run >= carryThreshold {
-		flush()
+		flush(pending)
 	} else {
 		for _, p := range pending {
 			rows.WriteString(renderRow(p))
@@ -191,6 +208,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		"{{ADDRESSED}}", fmt.Sprint(addressed),
 		"{{HEAD}}", fmt.Sprint(head),
 		"{{PROGRESS}}", s.renderProgress(room),
+		"{{SIGNING}}", fmt.Sprint(s.RequireSignature),
 	).Replace(roomHTML)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -274,7 +292,8 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	var n int
 	if q != "" {
 		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
-			r.URL.Query().Get("kind"), r.URL.Query().Get("author"), 100)
+			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
+			r.URL.Query().Get("since"), 100)
 		if err != nil {
 			rows.WriteString(`<div class="row"><div class="folio">!</div>` +
 				`<div class="author">—</div><div class="kind">ERR</div>` +

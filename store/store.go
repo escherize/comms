@@ -43,6 +43,8 @@ type Record struct {
 	PrevHash   string
 	BodyErased bool
 	Attach     []core.Attachment
+	Redacted   bool
+	RedactedBy string
 }
 
 // Text returns the body's text field, or "" when the body is absent.
@@ -139,7 +141,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-` + keySchema + inviteSchema + `
+` + keySchema + inviteSchema + redactSchema + `
 
 -- Artifacts: content-addressed GFM, deduped by hash, referenced by events.
 -- Stored beside the log so litestream covers them with no second backup path.
@@ -384,7 +386,11 @@ func (s *Store) Since(room string, after int64, limit int) ([]Record, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanRecords(rows)
+	recs, err := scanRecords(rows)
+	if err != nil {
+		return nil, err
+	}
+	return s.markRedactions(recs), nil
 }
 
 // ftsQuery makes a user's words safe for FTS5. Bare terms like "sqlite-vec" or
@@ -401,7 +407,7 @@ func ftsQuery(raw string) string {
 }
 
 // Search runs the lexical lane. Filters are applied after the FTS match.
-func (s *Store) Search(query, room, kind, author string, limit int) ([]Record, error) {
+func (s *Store) Search(query, room, kind, author, since string, limit int) ([]Record, error) {
 	q := ftsQuery(query)
 	if q == "" {
 		return nil, nil
@@ -422,6 +428,12 @@ func (s *Store) Search(query, room, kind, author string, limit int) ([]Record, e
 	if author != "" {
 		where = append(where, "e.author = ?")
 		args = append(args, author)
+	}
+	if since != "" {
+		// A date or a full timestamp; RFC3339 sorts lexically, so a plain
+		// comparison is correct without parsing.
+		where = append(where, "e.server_ts >= ?")
+		args = append(args, since)
 	}
 	clause := ""
 	if len(where) > 0 {
@@ -477,6 +489,19 @@ func scanRecords(rows *sql.Rows) ([]Record, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// markRedactions blanks suppressed bodies after scanning. Suppression is a
+// projection, so it is applied on read rather than baked into the row.
+func (s *Store) markRedactions(recs []Record) []Record {
+	for i := range recs {
+		if s.IsRedacted(recs[i].Seq) {
+			recs[i].Body = nil
+			recs[i].Redacted = true
+			recs[i].RedactedBy, _, _ = s.Redaction(recs[i].Seq)
+		}
+	}
+	return recs
 }
 
 // Purge erases a body permanently. The envelope, its hash, and the chain
