@@ -109,6 +109,8 @@ type State struct {
 	EventKind func(ref string) (Kind, bool)
 	// ArtifactExists reports whether content is stored under this hash.
 	ArtifactExists func(hash string) bool
+	// EventAuthor returns who authored a prior event, and whether it exists.
+	EventAuthor func(ref string) (Actor, bool)
 }
 
 // Decide is the whole domain. state × command → events | rejection.
@@ -158,6 +160,12 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		}
 	}
 
+	if c.Kind == KindRedact {
+		if r := checkRedaction(s, c); r != nil {
+			return nil, r
+		}
+	}
+
 	if r := checkAttachments(s, c); r != nil {
 		return nil, r
 	}
@@ -172,6 +180,32 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		Lane:        lane,
 		Attachments: c.Attachments,
 	}}, nil
+}
+
+// checkRedaction is the authorization the log's irreversibility demands. A
+// redact is permanent and instant, so an unauthorized one is unrecoverable —
+// and without this, any actor could erase any other actor's event at wire speed.
+//
+// Only the original author may suppress their own event. Someone else's leaked
+// secret is an operator action through the CLI, which holds the database, not a
+// command any actor can send.
+func checkRedaction(s State, c Command) *Rejection {
+	if s.EventAuthor == nil {
+		return nil
+	}
+	author, ok := s.EventAuthor(c.Refs[0])
+	if !ok {
+		// A redact naming nothing must not report success. Silently accepting
+		// it tells an agent the secret is gone when it is still readable.
+		return &Rejection{"refs.unknown",
+			"no event at " + c.Refs[0] + "; a redact that names nothing would report success and do nothing"}
+	}
+	if author != c.Author {
+		return &Rejection{"redact.not_author",
+			"only " + string(author) + " may redact their own event; erasure is permanent, " +
+				"so someone else's paste is an operator action, not a command"}
+	}
+	return nil
 }
 
 // checkAttachments refuses an event that points at content nobody stored. A

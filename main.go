@@ -20,7 +20,6 @@ func main() {
 	db := flag.String("db", "comms.db", "path to the event log")
 	rooms := flag.String("rooms", "core", "comma-separated rooms to ensure at startup")
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
-	genKey := flag.String("genkey", "", "generate a keypair for this actor, register the public half, print the private half, and exit")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
 	flag.Parse()
@@ -45,13 +44,6 @@ func main() {
 			log.Fatalf("invite: %v", err)
 		}
 		fmt.Printf("enrolment token for %s:\n\n  %s\n\nOne use. Hand it over out of band.\n", *invite, tok)
-		return
-	}
-
-	if *genKey != "" {
-		if err := generateKey(st, *genKey); err != nil {
-			log.Fatalf("genkey: %v", err)
-		}
 		return
 	}
 

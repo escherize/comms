@@ -127,3 +127,56 @@ func TestKeyboardBindingsArePresent(t *testing.T) {
 		}
 	}
 }
+
+// A reused idempotency key with different content must surface as a conflict.
+// It previously returned 200 with the first post's seq and dropped this one.
+func TestIdemConflictIsA409(t *testing.T) {
+	srv, _ := newServer(t)
+
+	post(t, srv, cmd("chat", "ORIGINAL", "shared-key"))
+
+	code, out := post(t, srv, cmd("chat", "COMPLETELY DIFFERENT", "shared-key"))
+	if code != http.StatusConflict {
+		t.Fatalf("reuse with different content must be 409, got %d (%v)", code, out)
+	}
+	if out["invariant"] != "idem.conflict" {
+		t.Errorf("want idem.conflict, got %v", out["invariant"])
+	}
+	if d, _ := out["detail"].(string); !strings.Contains(d, "new key") {
+		t.Errorf("the refusal must tell the agent what to do instead, got %q", d)
+	}
+
+	// A genuine retry — identical content — is still answered from the log.
+	code, out = post(t, srv, cmd("chat", "ORIGINAL", "shared-key"))
+	if code != http.StatusOK {
+		t.Errorf("an identical retry must still succeed, got %d", code)
+	}
+	if applied, _ := out["applied"].(bool); applied {
+		t.Error("a replayed key must report applied=false")
+	}
+}
+
+// Redaction authorization, end to end over the wire.
+func TestRedactAuthorizationOverTheWire(t *testing.T) {
+	srv, _ := newServer(t)
+	_, out := post(t, srv, cmd("chat", "bcm private note", "p1"))
+	target := itoa(int64(out["seq"].(float64)))
+
+	code, rej := post(t, srv, `{"room":"core","author":"mallory","kind":"redact",`+
+		`"body":{"text":"nuking"},"refs":["`+target+`"],"idem":"m1"}`)
+	if code != http.StatusUnprocessableEntity || rej["invariant"] != "redact.not_author" {
+		t.Fatalf("another actor must not redact: %d %v", code, rej)
+	}
+	if page := getPage(t, srv.URL+"/?room=core"); !strings.Contains(page, "bcm private note") {
+		t.Error("the refused redact must leave the event intact")
+	}
+
+	code, _ = post(t, srv, `{"room":"core","author":"bcm","kind":"redact",`+
+		`"body":{"text":"my paste"},"refs":["`+target+`"],"idem":"b1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("the author must be able to redact their own event, got %d", code)
+	}
+	if page := getPage(t, srv.URL+"/?room=core"); strings.Contains(page, "bcm private note") {
+		t.Error("the authorized redact must suppress")
+	}
+}

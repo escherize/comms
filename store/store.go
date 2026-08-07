@@ -89,6 +89,15 @@ func (e ErrDuplicate) Error() string {
 	return fmt.Sprintf("idempotency key already applied at seq %d", e.Seq)
 }
 
+// ErrIdemConflict reports the same idempotency key arriving with different
+// content. Answering that as a duplicate would return someone else's seq and
+// silently discard the post — data loss reported as success.
+type ErrIdemConflict struct{ Seq int64 }
+
+func (e ErrIdemConflict) Error() string {
+	return fmt.Sprintf("idempotency key already used at seq %d with different content", e.Seq)
+}
+
 const schema = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -104,6 +113,7 @@ CREATE TABLE IF NOT EXISTS envelope (
   lane       INTEGER NOT NULL,
   refs       TEXT    NOT NULL DEFAULT '[]',
   idem       TEXT    NOT NULL UNIQUE,
+  idem_hash  TEXT    NOT NULL DEFAULT '',
   body_hash  TEXT    NOT NULL,
   prev_hash  TEXT    NOT NULL,
   attach     TEXT    NOT NULL DEFAULT '[]'
@@ -255,13 +265,26 @@ func (s *Store) EventKind(ref string) (core.Kind, bool) {
 	return core.Kind(k), true
 }
 
+// EventAuthor backs the decider's redaction authorization.
+func (s *Store) EventAuthor(ref string) (core.Actor, bool) {
+	var a string
+	if err := s.db.QueryRow(`SELECT author FROM envelope WHERE seq = ?`, ref).Scan(&a); err != nil {
+		return "", false
+	}
+	return core.Actor(a), true
+}
+
 // Append writes one accepted event and every projection that must stay in step
 // with it, in a single transaction. It returns the assigned seq.
 //
 // A repeated idem key returns ErrDuplicate carrying the original seq, so the
 // retry is answered from the log instead of being decided again.
 func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error) {
-	if existing, ok := s.seqForIdem(idem); ok {
+	fingerprint := idemFingerprint(ev)
+	if existing, storedHash, ok := s.seqForIdem(idem); ok {
+		if storedHash != "" && storedHash != fingerprint {
+			return existing, ErrIdemConflict{Seq: existing}
+		}
 		return existing, ErrDuplicate{Seq: existing}
 	}
 
@@ -308,10 +331,11 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 
 	ts := now.UTC().Format(time.RFC3339Nano)
 	_, err = tx.Exec(
-		`INSERT INTO envelope(seq, server_ts, room, author, kind, recipient, lane, refs, idem, body_hash, prev_hash, attach)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO envelope(seq, server_ts, room, author, kind, recipient, lane, refs, idem, body_hash, prev_hash, attach, idem_hash)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		next, ts, ev.Room, string(ev.Author), string(ev.Kind), string(ev.Recipient),
-		int(ev.Lane), string(refsJSON), idem, bodyHash, chainPrev, string(attachJSON))
+		int(ev.Lane), string(refsJSON), idem, bodyHash, chainPrev, string(attachJSON),
+		fingerprint)
 	if err != nil {
 		return 0, err
 	}
@@ -363,13 +387,25 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 	return next, nil
 }
 
-func (s *Store) seqForIdem(idem string) (int64, bool) {
+func (s *Store) seqForIdem(idem string) (int64, string, bool) {
 	var seq int64
-	err := s.db.QueryRow(`SELECT seq FROM envelope WHERE idem = ?`, idem).Scan(&seq)
+	var hash string
+	err := s.db.QueryRow(`SELECT seq, idem_hash FROM envelope WHERE idem = ?`, idem).
+		Scan(&seq, &hash)
 	if err != nil {
-		return 0, false
+		return 0, "", false
 	}
-	return seq, true
+	return seq, hash, true
+}
+
+// idemFingerprint identifies the content a key was used for, so a reused key
+// carrying different content is distinguishable from a genuine retry.
+func idemFingerprint(ev core.Event) string {
+	body, _ := json.Marshal(ev.Body)
+	refs, _ := json.Marshal(ev.Refs)
+	return hashBytes([]byte(ev.Room + "\x00" + string(ev.Author) + "\x00" +
+		string(ev.Kind) + "\x00" + string(ev.Recipient) + "\x00" +
+		string(body) + "\x00" + string(refs)))
 }
 
 // Since returns a room's records with seq greater than after, oldest first.
@@ -403,7 +439,11 @@ func ftsQuery(raw string) string {
 	for _, f := range fields {
 		quoted = append(quoted, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
 	}
-	return strings.Join(quoted, " ")
+	// OR, not AND. ANDing every token meant one word the room happens not to
+	// contain returned zero hits — so an agent searching before it posts
+	// concluded nobody knew, and posted a duplicate. bm25 ranking already puts
+	// the best match first; precision is the ranker's job, not the gate's.
+	return strings.Join(quoted, " OR ")
 }
 
 // Search runs the lexical lane. Filters are applied after the FTS match.

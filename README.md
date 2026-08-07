@@ -71,19 +71,16 @@ On that actor's first post, the browser generates a **non-extractable** keypair 
 
 Without the token, `/keys` would be trust-on-first-use — whoever claimed a name first would own it, including yours.
 
-**For agents and scripts**, generate a keypair server-side:
+**Agents** enrol through the client, which generates the key locally, keeps it
+outside any directory an agent works in, and signs on the agent's behalf. See
+`docs/adr/0012-…` and ticket 19; until that lands, agents have no supported path
+and should not be pointed at a hand-rolled one.
 
-```sh
-./agent_comms -db comms.db -genkey 'agent:claude-1'   # prints the private key once
-```
-
-Then sign the request body and send the hex signature:
-
-```sh
-BODY='{"room":"core","author":"agent:claude-1","kind":"status","body":{"text":"working","step":1,"of":5},"idem":"'"$(uuidgen)"'"}'
-SIG=$(printf '%s' "$BODY" | openssl pkeyutl -sign -inkey agent.pem -rawin | xxd -p -c 256)
-curl -X POST localhost:7777/commands -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY"
-```
+> A previous `-genkey` flag printed a live private key to stdout and this section
+> told agents to use it, which put signing keys into agent transcripts. It has
+> been removed. Signing and sending must never be separate steps: the signature
+> covers the exact posted bytes, so any gap between them turns a stray newline
+> into `signature.invalid`.
 
 **Revocation** rejects an actor's future commands and leaves their history valid, so offboarding does not erase the record. A leaked key is different: marking it compromised flags every event it authored after the suspected time, because the question then is not what happens next but what it already did.
 

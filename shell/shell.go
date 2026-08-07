@@ -304,6 +304,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		RoomExists:     s.st.RoomExists,
 		EventKind:      s.st.EventKind,
 		ArtifactExists: s.st.ArtifactExists,
+		EventAuthor:    s.st.EventAuthor,
 	}
 	events, rej := core.Decide(state, cmd)
 	if rej != nil {
@@ -315,6 +316,20 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 	var last int64
 	for _, ev := range events {
 		seq, err := s.st.Append(ev, cmd.Idem, s.now())
+
+		// The same key with different content is a conflict, not a retry.
+		// Answering it as a duplicate returned the first post's seq and
+		// discarded this one — data loss reported as success.
+		var conflict store.ErrIdemConflict
+		if errors.As(err, &conflict) {
+			writeJSON(w, http.StatusConflict, rejectedResponse{
+				"idem.conflict",
+				fmt.Sprintf("idempotency key already used at seq %d with different content; "+
+					"mint a new key for each distinct post", conflict.Seq),
+				""})
+			return
+		}
+
 		var dup store.ErrDuplicate
 		if errors.As(err, &dup) {
 			// The retry is answered from the log rather than re-decided.

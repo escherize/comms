@@ -459,3 +459,54 @@ func TestRedactedBodyLeavesSearch(t *testing.T) {
 		t.Errorf("redaction must record who did it, got %q", recs[0].RedactedBy)
 	}
 }
+
+// The same key with different content is a conflict, not a duplicate. Answering
+// it as a duplicate returned the first post's seq and silently discarded the
+// second — data loss reported as success.
+func TestIdemReuseWithDifferentContentConflicts(t *testing.T) {
+	s := newStore(t)
+
+	first, err := s.Append(ev(core.KindChat, "bcm", "ORIGINAL"), "k", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Genuine retry: identical content, same key. Still a duplicate.
+	if _, err := s.Append(ev(core.KindChat, "bcm", "ORIGINAL"), "k", t0); err == nil {
+		t.Error("an identical retry should report ErrDuplicate")
+	} else {
+		var dup ErrDuplicate
+		if !errors.As(err, &dup) {
+			t.Errorf("identical retry should be ErrDuplicate, got %T", err)
+		}
+	}
+
+	// Different content, same key: must not be silently swallowed.
+	_, err = s.Append(ev(core.KindChat, "bcm", "COMPLETELY DIFFERENT"), "k", t0)
+	var conflict ErrIdemConflict
+	if !errors.As(err, &conflict) {
+		t.Fatalf("reuse with different content must conflict, got %v", err)
+	}
+	if conflict.Seq != first {
+		t.Errorf("the conflict should name the seq that holds the key, got %d", conflict.Seq)
+	}
+}
+
+// ANDing every token meant one absent word returned zero hits against a room
+// that held the answer, so an agent searching before posting concluded nobody
+// knew and posted a duplicate.
+func TestSearchDoesNotRequireEveryToken(t *testing.T) {
+	s := newStore(t)
+	mustAppend(t, s, ev(core.KindTIL, "agent:c1", "sqlite-vec rejects long bodies"), "q1")
+
+	exact, _ := s.Search("sqlite-vec rejects long bodies", "", "", "", "", 10)
+	if len(exact) != 1 {
+		t.Fatalf("the exact phrase must match, got %d", len(exact))
+	}
+
+	// One word the room does not contain must not zero the result.
+	loose, _ := s.Search("sqlite-vec long bodies missing", "", "", "", "", 10)
+	if len(loose) != 1 {
+		t.Errorf("a query with one absent word must still find the record, got %d hits", len(loose))
+	}
+}
