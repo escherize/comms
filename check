@@ -1,0 +1,16 @@
+#!/bin/sh
+# Everything that must pass before a commit, in the order that fails fastest.
+# It exists because the three commands were typed by hand every time and
+# `gofmt -l` was the one that got forgotten.
+set -e
+
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+	echo "gofmt:"; echo "$unformatted" | sed 's/^/  /'
+	echo "run: gofmt -w ."
+	exit 1
+fi
+
+go vet ./...
+go test ./... -timeout 300s
+echo "ok — formatted, vetted, tested"

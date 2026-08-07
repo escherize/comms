@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -516,5 +517,66 @@ func TestSearchDoesNotRequireEveryToken(t *testing.T) {
 	}
 	if len(loose) != 1 {
 		t.Errorf("a query with one absent word must still find the record, got %d hits", len(loose))
+	}
+}
+
+// A database created before a column existed must still open. CREATE TABLE IF
+// NOT EXISTS does nothing to a table that already exists, so every column added
+// after the first release is invisible to every database already in the field —
+// and the only symptom is "no such column" at query time, from whichever query
+// happens to run first.
+//
+// The suite otherwise only ever creates new databases, which is exactly why
+// this went unnoticed until a live hub hit it.
+func TestADatabaseFromAnEarlierSchemaStillOpens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+
+	// Build the shape the schema had before progress.seq and invite.expires.
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`
+		CREATE TABLE progress (
+		  room TEXT NOT NULL, author TEXT NOT NULL,
+		  step INTEGER NOT NULL DEFAULT 0, of INTEGER NOT NULL DEFAULT 0,
+		  note TEXT NOT NULL DEFAULT '', server_ts TEXT NOT NULL,
+		  PRIMARY KEY (room, author));
+		CREATE TABLE invite (
+		  token TEXT PRIMARY KEY, actor TEXT NOT NULL,
+		  created TEXT NOT NULL, used_at TEXT NOT NULL DEFAULT '');
+		INSERT INTO progress(room, author, step, of, note, server_ts)
+		  VALUES('core','agent:old',2,5,'mid-migration','2026-08-01T00:00:00Z');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("an existing database must open after a column is added: %v", err)
+	}
+	defer s.Close()
+
+	// The added columns must be usable, not merely present.
+	if err := s.EnsureRoom("core"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:old",
+		Kind: core.KindStatus, Body: map[string]any{"text": "resumed", "step": float64(3), "of": float64(5)},
+		Lane: core.LaneOf(core.KindStatus)}, "mig1", time.Now()); err != nil {
+		t.Fatalf("append after migration: %v", err)
+	}
+	if _, err := s.MintInvite("agent:old", time.Now()); err != nil {
+		t.Fatalf("invite after migration: %v", err)
+	}
+
+	// And the data that was already there survives.
+	rows, err := s.ProgressFor("core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Step != 3 {
+		t.Errorf("the migrated row should have folded forward, got %+v", rows)
 	}
 }

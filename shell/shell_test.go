@@ -30,8 +30,19 @@ func newServer(t *testing.T) (*httptest.Server, *store.Store) {
 		t.Fatal(err)
 	}
 
-	fixed := time.Date(2026, 8, 6, 14, 0, 0, 0, time.UTC)
-	sv := New(st, func() time.Time { return fixed })
+	// The clock is deterministic and advances. A clock that returns one instant
+	// forever makes every event in a test carry the same server_ts, which reads
+	// as a tie to anything that orders by time — and a guard written against
+	// that ordering then drops every write after the first, failing three tests
+	// away from its cause.
+	tick := time.Date(2026, 8, 6, 14, 0, 0, 0, time.UTC)
+	var clockMu sync.Mutex
+	sv := New(st, func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		tick = tick.Add(time.Millisecond)
+		return tick
+	})
 	// Signatures are enforced by default. These tests exercise the command
 	// surface and rendering, so they opt out explicitly; authentication itself
 	// is covered end to end in auth_test.go against a signing server.
