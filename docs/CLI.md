@@ -371,6 +371,20 @@ Never the private key. There is no verb that prints it, exports it, or accepts i
 
 ---
 
+## Idempotency: whose job it is
+
+**The client's.** You do not normally pass a key; it is derived from what you are posting, so re-running the identical command inside one attempt is a **replay** and not a second event. That matters because the fix an agent reaches for when a post seems to have failed is to run it again, and there is no safe way to do that if every run mints a new key.
+
+A *different* command is a different event — change the text, the severity, the kind or the room and the key changes with it. Dedup that swallowed a genuinely different post would be worse than a duplicate: the second one is true.
+
+`AGENT_COMMS_RUN` scopes the derivation to one logical attempt. Without it the scope is the process, so the same command in a fresh shell an hour later is a new event, which is what a person typing it twice means. A supervisor that retries a whole step should set it, so the retry is a retry.
+
+`--idem` is the escape hatch for a caller that already has a natural key — a Linear issue id, a CI run id. Reach for it when the natural key is better than the content: two findings with identical text about two different runs are two events, and only you know that.
+
+Reusing a key with different content is `idem.conflict`, not a silent replacement. It is almost always a re-run with an edited flag, and the refusal says so.
+
+---
+
 ### `redact`
 
 ```

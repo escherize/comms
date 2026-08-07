@@ -526,3 +526,52 @@ func fencedBlocks(doc string) []string {
 	}
 	return out
 }
+
+// docs/CLI.md, the README's API section and SKILL.md must tell one story about
+// idempotency. Two agents in the 2026-08-07 study reached for an --idem flag,
+// found nothing, and drew opposite conclusions about whose job dedup is —
+// because the API required a key and the client silently invented one.
+func TestTheThreeDocsTellOneIdempotencyStory(t *testing.T) {
+	docs := map[string]string{
+		"docs/CLI.md":         mustRead(t, "../docs/CLI.md"),
+		"README.md":           mustRead(t, "../README.md"),
+		"docs/AGENT-SKILL.md": mustRead(t, "../docs/AGENT-SKILL.md"),
+	}
+
+	for name, doc := range docs {
+		lower := strings.ToLower(doc)
+		if !strings.Contains(lower, "idem") {
+			t.Errorf("%s never mentions idempotency, so a reader of it alone cannot know "+
+				"whether it is their job", name)
+			continue
+		}
+		// The one claim all three must make: the client derives the key, so a
+		// re-run of the same command is a replay.
+		if !strings.Contains(lower, "replay") && !strings.Contains(lower, "replayed") {
+			t.Errorf("%s does not say a re-run is a replay, which is the whole rule", name)
+		}
+	}
+
+	// And --idem must be real wherever it is described.
+	for name, doc := range docs {
+		if !strings.Contains(doc, "--idem") {
+			continue
+		}
+		var c capture
+		env := c.env(t, "http://127.0.0.1:1", "")
+		env.Out.Quiet = true
+		Run(env, []string{"post", "--help"})
+		if !strings.Contains(c.out.String(), "--idem") {
+			t.Errorf("%s documents --idem and post --help does not offer it", name)
+		}
+	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	return string(b)
+}

@@ -148,6 +148,28 @@ func newEscalations(now func() time.Time) *escalations {
 	return &escalations{spent: map[core.Actor][]time.Time{}, now: now}
 }
 
+// canSpend reports whether there is budget without taking it. The check and the
+// take are separate because a replay must not be charged: escalating the same
+// entry with the same words twice is one act, and the second one interrupts
+// nobody.
+func (e *escalations) canSpend(actor core.Actor) (remaining int, retryAfter time.Duration, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.now()
+	cutoff := now.Add(-EscalationWindow)
+	var live []time.Time
+	for _, at := range e.spent[actor] {
+		if at.After(cutoff) {
+			live = append(live, at)
+		}
+	}
+	e.spent[actor] = live
+	if len(live) >= EscalationBudget {
+		return 0, live[0].Add(EscalationWindow).Sub(now), false
+	}
+	return EscalationBudget - len(live), 0, true
+}
+
 // spend records one escalation and reports what is left. It returns ok=false
 // when the budget is exhausted, along with when the oldest spend expires — an
 // agent told "no" without being told "until when" will simply ask again.

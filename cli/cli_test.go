@@ -305,10 +305,12 @@ func TestEscalateSpendsItsBudgetThenRefuses(t *testing.T) {
 	}
 	target := itoa(int64(lines(t, &f)[0]["seq"].(float64)))
 
+	// Three different reasons: identical ones are one act, and the client's
+	// content-derived key correctly makes the repeat a replay.
 	for i := 1; i <= 3; i++ {
 		var c capture
 		code := Run(c.env(t, srv.URL, ""), []string{"escalate", target, "--as", seat,
-			"--to", "human:sarah", "--text", "this blocks Thursday"})
+			"--to", "human:sarah", "--text", "reason " + itoa(int64(i))})
 		if code != ExitOK {
 			t.Fatalf("escalation %d should be affordable: %d %s", i, code, c.out.String())
 		}
@@ -320,7 +322,7 @@ func TestEscalateSpendsItsBudgetThenRefuses(t *testing.T) {
 
 	var over capture
 	code := Run(over.env(t, srv.URL, ""), []string{"escalate", target, "--as", seat,
-		"--to", "human:sarah", "--text", "please"})
+		"--to", "human:sarah", "--text", "a fourth reason"})
 	// Exit 6, not 4: an escalation budget refills, so this is wait-and-retry
 	// rather than stop-and-ask. The retry_after is what makes that actionable.
 	if code != ExitThrottled {

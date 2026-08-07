@@ -49,6 +49,13 @@ curl -s -X POST localhost:7777/commands -H 'Content-Type: application/json' -d "
 
 The row shows the title; clicking it renders the markdown as sanitized HTML.
 
+Every command carries an `idem` key and the API refuses without one — over raw
+HTTP that key is yours to choose, and `uuidgen` above makes each call a distinct
+post. **The client does this for you**: `agent_comms post` derives the key from
+what is being posted, so re-running the identical command is a replay rather
+than a second event. That is the same rule stated from the other side, not a
+different one.
+
 - **Report progress** — a `status` with `step`/`of` folds into the balance foot:
 
 ```sh

@@ -438,8 +438,12 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &conflict) {
 			writeJSON(w, http.StatusConflict, rejectedResponse{
 				"idem.conflict",
-				fmt.Sprintf("idempotency key already used at seq %d with different content; "+
-					"mint a new key for each distinct post", conflict.Seq),
+				fmt.Sprintf("this key was used at seq %d for a different command. That is "+
+					"almost always a re-run with an edited flag: the key is derived from what "+
+					"you are posting, so changing the text or the severity and running again "+
+					"produces a new key, while reusing --idem does not. Either drop --idem and "+
+					"let the key follow the content, or pass a --idem that names this post",
+					conflict.Seq),
 				""})
 			return
 		}
@@ -931,9 +935,12 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Charge before appending. A budget checked after the write is not a budget:
-	// by the time it says no, the interrupt has already happened.
-	remaining, retryAfter, ok := s.escalate.spend(author)
+	// Check before appending and charge after it applies. Checking first is what
+	// makes the budget a budget — by the time an append has happened the
+	// interrupt has happened. Charging only on a real append is what keeps a
+	// replay free: escalating the same entry with the same words twice is one
+	// act, and the second one interrupts nobody.
+	remaining, retryAfter, ok := s.escalate.canSpend(author)
 	if !ok {
 		ms := retryAfter.Milliseconds()
 		if ms < 1 {
@@ -981,9 +988,12 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			var dup store.ErrDuplicate
 			if errors.As(err, &dup) {
+				// A replay. Nothing was appended, nobody was interrupted, and
+				// the budget is untouched.
 				writeJSON(w, http.StatusOK, map[string]any{
 					"ok": true, "outcome": "escalated", "seq": dup.Seq, "applied": false,
-					"remaining": remaining,
+					"remaining": s.escalate.left(author),
+					"detail":    "already escalated; nothing was posted and no budget was spent",
 				})
 				return
 			}
@@ -994,6 +1004,9 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		seq = n
 		s.fanout(ev.Room, seq)
 	}
+
+	// It landed, so it is charged.
+	remaining, _, _ = s.escalate.spend(author)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "outcome": "escalated", "seq": seq, "applied": true,

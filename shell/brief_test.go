@@ -822,3 +822,46 @@ func TestTheHTMLStreamStillSendsRoomRowsWithoutAQuery(t *testing.T) {
 		t.Error("a room row must not be search-shaped")
 	}
 }
+
+// A replayed escalation costs nothing. Escalating the same entry with the same
+// words twice is one act, and the second one interrupts nobody — so charging it
+// would spend a budget on an interrupt that did not happen.
+func TestAReplayedEscalationIsFree(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "human:sarah")
+	_, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
+		`"body":{"text":"blocks the migration","severity":"p1"},"idem":"rf"}`)
+	target := itoa(int64(out["seq"].(float64)))
+
+	body := `{"room":"core","author":"agent:c1","refs":"` + target +
+		`","to":"human:sarah","text":"this blocks Thursday","idem":"same-key"}`
+
+	code, first := postTo(t, srv, "/escalate", body)
+	if code != http.StatusOK || first["applied"] != true {
+		t.Fatalf("setup: %d %v", code, first)
+	}
+	afterFirst := first["remaining"].(float64)
+
+	code, second := postTo(t, srv, "/escalate", body)
+	if code != http.StatusOK {
+		t.Fatalf("a replay must not fail, got %d", code)
+	}
+	if second["applied"] != false {
+		t.Error("the second identical escalation must be a replay")
+	}
+	if second["remaining"].(float64) != afterFirst {
+		t.Errorf("a replay spent budget: %v then %v", afterFirst, second["remaining"])
+	}
+
+	// And exactly one interruption is in the log.
+	recs, _ := st.Since("core", 0, 100)
+	var questions int
+	for _, r := range recs {
+		if r.Kind == core.KindQuestion {
+			questions++
+		}
+	}
+	if questions != 1 {
+		t.Errorf("one escalation, run twice, must interrupt once; got %d", questions)
+	}
+}

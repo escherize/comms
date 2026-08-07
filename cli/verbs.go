@@ -217,6 +217,7 @@ func runPost(e *Env, args []string) int {
 	fs.Var(&attachHash, "attach-hash", "attach an already-uploaded hash (repeatable)")
 	attachTitle := multiFlag{}
 	fs.Var(&attachTitle, "attach-title", "title for each attachment, in order (repeatable)")
+	idem := fs.String("idem", "", "reuse a natural key you already have (see --help)")
 	dryRun := fs.Bool("dry-run", false, "print the exact bytes and signature without sending")
 	fs.Usage = func() {
 		e.Out.Help(`agent_comms post <kind> --as <seat> [flags]
@@ -229,6 +230,13 @@ kinds: %s
 --about names what the entry concerns (a ticket, a file, a ref). It is indexed,
 so: search --kind finding "24" finds every finding about ticket 24 rather than
 every finding whose prose happens to contain the digits.
+
+--idem reuses a key you already have — a Linear issue id, a CI run id, a task
+number. Reach for it when the natural key is better than the content: two
+findings with identical text about two different runs are two events, and only
+you know that. With no --idem the key is derived from what you are posting, so
+re-running the identical command inside one attempt is a replay rather than a
+second event.
 
 The entry can come from anywhere quoting is easier: --text "…", --text-file
 PATH, or --text - to read stdin. Long content belongs in an artifact instead:
@@ -352,11 +360,12 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 
 	cmd := map[string]any{
 		"room": inRoom, "author": seat, "kind": string(kind),
-		"body": body, "idem": newIdem(),
+		"body": body,
 	}
 	if len(atts) > 0 {
 		cmd["attachments"] = atts
 	}
+	applyIdem(e, cmd, *idem)
 	if *to != "" {
 		cmd["recipient"] = *to
 	}
@@ -506,6 +515,7 @@ func shellQuote(s string) string {
 
 func runRedact(e *Env, args []string) int {
 	fs, sink := newFlags("redact")
+	idem := fs.String("idem", "", "reuse a natural key you already have")
 	actor := fs.String("as", "", "the seat redacting")
 	room := fs.String("room", "", "the room the event is in")
 	why := fs.String("why", "", "why it is being suppressed")
@@ -559,11 +569,13 @@ event; someone else's is an operator action.`)
 	}
 
 	c := NewClient(e.Server, seat, priv)
-	sent, err := c.Post(map[string]any{
+	cmd := map[string]any{
 		"room": inRoom, "author": seat, "kind": "redact",
 		"body": map[string]any{"text": *why},
-		"refs": []string{seqArg}, "idem": newIdem(),
-	})
+		"refs": []string{seqArg},
+	}
+	applyIdem(e, cmd, *idem)
+	sent, err := c.Post(cmd)
 	if err != nil {
 		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
 	}
@@ -584,6 +596,7 @@ event; someone else's is an operator action.`)
 
 func runAsk(e *Env, args []string) int {
 	fs, sink := newFlags("ask")
+	idem := fs.String("idem", "", "reuse a natural key you already have")
 	extraRefs := fs.String("refs", "", "comma-separated refs to carry, alongside what search attaches")
 	actor := fs.String("as", "", "the seat asking")
 	room := fs.String("room", "", "room to ask in")
@@ -663,11 +676,12 @@ question can tell in a glance whether it is new.`)
 	cmd := map[string]any{
 		"room": inRoom, "author": seat, "kind": "question",
 		"body":      map[string]any{"text": question},
-		"recipient": *to, "idem": newIdem(),
+		"recipient": *to,
 	}
 	if len(refs) > 0 {
 		cmd["refs"] = refs
 	}
+	applyIdem(e, cmd, *idem)
 	return send(e, NewClient(e.Server, seat, priv), cmd, "question", nil)
 }
 
@@ -675,6 +689,7 @@ question can tell in a glance whether it is new.`)
 
 func runAnswer(e *Env, args []string) int {
 	fs, sink := newFlags("answer")
+	idem := fs.String("idem", "", "reuse a natural key you already have")
 	actor := fs.String("as", "", "the seat answering")
 	room := fs.String("room", "", "room the question is in")
 	toQuestion := fs.String("to-question", "", "the seq of the question you are answering")
@@ -721,11 +736,13 @@ always reaches whoever asked.
 	}
 
 	// No recipient is sent: the core derives it from the question's author.
-	return send(e, NewClient(e.Server, seat, priv), map[string]any{
+	cmd := map[string]any{
 		"room": inRoom, "author": seat, "kind": "answer",
 		"body": map[string]any{"text": body},
-		"refs": []string{*toQuestion}, "idem": newIdem(),
-	}, "answer", nil)
+		"refs": []string{*toQuestion},
+	}
+	applyIdem(e, cmd, *idem)
+	return send(e, NewClient(e.Server, seat, priv), cmd, "answer", nil)
 }
 
 // ---------------------------------------------------------------- attach
@@ -1009,6 +1026,7 @@ key, and no verb, flag or environment variable does.
 
 func runEscalate(e *Env, args []string) int {
 	fs, sink := newFlags("escalate")
+	idem := fs.String("idem", "", "reuse a natural key you already have")
 	actor := fs.String("as", "", "the seat escalating")
 	room := fs.String("room", "", "the room the entry is in")
 	to := fs.String("to", "", "the person who should look")
@@ -1061,8 +1079,9 @@ right to record.`, 3)
 	c := NewClient(e.Server, seat, priv)
 	body := map[string]any{
 		"room": resolveRoom(seat, *room), "author": seat,
-		"refs": seqs[0], "to": *to, "text": *text, "idem": newIdem(),
+		"refs": seqs[0], "to": *to, "text": *text,
 	}
+	applyIdem(e, body, *idem)
 	sent, err := c.PostTo("/escalate", body)
 	if err != nil {
 		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
@@ -1103,11 +1122,9 @@ func resolveSeat(e *Env, flagValue string) (string, int) {
 		"name the seat with --as, or set AGENT_COMMS_ACTOR")
 }
 
-func newIdem() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
+// newIdem is gone. A random key made every re-run a new event, so the fix an
+// agent reaches for by reflex — run it again — was exactly the thing that
+// turned one finding into two. See cli/idem.go.
 
 func orDefault(v, d string) string {
 	if v == "" {
