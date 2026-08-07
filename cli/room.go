@@ -144,7 +144,10 @@ func listRoomsAndActors(e *Env) int {
 	}
 	e.Out.Line(map[string]any{"type": "rooms", "rooms": rooms["rooms"]})
 	e.Out.Line(map[string]any{"type": "actors", "actors": actors["actors"]})
-	return e.Out.Succeed(Result{Outcome: "read", Count: len(asList(actors["actors"]))})
+	// Not outcome "read" with a count: that is the shape the read verb returns,
+	// and answering a roster listing in cursor vocabulary made a reader go and
+	// check whether listing the roster had burned their cursor.
+	return e.Out.Succeed(Result{Outcome: "listed", Count: len(asList(actors["actors"]))})
 }
 
 // noteBrief is the human's version: three lines, not a JSON object.
@@ -285,9 +288,17 @@ can draw a false conclusion from.`)
 	} else {
 		e.Out.Note("%d hit(s) for %q", hits, query)
 	}
+	scope := "all rooms"
+	if !*allRooms {
+		scope = resolveRoom(seat, *room)
+	}
 	term := map[string]any{
 		"ok": true, "outcome": out.Outcome, "hits": hits, "shown": shown,
 		"query": query,
+		// Zero hits is only meaningful next to what was searched. Without this
+		// a reader cannot tell "this room does not know it" from "I searched
+		// the wrong room".
+		"searched": scope,
 	}
 	if terminal != nil {
 		// The server owns the lane story; a client that invented it would go

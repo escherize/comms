@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bcm/agent_comms/core"
 )
@@ -245,5 +246,85 @@ func TestQuietDefaultsOnWhenStdoutIsPiped(t *testing.T) {
 	os.Stdout = real
 	if !redirected.Quiet {
 		t.Error("stdout redirected to a file must default to --quiet")
+	}
+}
+
+// A retry command is meant to be run. An unquoted one runs as something else:
+// `--text probe: no severity --severity p2` posts the word "probe:" and leaves
+// the rest as flags, so the correction silently posts a different event.
+func TestRetryCommandsArePasteSafe(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+	claimed = stdinClaim{}
+
+	var c capture
+	Run(c.env(t, srv.URL, ""), []string{"post", "finding", "--as", seat,
+		"--text", "probe: a finding with no severity, and an apostrophe's worth of trouble"})
+
+	l := lines(t, &c)
+	retry, _ := l[len(l)-1]["retry"].(string)
+	if retry == "" {
+		t.Fatal("a correctable rejection should offer the corrected command")
+	}
+	// The whole entry must survive as one argument.
+	if !strings.Contains(retry, "'probe: a finding with no severity, and an apostrophe'\"'\"'s worth of trouble'") {
+		t.Errorf("the retry is not paste-safe: %s", retry)
+	}
+
+	// Dropping --to must drop its value too, or the corrected command fails a
+	// second time in a new way.
+	var amb capture
+	Run(amb.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+		"--to", "human:bcm", "--text", "ambient with a recipient"})
+	l = lines(t, &amb)
+	retry, _ = l[len(l)-1]["retry"].(string)
+	if strings.Contains(retry, "human:bcm") {
+		t.Errorf("the recipient survived as a bare positional: %s", retry)
+	}
+}
+
+// `next: "stop"` on a usage error that detail explains how to fix is one reply
+// contradicting itself.
+func TestFixableUsageErrorsSayHowToFixThem(t *testing.T) {
+	for _, invariant := range []string{
+		"attachment.title_count", "stdin.contested", "content.unreadable",
+		"query.required", "replay.contested", "wait.too_long", "flags.invalid",
+		"attach.outside_tree", "rate.exceeded",
+	} {
+		next := verdictFor(invariant, ExitUsage)
+		if next == "" {
+			t.Errorf("%s has no verdict at all", invariant)
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(next), "stop") {
+			t.Errorf("%s is fixable and its verdict says %q", invariant, next)
+		}
+	}
+	// And the ones that genuinely are terminal must still say stop.
+	for _, invariant := range []string{"key.revoked", "key.compromised", "signature.invalid"} {
+		if !strings.HasPrefix(strings.ToLower(verdictFor(invariant, ExitRefused)), "stop") {
+			t.Errorf("%s must tell an agent to stop", invariant)
+		}
+	}
+}
+
+// Slicing bytes splits a multi-byte rune, and the lone continuation byte
+// renders as a replacement character — indistinguishable from the ellipsis that
+// belongs there, so the corruption hides exactly where someone would look.
+func TestTruncationDoesNotSplitARune(t *testing.T) {
+	long := strings.Repeat("θ", 200)
+	got, clipped := truncateText(long, 120)
+	if !clipped {
+		t.Fatal("200 runes should clip at 120")
+	}
+	if !utf8.ValidString(got) {
+		t.Error("truncation produced invalid UTF-8")
+	}
+	if strings.ContainsRune(got, utf8.RuneError) {
+		t.Error("truncation produced a replacement character")
+	}
+	if short, clipped := truncateText("θθθ", 120); clipped || short != "θθθ" {
+		t.Error("a short multi-byte string must be returned whole")
 	}
 }

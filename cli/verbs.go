@@ -444,21 +444,62 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 
 // retryFor renders a corrected invocation that works when run verbatim. An
 // agent that is told what is wrong and not how to fix it spends a turn guessing.
+// retryFor builds the corrected command. Every argument is re-quoted, because
+// this string is meant to be run: an unquoted `--text probe: no severity`
+// posts the word "probe:" and leaves the rest as flags, so the retry that was
+// supposed to fix the post silently posts a different one.
 func retryFor(invariant string, kind core.Kind, args []string) string {
-	base := "agent_comms post " + string(kind) + " " + strings.Join(args[1:], " ")
+	rest := args[1:]
+	base := func(extra ...string) string {
+		return "agent_comms post " + string(kind) + " " + shellJoin(append(append([]string{}, rest...), extra...))
+	}
 	switch invariant {
 	case "body.severity.invalid":
-		return base + " --severity p2"
+		return base("--severity", "p2")
 	case "body.text.required":
-		return base + ` --text "<what you found>"`
+		return base("--text", "<what you found>")
 	case "recipient.required":
-		return base + " --to <someone>"
+		return base("--to", "<someone>")
 	case "recipient.forbidden":
-		return strings.ReplaceAll(base, "--to ", "")
+		// Drop the flag and its value together. Removing only the flag leaves
+		// the recipient behind as a bare positional, so the corrected command
+		// fails a second time in a new way.
+		var kept []string
+		for i := 0; i < len(rest); i++ {
+			if rest[i] == "--to" || rest[i] == "-to" {
+				i++
+				continue
+			}
+			kept = append(kept, rest[i])
+		}
+		return "agent_comms post " + string(kind) + " " + shellJoin(kept)
 	case "body.url.required":
-		return base + " --url https://…"
+		return base("--url", "https://…")
 	}
 	return ""
+}
+
+// shellJoin quotes each argument so the result can be pasted and run.
+func shellJoin(args []string) string {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		out = append(out, shellQuote(a))
+	}
+	return strings.Join(out, " ")
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if strings.IndexFunc(s, func(r rune) bool {
+		return r == ' ' || r == '\'' || r == '"' || r == '$' || r == '`' ||
+			r == '\\' || r == ';' || r == '&' || r == '|' || r == '<' || r == '>' ||
+			r == '(' || r == ')' || r == '*' || r == '?' || r == '!' || r == '#'
+	}) == -1 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 // ---------------------------------------------------------------- redact
@@ -742,7 +783,7 @@ paste into the post is printed for you rather than reassembled by hand.`)
 		Outcome: "stored", Hash: hash, Size: size, Title: name,
 		// The pair to paste, rather than one the agent reassembles by hand from
 		// two fields and gets subtly wrong under a shell.
-		Next: "reference it: --attach-hash " + hash + " --attach-title " + name,
+		Next: "reference it: --attach-hash " + hash + " --attach-title " + shellQuote(name),
 	})
 }
 
@@ -825,7 +866,10 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 	}
 	events, meta, err := drain(e, o)
 	if err != nil {
-		return e.Out.Fail(ExitRefused, "refused", "read.failed", err.Error())
+		// A transport failure is not unretryable. Exit 4 here while post on the
+		// same unreachable server returns spooled/exit 0 told an agent to stop
+		// over a condition that fixes itself.
+		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
 	}
 	return emit(e, o, events, meta)
 }
@@ -885,7 +929,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 	if err != nil {
 		// A drop mid-wait must leave the cursor where it was, so nothing is
 		// skipped on the next read.
-		return e.Out.Fail(ExitRefused, "refused", "read.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
 	}
 
 	if *wait > 0 && len(events) == 0 {

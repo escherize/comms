@@ -148,7 +148,7 @@ var verdicts = map[string]string{
 	"body.url.required":         "add --url and post again",
 	"recipient.required":        "name a recipient with --to and post again",
 	"recipient.forbidden":       "drop --to; this kind is ambient and interrupts nobody",
-	"refs.question_required":    "point --refs at the question you are answering",
+	"refs.question_required":    "point --to-question at a question; that seq is not one",
 	"refs.exactly_one":          "name exactly one event in --refs",
 	"refs.unknown":              "that event does not exist; check the seq you read",
 	"refs.target_unknown":       "no such event in this room; check the seq and the room you read it from",
@@ -166,6 +166,31 @@ var verdicts = map[string]string{
 	"key.compromised":           "stop immediately and tell a human. This key is marked compromised",
 	"enrolment.refused":         "stop. Ask a human for a fresh invite token",
 	"parse.failed":              "stop. The client built a malformed command; this is a bug here",
+
+	// Usage failures the caller can fix. `next: "stop"` on any of these tells an
+	// agent to abandon work that is one flag away from correct, while `detail`
+	// on the same line explains the fix — the two halves of one reply
+	// contradicting each other.
+	"attachment.title_count":  "give one --attach-title per attachment, in the same order, and post again",
+	"attachment.outside_tree": "pipe the file on stdin instead: cat <file> | agent_comms attach -",
+	"attach.outside_tree":     "pipe the file on stdin instead: cat <file> | agent_comms attach -",
+	"stdin.contested":         "only one flag may read stdin; put the other in a file and use --text-file",
+	"text.contested":          "use --text, --text-file or --text -, not two of them",
+	"text.unreadable":         "check the path, then post again",
+	"content.unreadable":      "check the path, then post again",
+	"content.empty":           "there is nothing to upload; check the file or the pipe",
+	"query.required":          "give search some words; filters alone match nothing",
+	"path.required":           "name a file to upload, or - to read stdin",
+	"replay.contested":        "use --from or --since, not both",
+	"room.ambiguous":          "name one room",
+	"wait.too_long":           "lower --wait; 30m is the cap",
+	"actor.required":          "name the seat with --as, or set AGENT_COMMS_ACTOR",
+	"kind.required":           "name a kind: agent_comms post --help lists them",
+	"seat.not_enrolled":       "a human must enrol this seat before it can post",
+	"server.mismatch":         "unset AGENT_COMMS_SERVER, or enrol a separate seat for the other hub",
+	"rate.exceeded":           "sleep retry_after_ms, then post again; this event was not kept",
+	"transport.failed":        "the server is unreachable; wait and run this again",
+	"flags.invalid":           "fix the flag named in detail; agent_comms <verb> --help lists them",
 }
 
 func verdictFor(invariant string, code int) string {
@@ -180,7 +205,9 @@ func verdictFor(invariant string, code int) string {
 	case ExitSpooled:
 		return "keep working. The bytes are held and will be sent"
 	case ExitThrottled:
-		return "sleep, then batch what you were going to post"
+		// Not "batch": no verb batches, and telling an agent to do something the
+		// tool cannot do is worse than telling it nothing.
+		return "sleep retry_after_ms, then post again"
 	}
 	return "stop"
 }

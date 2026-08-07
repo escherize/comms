@@ -339,11 +339,20 @@ func compact(f frame) map[string]any {
 	return out
 }
 
+// truncateText clips to a rune boundary. Slicing bytes splits a multi-byte
+// rune, and the resulting lone continuation byte renders as a replacement
+// character in every surface — terminal, browser, room row — which is
+// indistinguishable from the ellipsis that belongs there. The corruption is
+// invisible exactly where someone would look for it.
 func truncateText(s string, n int) (string, bool) {
 	if len(s) <= n {
 		return s, false
 	}
-	return s[:n-1] + "…", true
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s, false
+	}
+	return string(runes[:n-1]) + "…", true
 }
 
 // first drops the clipped flag where the caller only wants the text.
