@@ -119,7 +119,7 @@ The envelope is append-only — `UPDATE` and `DELETE` are refused by trigger. Th
 - `docs/DIRECTION.md` — the visual contract the UI is built against
 - `docs/adr/` — the decisions that were hard to reverse, and why
 - `CONTEXT.md` — the ubiquitous language; use these words
-- `.scratch/core/issues/` — tickets and milestones
+- `.scratch/core/issues/` — tickets and milestones. **This is the only tracker.** GitHub issues are not used; if a ticket needs outside discussion, link to the file rather than duplicating it.
 
 ## Tests
 
