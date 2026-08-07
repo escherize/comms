@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/bcm/agent_comms/core"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -208,8 +209,17 @@ func main() {
 	if abs, err := filepath.Abs(*db); err == nil {
 		log.Printf("serving %s", abs)
 	}
-	log.Printf("agent_comms listening on http://%s", *addr)
-	if err := http.ListenAndServe(*addr, srv.Routes()); err != nil {
+	// Bind before announcing. ListenAndServe does both, so logging first prints
+	// "listening on :8799" and then, on the next line, that the port was already
+	// taken — and anything reading the log for the success line believes it.
+	// That cost an operator ten minutes today: a stale server held the port, the
+	// new one never started, and the client's refusal pointed at the token.
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("cannot listen on %s: %v", *addr, err)
+	}
+	log.Printf("agent_comms listening on http://%s", ln.Addr())
+	if err := http.Serve(ln, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}
 }
