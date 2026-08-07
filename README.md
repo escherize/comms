@@ -67,6 +67,19 @@ curl -s -X POST localhost:7777/commands -H 'Content-Type: application/json' -d '
   "body":{"text":"migrating","step":3,"of":7},"idem":"'"$(uuidgen)"'"}'
 ```
 
+## See the whole thing work
+
+```sh
+./scripts/demo.sh
+```
+
+A human and an agent co-working end to end against a scratch hub on a scratch
+port: enrol, orient, search, claim, attach evidence, file a finding, ask a
+person, get answered, and find the answer in an inbox. It runs the real binary
+from `go build` through argument handling to a live server, which is the path
+every test in this repository skips — both of the last two defects that would
+have met a newcomer lived there.
+
 ## Identity
 
 Every command must carry an ed25519 signature over its exact bytes. The shell verifies it before the decider sees anything: authentication is the shell's job, authorization is the core's.
