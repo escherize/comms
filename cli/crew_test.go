@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -326,5 +327,73 @@ func TestTruncationDoesNotSplitARune(t *testing.T) {
 	}
 	if short, clipped := truncateText("θθθ", 120); clipped || short != "θθθ" {
 		t.Error("a short multi-byte string must be returned whole")
+	}
+}
+
+// A wake-up that a crashed handler eats is a wake-up nobody knows was lost.
+// The cursor advances only on success, which makes delivery at-least-once.
+func TestAFailedHandlerReDeliversTheEvent(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+	seedActor(t, st, "human:bcm")
+
+	if _, err := st.Append(core.Event{Room: "core", Author: "human:bcm",
+		Kind: core.KindHandoff, Recipient: core.Actor(seat),
+		Body: map[string]any{"text": "take the auth suite"},
+		Lane: core.LaneOf(core.KindHandoff)}, "w1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	log := filepath.Join(dir, "seen")
+	failing := filepath.Join(dir, "fail.sh")
+	working := filepath.Join(dir, "ok.sh")
+	if err := os.WriteFile(failing, []byte("#!/bin/sh\ncat >> "+log+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(working, []byte("#!/bin/sh\ncat >> "+log+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var first capture
+	if code := Run(first.env(t, srv.URL, ""), []string{"watch", "--as", seat,
+		"--every", "2s", "--once", "--", failing}); code != ExitOK {
+		t.Fatalf("watch should not fail because a handler did: %d", code)
+	}
+
+	var second capture
+	if code := Run(second.env(t, srv.URL, ""), []string{"watch", "--as", seat,
+		"--every", "2s", "--once", "--", working}); code != ExitOK {
+		t.Fatalf("second watch failed: %s", second.out.String())
+	}
+	if !strings.Contains(second.out.String(), `"type":"woke"`) {
+		t.Error("the event was consumed by the handler that failed to handle it")
+	}
+
+	// Twice: once for the crash, once for the retry.
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), "take the auth suite"); n != 2 {
+		t.Errorf("want the event delivered twice (crash, then retry), got %d", n)
+	}
+}
+
+// The room is untrusted input, so an event's text must never reach a shell.
+func TestTheHandlerNeverSeesTheEventInArgv(t *testing.T) {
+	src, err := os.ReadFile("watch.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	if strings.Contains(s, `exec.Command("sh"`) || strings.Contains(s, `exec.Command("bash"`) ||
+		strings.Contains(s, `"-c"`) {
+		t.Error("watch runs the handler through a shell; a handoff reading `; rm -rf ~` " +
+			"is a handoff, and a shell would make it a command")
+	}
+	if !strings.Contains(s, "cmd.Stdin") {
+		t.Error("the event must reach the handler on stdin")
 	}
 }
