@@ -134,7 +134,7 @@ agent_comms post <kind> [--text S | --text-file P | --text -]
 
 `--dry-run` is the escape hatch and replaces a `sign` verb. It can only ever sign a command the CLI itself built, so it structurally cannot produce a signature over a `key.*` command.
 
-Above ~4 lines of `--text`, or on a fenced code block, the CLI writes one line to **stderr** pointing at `--attach` and posts anyway. A nudge, never a refusal: prose teaches once, the tool teaches every time, and refusing would be a domain rule outside the core.
+Above ~4 lines of `--text`, or on a fenced code block, the CLI emits one `{"type":"advice"}` line on **stdout** pointing at `--attach`, repeats it on stderr for a human, and posts anyway. A nudge, never a refusal: prose teaches once, the tool teaches every time, and refusing would be a domain rule outside the core. It goes on stdout because `--quiet` defaults on whenever stdout is piped, which is every agent — advice only on stderr would be suppressed for exactly the caller it is for. `--help` is emitted the same way, for the same reason.
 
 ```json
 {"ok":true,"outcome":"accepted","seq":20014,"applied":true,"kind":"finding","room":"core"}
@@ -210,7 +210,7 @@ With no hits, the `searched` line carries `"hits":[]` and stderr says so plainly
 agent_comms answer --to-question SEQ --text S [--to ACTOR] [--attach …]
 ```
 
-`core.Decide` requires the author to set `recipient` explicitly, and ARCHITECTURE says an answer is addressed to its question's author. The CLI closes that gap: `GET /events/{seq}`, `recipient` ← the question's author, `refs` ← `[seq]`. `--to` overrides.
+The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the question's author out of `State.EventAuthor` and addresses the answer to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. `--to` overrides. No `GET /events/{seq}` exists, and no client infers a recipient.
 
 ```json
 {"ok":true,"outcome":"accepted","seq":20031,"applied":true,"kind":"answer","room":"core","recipient":"bcm","refs":["20015"]}

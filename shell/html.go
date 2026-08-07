@@ -335,7 +335,7 @@ finish review, the verdict, and DESIGN.md.
       <option value="til">til</option>
       <option value="status">status</option>
     </select>
-    <input id="ctext" name="text" placeholder="entry, or /finding /til /status /ask /handoff /pr  (c to focus)" autocomplete="off">
+    <input id="ctext" name="text" placeholder="entry, or /finding /til /status /ask /answer /handoff /pr  (c to focus)" autocomplete="off">
     <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" autocomplete="off">
     <button type="submit">post</button>
   </form>
@@ -426,6 +426,13 @@ const composeScript = `
       if(!m) return {error:'usage: /ask @someone <question>'};
       return {kind:'question', body:{text:m[2]}, recipient:m[1]};
     },
+    answer: function(rest){
+      // No recipient: the core derives it from the question's author, so the
+      // browser and the CLI share one rule instead of each inferring their own.
+      var m=rest.match(/^#?(\d+)\s+([\s\S]+)$/);
+      if(!m) return {error:'usage: /answer <seq> <your answer>'};
+      return {kind:'answer', body:{text:m[2]}, refs:[m[1]]};
+    },
     handoff: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /handoff @someone <what they are taking over>'};
@@ -463,15 +470,18 @@ const composeScript = `
       if(parsed.error){ fail(text, parsed.error); return; }
       k=parsed.kind; body=parsed.body;
       if(parsed.recipient) body.__recipient=parsed.recipient;
+      if(parsed.refs) body.__refs=parsed.refs;
     } else {
       body.text=raw;
       if(k==='finding') body.severity='p2';
     }
     var recipient=body.__recipient||''; delete body.__recipient;
+    var refs=body.__refs||null; delete body.__refs;
     var cmdObj={room:document.body.getAttribute('data-room'),
       author:actor, kind:k, body:body,
       idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))};
     if(recipient) cmdObj.recipient=recipient;
+    if(refs) cmdObj.refs=refs;
     var payload=JSON.stringify(cmdObj);
 
     // When the server accepts unsigned commands (-insecure, localhost demos),

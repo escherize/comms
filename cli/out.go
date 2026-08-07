@@ -57,6 +57,24 @@ func (o *Out) Note(format string, args ...any) {
 	fmt.Fprintf(o.Stderr, format+"\n", args...)
 }
 
+// Help answers --help. It ignores --quiet and writes to both streams: the text
+// is the answer to the question the caller asked, and --quiet defaults on when
+// stdout is piped, which is every agent that shells out to read a verb's flags.
+func (o *Out) Help(format string, args ...any) {
+	text := fmt.Sprintf(format, args...)
+	o.Line(map[string]any{"type": "help", "text": text})
+	fmt.Fprintln(o.Stderr, text)
+}
+
+// Advise is guidance about using the tool better, never a refusal. It goes out
+// as a JSONL line on stdout because that is the stream an agent reads: --quiet
+// defaults on whenever stdout is piped, so a note only on stderr would be
+// suppressed for exactly the caller the advice is for.
+func (o *Out) Advise(topic, detail string) {
+	o.Line(map[string]any{"type": "advice", "topic": topic, "detail": detail})
+	o.Note("%s", detail)
+}
+
 // Result is the terminal object. A consumer reading the last line always gets
 // the outcome.
 type Result struct {

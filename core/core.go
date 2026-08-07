@@ -143,6 +143,23 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, r
 	}
 
+	// An answer must point at a question, checked before the recipient rules:
+	// an answer with a bad ref reported as "name a recipient" sends the agent
+	// to fix the wrong thing.
+	if c.Kind == KindAnswer {
+		if r := checkAnswersAQuestion(s, c); r != nil {
+			return nil, r
+		}
+		// The recipient is the question's author. A domain rule, so it lives
+		// here and every client gets it — the browser composer and the agent
+		// CLI both, rather than one of them reimplementing it.
+		if c.Recipient == "" {
+			if to, ok := answerRecipient(s, c); ok {
+				c.Recipient = to
+			}
+		}
+	}
+
 	// Addressed events must name a recipient. An addressed event nobody is
 	// addressed to would render inline and interrupt everyone, which is the
 	// flood the lane split exists to prevent.
@@ -154,14 +171,6 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 	if lane == Ambient && c.Recipient != "" {
 		return nil, &Rejection{"recipient.forbidden",
 			"kind " + string(c.Kind) + " is ambient; it cannot name a recipient"}
-	}
-
-	// An answer must point at a question. A reply with no question is not an
-	// answer, and would address someone about nothing.
-	if c.Kind == KindAnswer {
-		if r := checkAnswersAQuestion(s, c); r != nil {
-			return nil, r
-		}
 	}
 
 	if c.Kind == KindRedact {
@@ -297,6 +306,21 @@ func validSeverity(s string) bool {
 		return true
 	}
 	return false
+}
+
+// answerRecipient finds the author of the question this answer refs.
+func answerRecipient(s State, c Command) (Actor, bool) {
+	if s.EventKind == nil || s.EventAuthor == nil {
+		return "", false
+	}
+	for _, ref := range c.Refs {
+		if k, ok := s.EventKind(ref); ok && k == KindQuestion {
+			if who, ok := s.EventAuthor(ref); ok && who != "" {
+				return who, true
+			}
+		}
+	}
+	return "", false
 }
 
 func checkAnswersAQuestion(s State, c Command) *Rejection {

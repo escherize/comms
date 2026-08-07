@@ -409,3 +409,67 @@ func itoa(n int64) string {
 	}
 	return string(b)
 }
+
+// The browser gets `answer` from the same core rule the CLI uses: it sends refs
+// and no recipient, so neither client carries its own inference.
+func TestComposerAnswerCarriesRefsAndNoRecipient(t *testing.T) {
+	srv, _ := newServer(t)
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	page := buf.String()
+
+	if !strings.Contains(page, "answer: function(rest)") {
+		t.Fatal("the composer needs an /answer verb")
+	}
+	// The verb block, from its name to the next verb.
+	block := page[strings.Index(page, "answer: function(rest)"):]
+	block = block[:strings.Index(block, "handoff:")]
+	if !strings.Contains(block, "refs:") {
+		t.Error("/answer must send refs so the core can find the question")
+	}
+	var code string
+	for _, line := range strings.Split(block, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "//") {
+			code += line + "\n"
+		}
+	}
+	if strings.Contains(code, "recipient") {
+		t.Error("the composer must not infer a recipient; the core derives it from the question")
+	}
+	if !strings.Contains(page, "cmdObj.refs=refs") {
+		t.Error("parsed refs must reach the command, not stay in the body")
+	}
+}
+
+// The placeholder is the only place a slash verb is discoverable, so a verb
+// missing from it is a verb nobody finds.
+func TestComposerPlaceholderListsEverySlashVerb(t *testing.T) {
+	srv, _ := newServer(t)
+	resp, err := http.Get(srv.URL + "/?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	page := buf.String()
+
+	slash := page[strings.Index(page, "var SLASH={"):]
+	slash = slash[:strings.Index(slash, "function fail(")]
+	i := strings.Index(page, `placeholder="entry`)
+	placeholder := page[i : i+strings.Index(page[i:], `"`)+120]
+
+	for _, verb := range []string{"finding", "til", "status", "ask", "answer", "handoff", "pr"} {
+		if !strings.Contains(slash, verb+": function(rest)") {
+			t.Errorf("SLASH is missing the %q verb", verb)
+		}
+		if !strings.Contains(placeholder, "/"+verb) {
+			t.Errorf("the composer placeholder does not offer /%s", verb)
+		}
+	}
+}

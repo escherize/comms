@@ -299,3 +299,57 @@ func TestLaneOf(t *testing.T) {
 		}
 	}
 }
+
+// An answer's recipient is the question's author. The rule lives in the core so
+// every client gets it, rather than one client reimplementing what the browser
+// does not share.
+func TestAnswerRecipientIsDerivedFromTheQuestion(t *testing.T) {
+	state := State{
+		RoomExists: okRoom,
+		EventKind: func(ref string) (Kind, bool) {
+			if ref == "evt_q" {
+				return KindQuestion, true
+			}
+			return KindChat, true
+		},
+		EventAuthor: func(ref string) (Actor, bool) {
+			if ref == "evt_q" {
+				return "agent:claude-2", true
+			}
+			return "someone", true
+		},
+	}
+
+	events, rej := Decide(state, Command{Room: "core", Author: "bcm", Kind: KindAnswer,
+		Body: chat("yes, safe"), Refs: []string{"evt_q"}, Idem: "a1"})
+	if rej != nil {
+		t.Fatalf("an answer with no recipient must derive one: %v", rej)
+	}
+	if events[0].Recipient != "agent:claude-2" {
+		t.Errorf("recipient should be the question's author, got %q", events[0].Recipient)
+	}
+
+	// An explicit recipient still wins — deriving is a default, not a rewrite.
+	events, rej = Decide(state, Command{Room: "core", Author: "bcm", Kind: KindAnswer,
+		Body: chat("cc"), Refs: []string{"evt_q"}, Recipient: "sarah", Idem: "a2"})
+	if rej != nil {
+		t.Fatal(rej)
+	}
+	if events[0].Recipient != "sarah" {
+		t.Errorf("an explicit recipient must not be overwritten, got %q", events[0].Recipient)
+	}
+}
+
+// Deriving does not weaken the rule that an answer answers something.
+func TestAnswerStillNeedsAQuestion(t *testing.T) {
+	state := State{
+		RoomExists:  okRoom,
+		EventKind:   func(string) (Kind, bool) { return KindChat, true },
+		EventAuthor: func(string) (Actor, bool) { return "someone", true },
+	}
+	_, rej := Decide(state, Command{Room: "core", Author: "bcm", Kind: KindAnswer,
+		Body: chat("hm"), Refs: []string{"evt_chat"}, Idem: "a3"})
+	if rej == nil || rej.Invariant != "refs.question_required" {
+		t.Fatalf("an answer pointing at a non-question must still be refused, got %v", rej)
+	}
+}

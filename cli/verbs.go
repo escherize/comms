@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -57,7 +58,13 @@ func Run(e *Env, args []string) int {
 		return runRead(e, args[1:])
 	case "inbox":
 		return runInbox(e, args[1:])
-	case "ask", "answer", "attach", "search", "room":
+	case "ask":
+		return runAsk(e, args[1:])
+	case "answer":
+		return runAnswer(e, args[1:])
+	case "attach":
+		return runAttach(e, args[1:])
+	case "search", "room":
 		return e.Out.Fail(ExitUsage, "usage", "verb.not_built",
 			args[0]+" is designed but not built yet; see docs/CLI.md and .scratch/core/issues/")
 	case "-h", "--help", "help":
@@ -68,7 +75,7 @@ func Run(e *Env, args []string) int {
 }
 
 func usage(e *Env) int {
-	e.Out.Note("agent_comms <verb> [flags]\n\nverbs: %s\n\nEvery verb answers --help. Start with: agent_comms enrol --help",
+	e.Out.Help("agent_comms <verb> [flags]\n\nverbs: %s\n\nEvery verb answers --help. Start with: agent_comms enrol --help",
 		strings.Join(Verbs, ", "))
 	e.Out.Line(Result{OK: true, Outcome: "usage"})
 	return ExitOK
@@ -90,7 +97,7 @@ func runEnrol(e *Env, args []string) int {
 	actor := fs.String("as", "", "the seat to enrol, e.g. agent:bcm/claude-1")
 	token := fs.String("token", "", "REFUSED: pipe the token on stdin instead")
 	fs.Usage = func() {
-		e.Out.Note(`agent_comms enrol --as <seat>
+		e.Out.Help(`agent_comms enrol --as <seat>
 
 Enrols one seat. The invite token is read from stdin, never a flag: argv is
 visible to every process on the machine and lands in shell history.
@@ -101,6 +108,9 @@ visible to every process on the machine and lands in shell history.
 The private key is written 0600 under %s and is never printed.`, KeyDir())
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
 
@@ -181,14 +191,26 @@ func runPost(e *Env, args []string) int {
 	refs := fs.String("refs", "", "comma-separated refs")
 	step := fs.Int("step", 0, "status only")
 	of := fs.Int("of", 0, "status only")
+	textFile := fs.String("text-file", "", "read the entry from a file")
+	attachPath := multiFlag{}
+	fs.Var(&attachPath, "attach", "upload a file and attach it (repeatable; - reads stdin)")
+	attachHash := multiFlag{}
+	fs.Var(&attachHash, "attach-hash", "attach an already-uploaded hash (repeatable)")
+	attachTitle := multiFlag{}
+	fs.Var(&attachTitle, "attach-title", "title for each attachment, in order (repeatable)")
 	dryRun := fs.Bool("dry-run", false, "print the exact bytes and signature without sending")
 	fs.Usage = func() {
-		e.Out.Note(`agent_comms post <kind> --as <seat> [flags]
+		e.Out.Help(`agent_comms post <kind> --as <seat> [flags]
 
 kinds: %s
 
   agent_comms post finding --as agent:bcm/claude-1 --severity p2 \
       --text "auth.py:88 flakes under -race"
+
+The entry can come from anywhere quoting is easier: --text "…", --text-file
+PATH, or --text - to read stdin. Long content belongs in an artifact instead:
+--attach PATH uploads and references in one command, --attach-hash takes what
+agent_comms attach printed, and --attach-title names them in the same order.
 
 The client does not validate the domain. A missing --severity is sent and comes
 back naming the invariant and the schema, which is how you learn the rule.`,
@@ -225,9 +247,61 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
 	}
 
+	entry, code := resolveText(e, *text, *textFile, "")
+	if code != 0 {
+		return code
+	}
+
+	// Attachments: uploaded paths first, then hashes already stored. Titles
+	// pair by position, and a mismatched count is refused rather than zipped
+	// silently — a wrong title on a report is worse than no title.
+	var atts []map[string]any
+	for _, path := range attachPath {
+		if path == "-" {
+			if c := claimStdinForAttach(e); c != 0 {
+				return c
+			}
+		}
+		content, err := readContent(e, path)
+		if err != nil {
+			return e.Out.Fail(ExitUsage, "usage", "attachment.unreadable", err.Error())
+		}
+		h, _, err := uploadArtifact(e, content)
+		if err != nil {
+			return e.Out.Fail(ExitRefused, "refused", "artifact.rejected", err.Error())
+		}
+		atts = append(atts, map[string]any{"hash": h, "title": defaultTitle(path)})
+	}
+	for _, h := range attachHash {
+		atts = append(atts, map[string]any{"hash": h, "title": ""})
+	}
+	if len(attachTitle) > 0 {
+		if len(attachTitle) != len(atts) {
+			return e.Out.Fail(ExitUsage, "usage", "attachment.title_count",
+				fmt.Sprintf("%d --attach-title for %d attachment(s); they pair by position, "+
+					"and zipping a mismatch silently would mislabel a report",
+					len(attachTitle), len(atts)))
+		}
+		for i := range atts {
+			atts[i]["title"] = attachTitle[i]
+		}
+	}
+	for i, a := range atts {
+		if a["title"] == "" {
+			atts[i]["title"] = fmt.Sprintf("attachment-%d.md", i+1)
+		}
+	}
+
+	// A nudge, never a refusal: domain policy lives in the core, and a client
+	// that refused long text would be inventing a rule the server does not have.
+	if isLongForm(entry) {
+		e.Out.Advise("long-entry", "that entry is long; consider --attach so the row stays "+
+			"a row and the content stays searchable as an artifact")
+	}
+
 	body := map[string]any{}
-	if *text != "" {
-		body["text"] = *text
+	if entry != "" {
+		body["text"] = entry
 	}
 	if *severity != "" {
 		body["severity"] = *severity
@@ -245,6 +319,9 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	cmd := map[string]any{
 		"room": *room, "author": seat, "kind": string(kind),
 		"body": body, "idem": newIdem(),
+	}
+	if len(atts) > 0 {
+		cmd["attachments"] = atts
 	}
 	if *to != "" {
 		cmd["recipient"] = *to
@@ -322,7 +399,7 @@ func runRedact(e *Env, args []string) int {
 	room := fs.String("room", "core", "the room the event is in")
 	why := fs.String("why", "", "why it is being suppressed")
 	fs.Usage = func() {
-		e.Out.Note(`agent_comms redact <seq> --as <seat> --why "<reason>"
+		e.Out.Help(`agent_comms redact <seq> --as <seat> --why "<reason>"
 
 Suppresses one of your own events: its body leaves the room, search, and any
 attached artifact stops being served. The event itself stays, because
@@ -387,6 +464,179 @@ event; someone else's is an operator action.`)
 	return e.Out.Succeed(Result{Outcome: "accepted", Seq: sent.Body.Seq, Applied: &applied})
 }
 
+// ---------------------------------------------------------------- ask
+
+func runAsk(e *Env, args []string) int {
+	fs, sink := newFlags("ask")
+	actor := fs.String("as", "", "the seat asking")
+	room := fs.String("room", "core", "room to ask in")
+	to := fs.String("to", "", "who to ask")
+	text := fs.String("text", "", "the question, or - to read stdin")
+	textFile := fs.String("text-file", "", "read the question from a file")
+	noSearch := fs.Bool("no-search", false, "skip the search for prior answers")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms ask --as <seat> --to <who> --text "<question>"
+
+Searches the room for what it already knows, attaches up to three hits to the
+question's refs, prints what it attached, and posts either way.
+
+  agent_comms ask --as agent:bcm/claude-1 --to bcm \
+      --text "is migration 0031 safe to reorder ahead of 0029?"
+
+It attaches, it never gates: a human seeing the prior hits alongside the
+question can tell in a glance whether it is new.`)
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+
+	question, code := resolveText(e, *text, *textFile, "")
+	if code != 0 {
+		return code
+	}
+	if question == "" {
+		return e.Out.Fail(ExitUsage, "usage", "text.required",
+			"ask what you want to know with --text, --text-file, or --text -")
+	}
+	if *to == "" {
+		return e.Out.Fail(ExitUsage, "usage", "recipient.required",
+			"name who you are asking with --to")
+	}
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	priv, err := LoadSeat(seat)
+	if err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
+	}
+
+	var refs []string
+	if !*noSearch {
+		terms := distinctiveTerms(question)
+		if len(terms) > 0 {
+			for _, h := range searchFor(e, *room, strings.Join(terms, " "), 3) {
+				refs = append(refs, fmt.Sprint(h.Seq))
+				preview, _ := h.Body["text"].(string)
+				e.Out.Line(map[string]any{
+					"type": "attached", "seq": h.Seq, "kind": h.Kind,
+					"preview": truncateText(preview, 100),
+					"why":     "the room already contains this; it is attached to your question",
+				})
+			}
+			e.Out.Note("searched %q, attached %d prior event(s)", strings.Join(terms, " "), len(refs))
+		}
+	}
+
+	cmd := map[string]any{
+		"room": *room, "author": seat, "kind": "question",
+		"body":      map[string]any{"text": question},
+		"recipient": *to, "idem": newIdem(),
+	}
+	if len(refs) > 0 {
+		cmd["refs"] = refs
+	}
+	return send(e, NewClient(e.Server, seat, priv), cmd, "question", nil)
+}
+
+// ---------------------------------------------------------------- answer
+
+func runAnswer(e *Env, args []string) int {
+	fs, sink := newFlags("answer")
+	actor := fs.String("as", "", "the seat answering")
+	room := fs.String("room", "core", "room the question is in")
+	toQuestion := fs.String("to-question", "", "the seq of the question you are answering")
+	text := fs.String("text", "", "the answer, or - to read stdin")
+	textFile := fs.String("text-file", "", "read the answer from a file")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms answer --as <seat> --to-question <seq> --text "<answer>"
+
+No recipient: the server derives it from the question's author, so an answer
+always reaches whoever asked.
+
+  agent_comms answer --as bcm --to-question 20014 --text "yes, 0029 is idempotent"`)
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+	if *toQuestion == "" {
+		return e.Out.Fail(ExitUsage, "usage", "to_question.required",
+			"name the question you are answering with --to-question <seq>")
+	}
+	body, code := resolveText(e, *text, *textFile, "")
+	if code != 0 {
+		return code
+	}
+	if body == "" {
+		return e.Out.Fail(ExitUsage, "usage", "text.required",
+			"say the answer with --text, --text-file, or --text -")
+	}
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	priv, err := LoadSeat(seat)
+	if err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
+	}
+
+	// No recipient is sent: the core derives it from the question's author.
+	return send(e, NewClient(e.Server, seat, priv), map[string]any{
+		"room": *room, "author": seat, "kind": "answer",
+		"body": map[string]any{"text": body},
+		"refs": []string{*toQuestion}, "idem": newIdem(),
+	}, "answer", nil)
+}
+
+// ---------------------------------------------------------------- attach
+
+func runAttach(e *Env, args []string) int {
+	fs, sink := newFlags("attach")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms attach <path|->
+
+Uploads markdown and prints its hash. post --attach-hash accepts the hash, so a
+rejected post does not mean re-running a three-minute test to reproduce stdin
+you already consumed.
+
+  HASH=$(go test ./... 2>&1 | agent_comms attach - | jq -r .hash)
+  agent_comms post finding --as <seat> --severity p2 \
+      --text "suite red" --attach-hash "$HASH" --attach-title suite.md`)
+	}
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		fs.Usage()
+		if len(args) == 0 {
+			return e.Out.Fail(ExitUsage, "usage", "path.required",
+				"name a file to upload, or - to read stdin")
+		}
+		return e.Out.Succeed(Result{Outcome: "usage"})
+	}
+	if err := fs.Parse(args[1:]); err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+
+	content, err := readContent(e, args[0])
+	if err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "content.unreadable", err.Error())
+	}
+	if len(content) == 0 {
+		return e.Out.Fail(ExitUsage, "usage", "content.empty", "there is nothing to upload")
+	}
+
+	hash, size, err := uploadArtifact(e, content)
+	if err != nil {
+		return e.Out.Fail(ExitRefused, "refused", "artifact.rejected", err.Error())
+	}
+	e.Out.Note("stored %d bytes as %s", size, hash[:12])
+	return e.Out.Succeed(Result{Outcome: "stored", Hash: hash, Size: size})
+}
+
 // ---------------------------------------------------------------- read / inbox
 
 func runRead(e *Env, args []string) int {
@@ -399,7 +649,7 @@ func runRead(e *Env, args []string) int {
 	author := fs.String("author", "", "only this author (implies --peek)")
 	reset := fs.Bool("reset", false, "rewind this lane's cursor and read from the start")
 	fs.Usage = func() {
-		e.Out.Note(`agent_comms read --as <seat> [--room core]
+		e.Out.Help(`agent_comms read --as <seat> [--room core]
 
 Prints what is new since you last read, then exits. It does not hang: a quiet
 room returns count 0 in one round trip.
@@ -411,6 +661,9 @@ room returns count 0 in one round trip.
 read and inbox keep separate cursors, so draining one never hides the other.`)
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
 	seat, code := resolveSeat(e, *actor)
@@ -447,7 +700,7 @@ func runInbox(e *Env, args []string) int {
 	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
-		e.Out.Note(`agent_comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
+		e.Out.Help(`agent_comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
 
 Prints only what is addressed to you, then exits.
 
@@ -458,6 +711,9 @@ Prints only what is addressed to you, then exits.
 is the flag doing its job, not a failure — you get a handoff suggestion.`)
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
 	if *wait > maxWait {
@@ -502,7 +758,7 @@ func runWhoami(e *Env, args []string) int {
 	fs, _ := newFlags("whoami")
 	actor := fs.String("as", "", "the seat to report on")
 	fs.Usage = func() {
-		e.Out.Note(`agent_comms whoami [--as <seat>]
+		e.Out.Help(`agent_comms whoami [--as <seat>]
 
 Reports the seat, host, server and public key. It never reports the private
 key, and no verb, flag or environment variable does.
@@ -510,6 +766,9 @@ key, and no verb, flag or environment variable does.
   agent_comms whoami --as agent:bcm/claude-1`)
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", err.Error())
 	}
 	seat, code := resolveSeat(e, *actor)
@@ -536,6 +795,18 @@ key, and no verb, flag or environment variable does.
 // ---------------------------------------------------------------- escalate
 
 func runEscalate(e *Env, args []string) int {
+	// --help is answered before the refusal: an agent reading the flags has not
+	// escalated yet, and refusing the question teaches nothing.
+	for _, a := range args {
+		if a == "-h" || a == "--help" || a == "-help" {
+			e.Out.Help(`agent_comms escalate --as <seat> --to <human> --text <why>
+
+Designed, not built (ticket 05). Escalation spends a budget and moves an entry
+into the addressed lane; until the budget exists the verb refuses rather than
+posting an interruption nothing accounts for.`)
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
+	}
 	// The verb exists so an agent that reaches for it gets a straight answer
 	// rather than silence, and posts nothing while doing so.
 	return e.Out.FailWith(Result{
