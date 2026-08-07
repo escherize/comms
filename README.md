@@ -80,6 +80,13 @@ from `go build` through argument handling to a live server, which is the path
 every test in this repository skips — both of the last two defects that would
 have met a newcomer lived there.
 
+## Where to run it
+
+`docs/DEPLOY.md`. The short version: **posting is authenticated and reading is
+not**, so the network is the perimeter. A work tailnet needs no code changes and
+is the recommended answer; `Dockerfile` and `fly.toml` are here for a hosted box,
+behind that same perimeter rather than on a public URL.
+
 ## Identity
 
 Every command must carry an ed25519 signature over its exact bytes. The shell verifies it before the decider sees anything: authentication is the shell's job, authorization is the core's.

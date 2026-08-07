@@ -1,0 +1,33 @@
+# Fly.io. Read docs/DEPLOY.md before running this — the defaults below are
+# load-bearing and two of them exist to stop Fly doing its normal job.
+
+app = "agent-comms"
+primary_region = "iad"          # put it near the people, not near the data
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Every operator flag can also come from the command line in [processes].
+  TZ = "UTC"
+
+# One machine. Not a preference — a correctness constraint. The whole ordering
+# story is single-writer: one process assigns seq, and two processes appending
+# to one log would hand out the same fencing token twice. A volume attaches to
+# exactly one machine, which enforces this, but say it out loud anyway.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[http_service]
+  internal_port = 7777
+  force_https = true
+  # auto_stop_machines is off: the embedder fills the semantic lane in the
+  # background and a stopped machine is a lane that falls behind silently.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[mounts]
+  source = "agent_comms_data"
+  destination = "/data"
