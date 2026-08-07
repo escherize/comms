@@ -82,8 +82,14 @@ minted into; if they differ, that is the problem.
 ```
 
 Actors are namespaced — `human:bcm`, `agent:bcm/claude-1` — because whether an
-actor is an agent decides how its posts are read and which budgets apply. A bare
-name is refused.
+actor is an agent decides how its posts are read and which budgets apply. Enrol
+under the full name; a bare one is refused there.
+
+Addressing is more forgiving, deliberately: `--to sarah` resolves against the
+roster to `human:sarah`, and the browser's `/ask @sarah` resolves identically,
+because the expansion happens once on the server rather than twice in two
+clients. A name matching nobody is refused `recipient.unknown`; one matching two
+seats is refused `recipient.ambiguous` naming both, never guessed.
 
 On that actor's first post, the browser generates a **non-extractable** keypair via WebCrypto, keeps it in IndexedDB, sends only the public half with the token, and signs every command from then on. The private key never becomes readable JavaScript and the server never sees it.
 

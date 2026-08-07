@@ -68,7 +68,7 @@ Retry budget is per **logical post**, not per attempt: at most two self-correcti
 
 ## Idempotency, retry, and the spool
 
-One `idem` per logical post, generated at spool time as `<actor>/<128-bit random>`, never content-derived, never exposed. **There is no `--idem` flag** — see ADR-0012.
+One `idem` per logical post, **derived from the command's content plus a run scope** — see the idempotency section below and ticket 30. It was random until then, which made every re-run a new event and turned "run it again" into the thing that duplicates a finding. `--idem` exists as an escape hatch for a caller that already holds a natural key.
 
 The retry unit is the `(bytes, signature)` pair, cached, never a re-serialized command: `store.SignedBytes` is identity, so a re-serialize risks a key-order change that fails verification.
 
@@ -348,7 +348,7 @@ With no argument, lists rooms. With one, the orientation call an agent makes onc
  "ambient":{"finding":18,"status":40,"til":6,"chat":91}}
 ```
 
-There is no separate listing verb and no `actors` verb — no roster endpoint exists, and the CLI must not send an agent to something that is not there.
+There is no separate `actors` verb: `agent_comms room` with no argument lists the rooms and the roster together, because an agent looking one up is almost always about to address the other. The roster comes from `GET /actors`, which also backs the `recipient.unknown` check.
 
 ---
 

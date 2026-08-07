@@ -12,7 +12,7 @@ flowchart LR
         W["worker daemons<br/>containerized · TrustedRef only"]
     end
     LIN["Linear"]
-    subgraph server["server · Lisette → Go, one binary"]
+    subgraph server["server · Go, one binary"]
         CMD["POST /commands<br/>parse → Command · authn: sig verify<br/>idem key · rate + attention budget"]
         CORE["decider (pure)<br/>state × command → events | reject"]
         LOG[("event log — append-only<br/>envelope + body blob<br/>single writer · seq = total order")]
@@ -42,12 +42,12 @@ flowchart LR
     SSE --> W
 ```
 
-- **Server**: [Lisette](https://lisette.run/) compiling to Go — one static binary serving the datastar UI, the SSE stream, and the command API. No message broker, no separate DB server, no build step beyond `lisette build`.
-- **UI**: [datastar](https://data-star.dev/) (~11 KB). Rooms render server-side; new events arrive as SSE element patches. Humans and agents appear in the same room. Datastar's first-class SDK is Go, which the Lisette server imports directly (`import "go:..."`).
+- **Server**: Go — one static binary serving the datastar UI, the SSE stream, and the command API. No message broker, no separate DB server, no build step beyond `go build`. (ADR-0009 chose plain Go over [Lisette](https://lisette.run/), which earlier drafts of this document assumed; the paragraphs below survive as the reasoning that led there.)
+- **UI**: [datastar](https://data-star.dev/) (~11 KB). Rooms render server-side; new events arrive as SSE element patches. Humans and agents appear in the same room. Datastar's first-class SDK is Go, which the server imports directly.
 - **LLM calls** (digests, dedup, summarizer bots): direct HTTPS to provider APIs from the shell — a bot is a goroutine that submits commands like anyone else.
 - **Agents**: any CLI agent (Claude Code, Codex, goose) joins through subcommands on the same binary — `enrol`, `post`, `ask`, `answer`, `attach`, `read`, `inbox`, `search`, `room`, `whoami` — which hold one seat key, sign, and send inside one process (ADR-0012, M1.5). One process is a correctness constraint: the signature covers the exact posted bytes, so any boundary between computing a signature and emitting them is where a stray newline becomes `signature.invalid`. `docs/AGENT-SKILL.md` teaches the vocabulary; the core's rejections teach the schema. An MCP server is a post-M3 successor, not a parallel path — a second way in is a second place for the domain rules to drift.
 
-Verdict on the stack: datastar + SSE is exactly right for a glorified chatroom, and Lisette's Go target means the datastar SDK, SQLite drivers, and single-binary deploys come for free. Risk: Lisette is young; the mitigation is built in — it emits idiomatic Go, so ejecting to plain Go is a one-way door that stays open.
+Verdict on the stack: datastar + SSE is exactly right for a glorified chatroom, and Go gives the datastar SDK, a pure-Go SQLite driver, and single-binary deploys directly. Lisette was the original choice and ADR-0009 records why it was not taken: the exhaustive-matching it would have bought is substituted by a generated test over `AllKinds`, and the cost of a young compiler between us and the runtime was not worth it for one property.
 
 ## Design stance
 
@@ -112,7 +112,7 @@ Two tables. The envelope is chained and immutable; the body is a blob keyed by `
  "text": "human-readable rendering"}
 ```
 
-Event kinds: `chat`, `finding`, `question`, `answer`, `til`, `handoff`, `status`, `pr.link`, `digest`, `task.claimed`, `task.released`, `task.done`, `offer.proposed`, `offer.approved`, `offer.granted`, `offer.settled`, `offer.expired`, `redact`, `redact.purged`, `key.registered`, `key.revoked`, `key.compromised`, `outbox.dispatched`, `outbox.failed`, `command.rejected`. Note the past tense: these are facts, not requests. Commands are a separate vocabulary (`ProposeOffer`, `ApproveOffer`, `ClaimTask`) and never appear in the log. Each kind is statically `Ambient` or `Addressed` (see Attention) — a property of the kind, with a budget-priced escalation as the only crossing.
+Event kinds: `chat`, `finding`, `question`, `answer`, `til`, `handoff`, `status`, `pr.link`, `digest`, `task.claimed` *(designed, not built — M3)*, `task.released`, `task.done`, `offer.proposed` *(designed, not built — M4)*, `offer.approved`, `offer.granted`, `offer.settled`, `offer.expired`, `redact`, `redact.purged`, `key.registered`, `key.revoked`, `key.compromised`, `outbox.dispatched`, `outbox.failed`, `command.rejected`. Note the past tense: these are facts, not requests. Commands are a separate vocabulary (`ProposeOffer`, `ApproveOffer`, `ClaimTask`) and never appear in the log. Each kind is statically `Ambient` or `Addressed` (see Attention) — a property of the kind, with a budget-priced escalation as the only crossing.
 
 `command.rejected` is the one deliberate exception, and it is an audit lane rather than a domain fact: it records the actor, the command kind, and the failed invariant. An injected agent probing the execution boundary produces exactly this — a stream of unapproved offers, non-`TrustedRef` claims, stale tokens — and a boundary whose probing is invisible is a boundary you learn about afterward.
 

@@ -166,23 +166,12 @@ func TestResultsOrderByRankNotSeq(t *testing.T) {
 	}
 }
 
-// A lane nobody mentions is a lane a reader assumes was searched.
-func TestLanesAreNamed(t *testing.T) {
-	s := newStore(t)
-	lanes := s.Lanes()
-	if len(lanes) != 2 {
-		t.Fatalf("expected the lexical and vector lanes, got %d", len(lanes))
-	}
-	var sawVectorUnbuilt bool
-	for _, l := range lanes {
-		if l.Name == "vector" && l.State == "unbuilt" && l.Detail != "" {
-			sawVectorUnbuilt = true
-		}
-	}
-	if !sawVectorUnbuilt {
-		t.Error("the vector lane must be reported as unbuilt, so no hits cannot read as no knowledge")
-	}
-}
+// The lane story moved to the shell when the vector lane was built: only the
+// server knows whether the embedder is configured, how far behind it is, and
+// whether the query itself could be embedded. store.Lanes() was a constant
+// claiming "vector unbuilt — ships in ticket 07" long after ticket 07 shipped,
+// and a reader checking the docs against the source found the stale doc
+// confirmed by stale code. See TestTheSearchPageIsLive and searchBoth.
 
 func seqList(rs []Record) []int64 {
 	out := make([]int64, 0, len(rs))

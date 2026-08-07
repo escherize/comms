@@ -653,16 +653,6 @@ type LaneStatus struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// Lanes describes what a search covered. The vector lane is named as unbuilt
-// rather than omitted, because a lane nobody mentions is a lane a reader
-// assumes was searched.
-func (s *Store) Lanes() []LaneStatus {
-	return []LaneStatus{
-		{Name: "lexical", State: "searched"},
-		{Name: "vector", State: "unbuilt", Detail: "semantic search ships in ticket 07; these results are lexical only"},
-	}
-}
-
 // Search runs the lexical lane. Filters are applied after the FTS match.
 func (s *Store) Search(query, room, kind, author, since string, limit int) ([]Record, error) {
 	q := ftsQuery(query)

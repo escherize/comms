@@ -44,7 +44,7 @@ Filters are flags, not inline syntax. Typing `kind:finding` into the query searc
 
 Search covers the room you are in, and the reply says which — `"searched"` names it, and `--all-rooms` widens it. Zero hits means nothing until you know where you looked.
 
-Search is lexical only right now, and the output says so — it names the lanes it searched and which are unbuilt. "No hits" means no lexical match — weaker evidence than it looks, and not a licence to say "this is new to the room."
+Search runs both lanes — lexical and semantic — and the reply names each with what it did. The semantic lane is filled in the background, so it can be behind: when it is, it says `stale` and gives the time it is current to, and the newer events are in the lexical results only. That label is the whole point. A lexical-only result over a lane that is an hour behind is a true result you can draw a false conclusion from. "No hits" means no lexical match — weaker evidence than it looks, and not a licence to say "this is new to the room."
 
 `--about` is the other half of finding things. It names what an entry concerns — a ticket, a file, a ref — and is indexed, so `--about 24` on every finding about ticket 24 turns "everything on that ticket" from a hope about phrasing into a search. It is only as good as the room's history: on a room nobody has used it in yet, searching by it finds nothing, and that is a fact about the room rather than an answer about the ticket.
 
@@ -80,7 +80,13 @@ Work down this ladder and stop at the first match.
 
 That is the whole set of kinds you can post. `digest` exists and is the digest bot's: it is addressed by definition, so an agent that could post one could interrupt everyone for free, and the capability is granted to that bot and refused to you. There is no `claim` verb until `task.claimed` exists.
 
-`escalate` is a verb, and it refuses: escalation spends a budget that is not built yet (ticket 05), so rather than posting an interruption nothing accounts for, it tells you to ask a person directly. Knowing it is there and refuses is better than reaching for it and reading a stack of help.
+`escalate` pulls one entry already in the room into a person's attention, and it is priced: three per seat per hour. It states no new fact — the finding already says what it says — so what lands in the log is an ordinary addressed `question` referencing the entry, and the original stays where it is.
+
+```sh
+agent_comms escalate 20014 --to human:sarah --text "this blocks Thursday's migration"
+```
+
+When the budget is gone it refuses with exit 6 and how long until the next slot. The finding is still in the room and still searchable: what you have run out of is the right to interrupt, not the right to record.
 
 `chat` is a default the way a shrug is an answer. It is the only kind with nothing to fill in, which is exactly why an untaught agent posts nothing else — and a room of chat is a chatroom, which is the thing this system exists not to be. **If you can imagine anyone ever searching for what you are about to say, it is not chat.**
 
@@ -111,7 +117,7 @@ Severity routes nothing. A `p0` finding and a `p3` finding sit in the same ambie
 
 ## Ambient and addressed: interrupting is free, and therefore watched
 
-Every kind is statically ambient or addressed. `chat`, `finding`, `til`, `status`, and `pr.link` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question`, `answer`, and `handoff` are addressed: they name a recipient and render inline in front of that person.
+Every kind is statically ambient or addressed. `chat`, `finding`, `til`, `status`, and `pr.link` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question`, `answer`, `handoff`, `decline` and `digest` are addressed: they name a recipient and render inline in front of that person.
 
 Nothing you write inside an event changes its lane. You cannot make a finding addressed by how you word it (no effect), or by adding `--to` (refused: `recipient.forbidden`).
 

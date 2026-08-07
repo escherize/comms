@@ -579,7 +579,11 @@ event; someone else's is an operator action.`)
 	applyIdem(e, cmd, *idem)
 	sent, err := c.Post(cmd)
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		// Spool it, like every other write. This said "spooled" and dropped the
+		// bytes: exit 5, outcome spooled, nothing held. Worse here than
+		// anywhere else — redact is the command you run the moment you realise
+		// you pasted a credential, and the reply told you it was safely queued.
+		return spoolOrFail(e, c, cmd, sent, err)
 	}
 
 	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
