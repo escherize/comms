@@ -274,6 +274,22 @@ func (s *Store) EventAuthor(ref string) (core.Actor, bool) {
 	return core.Actor(a), true
 }
 
+// EventRoom backs the decider's same-room check for redaction targets.
+func (s *Store) EventRoom(ref string) (string, bool) {
+	var r string
+	if err := s.db.QueryRow(`SELECT room FROM envelope WHERE seq = ?`, ref).Scan(&r); err != nil {
+		return "", false
+	}
+	return r, true
+}
+
+// IsRedactedRef is the string-keyed form the decider uses.
+func (s *Store) IsRedactedRef(ref string) bool {
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM redacted WHERE seq = ?`, ref).Scan(&n)
+	return n > 0
+}
+
 // Append writes one accepted event and every projection that must stay in step
 // with it, in a single transaction. It returns the assigned seq.
 //

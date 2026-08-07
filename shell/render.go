@@ -81,14 +81,15 @@ func renderRow(r store.Record) string {
 			body.WriteString(`<a href="` + html.EscapeString(u) + `">` +
 				html.EscapeString(u) + `</a>`)
 		}
-	}
-
-	// Attachments render as titles, never as content: a 100KB report must not
-	// become a 100KB row.
-	for _, a := range r.Attach {
-		body.WriteString(fmt.Sprintf(
-			` <a class="att" href="/a/%s">▤ %s</a>`,
-			html.EscapeString(a.Hash), html.EscapeString(a.Title)))
+		// Attachments render as titles, never as content: a 100KB report must
+		// not become a 100KB row. Inside the default branch, so a redacted row
+		// links to nothing — the blob is gone and a link to it would 404 while
+		// still naming what was attached.
+		for _, a := range r.Attach {
+			body.WriteString(fmt.Sprintf(
+				` <a class="att" href="/a/%s">▤ %s</a>`,
+				html.EscapeString(a.Hash), html.EscapeString(a.Title)))
+		}
 	}
 
 	tick := `<div class="tick">✓</div>`

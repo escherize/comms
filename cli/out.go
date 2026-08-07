@@ -119,6 +119,8 @@ var verdicts = map[string]string{
 	"refs.question_required":    "point --refs at the question you are answering",
 	"refs.exactly_one":          "name exactly one event in --refs",
 	"refs.unknown":              "that event does not exist; check the seq you read",
+	"refs.target_unknown":       "no such event in this room; check the seq and the room you read it from",
+	"redact.already_redacted":   "it is already redacted; ask a human to purge it if the body must be erased",
 	"redact.not_author":         "you cannot redact someone else's event; ask them, or ask a human to purge it",
 	"attachment.unknown":        "upload the artifact first with: agent_comms attach",
 	"attachment.title.required": "give the attachment a --title",

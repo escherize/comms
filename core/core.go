@@ -111,6 +111,10 @@ type State struct {
 	ArtifactExists func(hash string) bool
 	// EventAuthor returns who authored a prior event, and whether it exists.
 	EventAuthor func(ref string) (Actor, bool)
+	// EventRoom returns the room a prior event was posted in.
+	EventRoom func(ref string) (string, bool)
+	// IsRedacted reports whether an event is already suppressed.
+	IsRedacted func(ref string) bool
 }
 
 // Decide is the whole domain. state × command → events | rejection.
@@ -196,9 +200,26 @@ func checkRedaction(s State, c Command) *Rejection {
 	author, ok := s.EventAuthor(c.Refs[0])
 	if !ok {
 		// A redact naming nothing must not report success. Silently accepting
-		// it tells an agent the secret is gone when it is still readable.
-		return &Rejection{"refs.unknown",
+		// it tells an agent the secret is gone when it is still readable. A seq
+		// not yet assigned lands here too, so nothing can be pre-redacted.
+		return &Rejection{"refs.target_unknown",
 			"no event at " + c.Refs[0] + "; a redact that names nothing would report success and do nothing"}
+	}
+
+	// The target must live in the room the redact is posted to, so the record
+	// of the suppression sits where the suppressed thing was.
+	if s.EventRoom != nil {
+		if room, ok := s.EventRoom(c.Refs[0]); ok && room != c.Room {
+			return &Rejection{"refs.target_unknown",
+				"event " + c.Refs[0] + " is in room " + room + ", not " + c.Room}
+		}
+	}
+
+	// Re-redacting is refused rather than absorbed: silently accepting it would
+	// report success for an act that changed nothing.
+	if s.IsRedacted != nil && s.IsRedacted(c.Refs[0]) {
+		return &Rejection{"redact.already_redacted",
+			"event " + c.Refs[0] + " is already redacted; use purge to erase the body permanently"}
 	}
 	if author != c.Author {
 		return &Rejection{"redact.not_author",

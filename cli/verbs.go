@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/bcm/agent_comms/core"
@@ -33,7 +34,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"enrol", "post", "ask", "answer", "attach", "read", "inbox", "search", "room", "whoami", "escalate"}
+var Verbs = []string{"enrol", "post", "redact", "ask", "answer", "attach", "read", "inbox", "search", "room", "whoami", "escalate"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -48,6 +49,8 @@ func Run(e *Env, args []string) int {
 		return runPost(e, args[1:])
 	case "whoami":
 		return runWhoami(e, args[1:])
+	case "redact":
+		return runRedact(e, args[1:])
 	case "escalate":
 		return runEscalate(e, args[1:])
 	case "ask", "answer", "attach", "read", "inbox", "search", "room":
@@ -305,6 +308,79 @@ func retryFor(invariant string, kind core.Kind, args []string) string {
 		return base + " --url https://…"
 	}
 	return ""
+}
+
+// ---------------------------------------------------------------- redact
+
+func runRedact(e *Env, args []string) int {
+	fs, sink := newFlags("redact")
+	actor := fs.String("as", "", "the seat redacting")
+	room := fs.String("room", "core", "the room the event is in")
+	why := fs.String("why", "", "why it is being suppressed")
+	fs.Usage = func() {
+		e.Out.Note(`agent_comms redact <seq> --as <seat> --why "<reason>"
+
+Suppresses one of your own events: its body leaves the room, search, and any
+attached artifact stops being served. The event itself stays, because
+corrections are new entries.
+
+  agent_comms redact 20014 --as agent:bcm/claude-1 --why "pasted a token"
+
+The seq is positional, not a --refs string, so the refs value you are carrying
+through a piece of work cannot land here by habit. You can only redact your own
+event; someone else's is an operator action.`)
+	}
+
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+			fs.Usage()
+			return e.Out.Succeed(Result{Outcome: "usage"})
+		}
+		return e.Out.Fail(ExitUsage, "usage", "seq.required",
+			"name the event to redact: agent_comms redact <seq> --as <seat> --why \"...\"")
+	}
+	seqArg := args[0]
+	if _, err := strconv.ParseInt(seqArg, 10, 64); err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "seq.invalid",
+			"the first argument is a seq, e.g. 20014; got "+seqArg)
+	}
+	if err := fs.Parse(args[1:]); err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+	if *why == "" {
+		return e.Out.Fail(ExitUsage, "usage", "why.required",
+			"say why with --why; the room keeps the reason even though the body goes")
+	}
+
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	priv, err := LoadSeat(seat)
+	if err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
+	}
+
+	c := NewClient(e.Server, seat, priv)
+	sent, err := c.Post(map[string]any{
+		"room": *room, "author": seat, "kind": "redact",
+		"body": map[string]any{"text": *why},
+		"refs": []string{seqArg}, "idem": newIdem(),
+	})
+	if err != nil {
+		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+	}
+
+	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
+	if exit != ExitOK {
+		return e.Out.FailWith(Result{
+			Outcome: outcome, Exit: exit,
+			Invariant: sent.Body.Invariant, Detail: sent.Body.Detail, Schema: sent.Body.Schema,
+		})
+	}
+	e.Out.Note("redacted %s; body and attachments are gone, the event remains", seqArg)
+	applied := sent.Body.Applied
+	return e.Out.Succeed(Result{Outcome: "accepted", Seq: sent.Body.Seq, Applied: &applied})
 }
 
 // ---------------------------------------------------------------- whoami

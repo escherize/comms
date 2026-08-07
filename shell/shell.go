@@ -305,6 +305,8 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		EventKind:      s.st.EventKind,
 		ArtifactExists: s.st.ArtifactExists,
 		EventAuthor:    s.st.EventAuthor,
+		EventRoom:      s.st.EventRoom,
+		IsRedacted:     s.st.IsRedactedRef,
 	}
 	events, rej := core.Decide(state, cmd)
 	if rej != nil {

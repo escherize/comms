@@ -4,7 +4,10 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
+
 	"errors"
+	"github.com/bcm/agent_comms/core"
 	"regexp"
 	"time"
 )
@@ -159,6 +162,30 @@ func (s *Store) ApplyRedaction(targetSeq, bySeq int64, byActor string, now time.
 	if _, err := tx.Exec(`DELETE FROM search WHERE seq = ?`, targetSeq); err != nil {
 		return err
 	}
+
+	// Attachments die with the body, in the same transaction. A secret pasted
+	// into an attached stack trace is the same secret; leaving the blob served
+	// while blanking the row hides the leak instead of closing it.
+	var attach string
+	if err := tx.QueryRow(`SELECT attach FROM envelope WHERE seq = ?`, targetSeq).Scan(&attach); err == nil {
+		var atts []core.Attachment
+		_ = json.Unmarshal([]byte(attach), &atts)
+		for _, a := range atts {
+			// Only drop a blob no surviving event still references.
+			var others int
+			_ = tx.QueryRow(
+				`SELECT COUNT(*) FROM envelope e
+				 WHERE e.seq != ? AND e.attach LIKE ?
+				   AND e.seq NOT IN (SELECT seq FROM redacted)`,
+				targetSeq, "%"+a.Hash+"%").Scan(&others)
+			if others == 0 {
+				if _, err := tx.Exec(`DELETE FROM artifact WHERE hash = ?`, a.Hash); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	return tx.Commit()
 }
 

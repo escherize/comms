@@ -180,3 +180,67 @@ func TestRedactAuthorizationOverTheWire(t *testing.T) {
 		t.Error("the authorized redact must suppress")
 	}
 }
+
+// A secret pasted into an attached stack trace is the same secret. Blanking the
+// row while the blob stays served hides the leak instead of closing it.
+func TestRedactDropsAttachmentsAndTheirLinks(t *testing.T) {
+	srv, st := newServer(t)
+
+	hash := putArtifact(t, srv, "# trace\n\nSECRET-TOKEN-abc123\n")
+	_, out := post(t, srv, `{"room":"core","author":"bcm","kind":"finding",`+
+		`"body":{"text":"crash log","severity":"p1"},"idem":"a1",`+
+		`"attachments":[{"hash":"`+hash+`","title":"trace.md"}]}`)
+	target := itoa(int64(out["seq"].(float64)))
+
+	if resp, _ := http.Get(srv.URL + "/a/" + hash); resp != nil {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatal("setup: the artifact should be served before redaction")
+		}
+	}
+
+	code, rej := post(t, srv, `{"room":"core","author":"bcm","kind":"redact",`+
+		`"body":{"text":"leaked a token"},"refs":["`+target+`"],"idem":"r1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("the author's redact should be accepted: %d %v", code, rej)
+	}
+
+	resp, err := http.Get(srv.URL + "/a/" + hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("the artifact must stop being served after redaction, got %d", resp.StatusCode)
+	}
+
+	page := getPage(t, srv.URL+"/?room=core")
+	if strings.Contains(page, "trace.md") {
+		t.Error("a redacted row must not link to an attachment that is gone")
+	}
+	if strings.Contains(page, hash) {
+		t.Error("a redacted row must not name the artifact hash")
+	}
+	if err := st.Verify(); err != nil {
+		t.Errorf("the chain must still verify: %v", err)
+	}
+}
+
+// A redact naming an event in another room is refused over the wire.
+func TestCrossRoomRedactIsRefused(t *testing.T) {
+	srv, st := newServer(t)
+	if err := st.EnsureRoom("other"); err != nil {
+		t.Fatal(err)
+	}
+	_, out := post(t, srv, cmd("chat", "in core", "c1"))
+	target := itoa(int64(out["seq"].(float64)))
+
+	code, rej := post(t, srv, `{"room":"other","author":"bcm","kind":"redact",`+
+		`"body":{"text":"x"},"refs":["`+target+`"],"idem":"x1"}`)
+	if code != http.StatusUnprocessableEntity || rej["invariant"] != "refs.target_unknown" {
+		t.Errorf("a cross-room redact must be refused, got %d %v", code, rej)
+	}
+	if page := getPage(t, srv.URL+"/?room=core"); !strings.Contains(page, "in core") {
+		t.Error("the refused redact must leave the event intact")
+	}
+}

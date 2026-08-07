@@ -23,6 +23,8 @@ func main() {
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
+	purge := flag.Int64("purge", 0, "erase one event's body and attachments permanently, then exit")
+	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
 	flag.Parse()
 
 	// Verb form: agent_comms <verb> ... is the agent client (ADR-0012). Flag
@@ -56,6 +58,34 @@ func main() {
 			log.Fatalf("invite: %v", err)
 		}
 		fmt.Printf("enrolment token for %s:\n\n  %s\n\nOne use. Hand it over out of band.\n", *invite, tok)
+		return
+	}
+
+	// Operator capabilities. Flags on the server binary rather than verbs an
+	// agent seat can reach, because both act on other actors' events and the
+	// only credential they need is holding the database.
+	if *purge > 0 {
+		if err := st.Purge(*purge); err != nil {
+			log.Fatalf("purge: %v", err)
+		}
+		fmt.Printf("purged the body and attachments of %d; the event and the chain remain\n", *purge)
+		return
+	}
+
+	if *flagged != "" {
+		recs, err := st.FlaggedEvents(*flagged)
+		if err != nil {
+			log.Fatalf("flagged: %v", err)
+		}
+		if len(recs) == 0 {
+			fmt.Printf("nothing flagged for %s; mark the key compromised first\n", *flagged)
+			return
+		}
+		fmt.Printf("%d events authored by %s at or after its suspected compromise:\n", len(recs), *flagged)
+		for _, r := range recs {
+			fmt.Printf("  %d  %s  %s  %s\n", r.Seq,
+				r.ServerTS.Format(time.RFC3339), r.Kind, r.Text())
+		}
 		return
 	}
 
