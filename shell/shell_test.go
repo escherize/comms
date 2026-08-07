@@ -509,3 +509,16 @@ func readFile(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	return string(b), err
 }
+
+// postTo sends a signed-or-not body to a route other than /commands.
+func postTo(t *testing.T, srv *httptest.Server, path, body string) (int, map[string]any) {
+	t.Helper()
+	resp, err := http.Post(srv.URL+path, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}

@@ -1008,26 +1008,85 @@ key, and no verb, flag or environment variable does.
 // ---------------------------------------------------------------- escalate
 
 func runEscalate(e *Env, args []string) int {
-	// --help is answered before the refusal: an agent reading the flags has not
-	// escalated yet, and refusing the question teaches nothing.
-	for _, a := range args {
-		if a == "-h" || a == "--help" || a == "-help" {
-			e.Out.Help(`agent_comms escalate --as <seat> --to <human> --text <why>
+	fs, sink := newFlags("escalate")
+	actor := fs.String("as", "", "the seat escalating")
+	room := fs.String("room", "", "the room the entry is in")
+	to := fs.String("to", "", "the person who should look")
+	text := fs.String("text", "", "why this needs them now")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms escalate <seq> --as <seat> --to <human> --text "<why now>"
 
-Designed, not built (ticket 05). Escalation spends a budget and moves an entry
-into the addressed lane; until the budget exists the verb refuses rather than
-posting an interruption nothing accounts for.`)
-			return e.Out.Succeed(Result{Outcome: "usage"})
-		}
+Pulls one entry already in the room into a person's attention. It states no new
+fact — the finding already says what it says — so what lands in the log is an
+ordinary addressed question referencing it, signed by you like anything else.
+
+  agent_comms escalate 20014 --as agent:bcm/claude-1 --to human:sarah \
+      --text "this blocks Thursday's migration; postpone or batch the rebuild?"
+
+You get %d of these an hour. That is the whole point: severity routes nothing, a
+p0 finding sits in the same ambient lane as a p3, and this is the one lever that
+spends someone's afternoon. When it is gone the finding is still in the room and
+still searchable — what you have run out of is the right to interrupt, not the
+right to record.`, 3)
 	}
-	// The verb exists so an agent that reaches for it gets a straight answer
-	// rather than silence, and posts nothing while doing so.
-	return e.Out.FailWith(Result{
-		Outcome: "refused", Exit: ExitRefused,
-		Invariant: "escalation.not_built",
-		Detail: "escalation budgets are designed but not built (ticket 05). " +
-			"Nothing was posted. To interrupt a human now, ask them: agent_comms ask --to <human>",
-		Next: "stop escalating; ask a human directly instead",
+
+	seqs, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
+	}
+	if len(seqs) != 1 {
+		return e.Out.Fail(ExitUsage, "usage", "refs.exactly_one",
+			"name the one entry a person should look at: agent_comms escalate <seq>")
+	}
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	if *to == "" {
+		return e.Out.Fail(ExitUsage, "usage", "recipient.required",
+			"escalate names the person who should look: --to <human>")
+	}
+	if *text == "" {
+		return e.Out.Fail(ExitUsage, "usage", "body.text.required",
+			"say why it needs them now; the entry itself already says what it is")
+	}
+
+	priv, err := LoadSeat(seat)
+	if err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
+	}
+	c := NewClient(e.Server, seat, priv)
+	body := map[string]any{
+		"room": resolveRoom(seat, *room), "author": seat,
+		"refs": seqs[0], "to": *to, "text": *text, "idem": newIdem(),
+	}
+	sent, err := c.PostTo("/escalate", body)
+	if err != nil {
+		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+	}
+	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
+	if exit != ExitOK {
+		if sent.Body.Exit != 0 && stricter(sent.Body.Exit, exit) {
+			exit, outcome = sent.Body.Exit, "refused"
+		}
+		r := Result{
+			Outcome: outcome, Exit: exit,
+			Invariant: sent.Body.Invariant, Detail: sent.Body.Detail,
+			RetryAfterMS: sent.Body.RetryAfterMS,
+		}
+		if sent.Body.Next != "" {
+			r.Next = sent.Body.Next
+		}
+		return e.Out.FailWith(r)
+	}
+	e.Out.Note("escalated at %d; %d left this hour", sent.Body.Seq, sent.Body.Remaining)
+	applied := sent.Body.Applied
+	return e.Out.Succeed(Result{
+		Outcome: "escalated", Seq: sent.Body.Seq, Applied: &applied,
+		Remaining: sent.Body.Remaining, Detail: sent.Body.Detail,
 	})
 }
 

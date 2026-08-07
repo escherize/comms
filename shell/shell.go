@@ -41,8 +41,9 @@ type Server struct {
 	// deployment is a decision someone made rather than one they inherited.
 	RequireSignature bool
 
-	limit   *limiter
-	correct *corrections
+	limit    *limiter
+	correct  *corrections
+	escalate *escalations
 }
 
 // PostsPerMinute and PostBurst bound one seat. The burst is what an agent
@@ -60,7 +61,8 @@ func New(st *store.Store, now Clock) *Server {
 	return &Server{st: st, now: now, subs: map[chan store.Record]string{},
 		RequireSignature: true,
 		limit:            newLimiter(PostsPerMinute, PostBurst, now),
-		correct:          newCorrections()}
+		correct:          newCorrections(),
+		escalate:         newEscalations(now)}
 }
 
 func (s *Server) Routes() *http.ServeMux {
@@ -73,6 +75,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /rooms", s.roomsList)
 	mux.HandleFunc("GET /rooms/{name}", s.roomBrief)
 	mux.HandleFunc("GET /actors", s.actorsList)
+	mux.HandleFunc("POST /escalate", s.postEscalation)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
@@ -366,20 +369,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	state := core.State{
-		RoomExists:     s.st.RoomExists,
-		EventKind:      s.st.EventKind,
-		ArtifactExists: s.st.ArtifactExists,
-		EventAuthor:    s.st.EventAuthor,
-		EventRoom:      s.st.EventRoom,
-		IsRedacted:     s.st.IsRedactedRef,
-		HasCapability: func(a core.Actor, capability string) bool {
-			return s.st.HasCapability(string(a), capability)
-		},
-		ActorEnrolled: func(a core.Actor) bool {
-			return s.st.ActorEnrolled(string(a))
-		},
-	}
+	state := s.decisionState()
 	events, rej := core.Decide(state, cmd)
 	if rej != nil {
 		attempts, exhausted := s.correct.rejected(cmd.Author, rej.Invariant)
@@ -786,5 +776,162 @@ func (s *Server) actorsList(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "outcome": "read", "actors": actors, "count": len(actors),
+	})
+}
+
+// decisionState is the decider's view of the world, in one place. Two routes
+// building it separately is two chances for one of them to forget a rule — and
+// a rule missing from one path is a rule that does not exist.
+func (s *Server) decisionState() core.State {
+	return core.State{
+		RoomExists:     s.st.RoomExists,
+		EventKind:      s.st.EventKind,
+		ArtifactExists: s.st.ArtifactExists,
+		EventAuthor:    s.st.EventAuthor,
+		EventRoom:      s.st.EventRoom,
+		IsRedacted:     s.st.IsRedactedRef,
+		HasCapability: func(a core.Actor, capability string) bool {
+			return s.st.HasCapability(string(a), capability)
+		},
+		ActorEnrolled: func(a core.Actor) bool {
+			return s.st.ActorEnrolled(string(a))
+		},
+	}
+}
+
+// postEscalation pulls one ambient entry into a person's attention, and charges
+// for it. It is a route rather than a kind because escalating states no new
+// fact — the finding already says what it says. What changes is who is expected
+// to look, so what lands in the log is an ordinary addressed question
+// referencing the entry, authored by the escalating seat and signed by its key
+// like anything else. ADR-0008 prices this because fifteen agents share a room
+// with five people, and an interrupt nobody pays for is one everybody sends.
+func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
+	raw := make([]byte, 0, 4096)
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Body.Read(buf)
+		raw = append(raw, buf[:n]...)
+		if err != nil {
+			break
+		}
+		if len(raw) > 1<<20 {
+			writeJSON(w, http.StatusRequestEntityTooLarge,
+				rejectedResponse{"body.too_large", "escalation body exceeds 1MiB", ""})
+			return
+		}
+	}
+
+	var req struct {
+		Room, Author, Refs, To, Text, Idem string
+	}
+	if err := json.Unmarshal(raw, &struct {
+		Room   *string `json:"room"`
+		Author *string `json:"author"`
+		Refs   *string `json:"refs"`
+		To     *string `json:"to"`
+		Text   *string `json:"text"`
+		Idem   *string `json:"idem"`
+	}{&req.Room, &req.Author, &req.Refs, &req.To, &req.Text, &req.Idem}); err != nil {
+		writeJSON(w, http.StatusBadRequest, rejectedResponse{"parse.failed", err.Error(), ""})
+		return
+	}
+
+	if s.RequireSignature {
+		sig, err := decodeSig(r.Header.Get("X-Signature"))
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, rejectedResponse{"signature.missing",
+				"every escalation must carry X-Signature: a hex ed25519 signature over the request body",
+				"X-Signature: <128 hex chars>"})
+			return
+		}
+		if err := s.st.VerifySignature(core.Actor(req.Author), raw, sig, s.now()); err != nil {
+			var af store.AuthFailure
+			if errors.As(err, &af) {
+				writeJSON(w, http.StatusUnauthorized, rejectedResponse{af.Invariant, af.Detail, ""})
+				return
+			}
+			writeJSON(w, http.StatusUnauthorized,
+				rejectedResponse{"signature.invalid", err.Error(), ""})
+			return
+		}
+	}
+
+	author := core.Actor(req.Author)
+	if req.Refs == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, rejectedResponse{"refs.exactly_one",
+			"escalate names the one entry a person should look at", ""})
+		return
+	}
+
+	// Charge before appending. A budget checked after the write is not a budget:
+	// by the time it says no, the interrupt has already happened.
+	remaining, retryAfter, ok := s.escalate.spend(author)
+	if !ok {
+		ms := retryAfter.Milliseconds()
+		if ms < 1 {
+			ms = 1
+		}
+		// Exit 6, not 4: the budget refills. "Stop, ask a human" would be wrong
+		// about a condition that fixes itself on a clock, and the retry_after
+		// is what makes the difference actionable.
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{
+			"ok": false, "outcome": "throttled", "exit": 6,
+			"invariant": "escalation.exhausted",
+			"detail": fmt.Sprintf(
+				"this seat has spent all %d escalations in the last %s. Nothing was posted",
+				EscalationBudget, EscalationWindow),
+			"retry_after_ms": ms, "remaining": 0,
+			"next": "the finding is already in the room and stays there; escalating is about " +
+				"who looks now, not whether it is recorded. Wait for the window, or add the " +
+				"evidence to a conversation you are already having with a person",
+		})
+		return
+	}
+
+	cmd := core.Command{
+		Room: req.Room, Author: author, Kind: core.KindQuestion,
+		Recipient: core.Actor(req.To), Refs: []string{req.Refs}, Idem: req.Idem,
+		Body: map[string]any{"text": req.Text, "escalated": req.Refs},
+	}
+	if cmd.Room == "" {
+		cmd.Room = "core"
+	}
+	if matches := s.st.ResolveActor(string(cmd.Recipient)); len(matches) == 1 {
+		cmd.Recipient = core.Actor(matches[0])
+	}
+
+	events, rej := core.Decide(s.decisionState(), cmd)
+	if rej != nil {
+		writeJSON(w, http.StatusUnprocessableEntity,
+			rejectedResponse{rej.Invariant, rej.Detail, schemaFor(cmd.Kind)})
+		return
+	}
+
+	var seq int64
+	for _, ev := range events {
+		n, err := s.st.Append(ev, cmd.Idem, s.now())
+		if err != nil {
+			var dup store.ErrDuplicate
+			if errors.As(err, &dup) {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok": true, "outcome": "escalated", "seq": dup.Seq, "applied": false,
+					"remaining": remaining,
+				})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError,
+				rejectedResponse{"append.failed", err.Error(), ""})
+			return
+		}
+		seq = n
+		s.fanout(ev.Room, seq)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": "escalated", "seq": seq, "applied": true,
+		"remaining": remaining,
+		"detail": fmt.Sprintf("%d escalation(s) left in this %s window",
+			remaining, EscalationWindow),
 	})
 }

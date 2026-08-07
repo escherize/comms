@@ -41,6 +41,7 @@ type wireResponse struct {
 	Next         string `json:"next"`
 	RetryAfterMS int64  `json:"retry_after_ms"`
 	Attempts     int    `json:"attempts"`
+	Remaining    int    `json:"remaining"`
 }
 
 // Sent is the outcome of one post, including the exact bytes that were signed
@@ -114,6 +115,34 @@ func postExactWith(hc *http.Client, server string, payload []byte, sig string) (
 // retry.
 func postExact(server string, payload []byte, sig string) (int, wireResponse, error) {
 	return postExactWith(&http.Client{Timeout: 30 * time.Second}, server, payload, sig)
+}
+
+// PostTo signs and sends to a route other than /commands. The signing rule is
+// the same everywhere: marshal once, sign that slice, send that slice.
+func (c *Client) PostTo(path string, body map[string]any) (Sent, error) {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return Sent{}, fmt.Errorf("building request: %w", err)
+	}
+	sig := hex.EncodeToString(ed25519.Sign(c.priv, payload))
+
+	req, err := http.NewRequest("POST", c.Server+path, bytes.NewReader(payload))
+	if err != nil {
+		return Sent{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Signature", sig)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return Sent{Bytes: payload, Signature: sig}, err
+	}
+	defer resp.Body.Close()
+
+	var out wireResponse
+	raw, _ := io.ReadAll(resp.Body)
+	_ = json.Unmarshal(raw, &out)
+	return Sent{Status: resp.StatusCode, Body: out, Bytes: payload, Signature: sig}, nil
 }
 
 // Preview returns the exact bytes and signature a Post would send, without

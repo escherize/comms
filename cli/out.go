@@ -95,6 +95,7 @@ type Result struct {
 	PubKey       string           `json:"public_key,omitempty"`
 	Hash         string           `json:"hash,omitempty"`
 	Title        string           `json:"title,omitempty"`
+	Remaining    int              `json:"remaining,omitempty"`
 	Size         int              `json:"size,omitempty"`
 	Count        int              `json:"count,omitempty"`
 
@@ -165,6 +166,7 @@ var verdicts = map[string]string{
 	"key.revoked":               "stop. This seat's key was revoked. A human must re-enrol it",
 	"key.compromised":           "stop immediately and tell a human. This key is marked compromised",
 	"enrolment.refused":         "stop. Ask a human for a fresh invite token",
+	"escalation.exhausted":      "wait for the window; the entry is recorded either way",
 	"parse.failed":              "stop. The client built a malformed command; this is a bug here",
 
 	// Usage failures the caller can fix. `next: "stop"` on any of these tells an
