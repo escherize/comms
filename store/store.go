@@ -72,6 +72,15 @@ func (r Record) URL() string {
 }
 
 // Severity returns the body's severity field, or "".
+// About names what the event concerns: a ticket, a file, a ref.
+func (r Record) About() string {
+	if r.Body == nil {
+		return ""
+	}
+	a, _ := r.Body["about"].(string)
+	return a
+}
+
 func (r Record) Severity() string {
 	if r.Body == nil {
 		return ""
@@ -393,6 +402,12 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 	// contents finds the event that carries it — the point of storing markdown.
 	text, _ := ev.Body["text"].(string)
 	indexed := text
+	// `about` names what an event concerns — a ticket, a file, a ref. Indexing
+	// it makes "everything on ticket 20" a search rather than a hope that
+	// somebody spelt it the same way in prose.
+	if about, _ := ev.Body["about"].(string); about != "" {
+		indexed += "\n" + about
+	}
 	for _, a := range ev.Attachments {
 		indexed += "\n" + a.Title
 		var blob []byte

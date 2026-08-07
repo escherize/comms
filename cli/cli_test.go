@@ -350,26 +350,67 @@ func TestGenkeyAndSignKeyAreGone(t *testing.T) {
 	}
 }
 
-// docs/CLI.md must describe the verbs the binary actually answers.
-func TestDocsMatchTheVerbSet(t *testing.T) {
+// docs/CLI.md must describe the flags the binary actually has. The previous
+// version of this test asserted only that each verb *name* appeared somewhere
+// in the doc, so a verb whose --help gained or lost every flag still passed —
+// and because every verb in Verbs had to be described, the test required
+// docs/CLI.md to document `search` while the binary answered verb.not_built.
+// A test that requires a lie is worse than no test.
+func TestDocsMatchTheFlagSets(t *testing.T) {
+	isolateKeys(t)
 	b, err := os.ReadFile("../docs/CLI.md")
 	if err != nil {
 		t.Fatalf("docs/CLI.md must exist: %v", err)
 	}
 	doc := string(b)
+
 	for _, v := range Verbs {
-		// Headings carry an argument, e.g. `post <kind>`, so match the opening
-		// backtick and the verb rather than an exact wrapped token.
 		if !strings.Contains(doc, "`"+v+"`") && !strings.Contains(doc, "`"+v+" ") {
 			t.Errorf("docs/CLI.md does not document the %q verb", v)
+			continue
+		}
+		// Flags come from --help, which is the binary's own answer, so the doc
+		// is diffed against behaviour rather than against another document.
+		var c capture
+		env := c.env(t, "http://127.0.0.1:1", "")
+		env.Out.Quiet = true
+		if code := Run(env, []string{v, "--help"}); code != ExitOK {
+			t.Errorf("%s --help exited %d", v, code)
+			continue
+		}
+		for _, flag := range flagsIn(c.out.String()) {
+			if !strings.Contains(doc, flag) {
+				t.Errorf("%s --help offers %s and docs/CLI.md never mentions it", v, flag)
+			}
 		}
 	}
+}
+
+// flagsIn pulls --flag tokens out of a help text.
+func flagsIn(help string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, tok := range strings.FieldsFunc(help, func(r rune) bool {
+		return r == ' ' || r == '\n' || r == '\t' || r == '"' || r == ',' ||
+			r == '<' || r == '>' || r == '\\' || r == ']' || r == '['
+	}) {
+		if !strings.HasPrefix(tok, "--") || len(tok) < 4 {
+			continue
+		}
+		tok = strings.TrimRight(tok, ".:;)")
+		if seen[tok] {
+			continue
+		}
+		seen[tok] = true
+		out = append(out, tok)
+	}
+	return out
 }
 
 // Every verb answers --help.
 func TestEveryVerbAnswersHelp(t *testing.T) {
 	isolateKeys(t)
-	for _, v := range []string{"enrol", "post", "whoami"} {
+	for _, v := range Verbs {
 		var c capture
 		Run(c.env(t, "http://127.0.0.1:1", ""), []string{v, "--help"})
 		if c.err.Len() == 0 {

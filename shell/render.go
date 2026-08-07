@@ -61,6 +61,9 @@ func renderRow(r store.Record) string {
 			html.EscapeString(shortActor(core.Actor(r.RedactedBy))) +
 			` · hash attested ` + html.EscapeString(short(r.BodyHash)) + `</span>`)
 	default:
+		if about := r.About(); about != "" {
+			body.WriteString(`<span class="about">` + html.EscapeString(about) + `</span> `)
+		}
 		if sev := r.Severity(); sev != "" {
 			body.WriteString(`<span class="sev sev-` + html.EscapeString(sev) + `">` +
 				html.EscapeString(strings.ToUpper(sev)) + `</span> `)

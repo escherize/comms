@@ -38,6 +38,11 @@ type readOpts struct {
 	Wait      time.Duration
 	UntilKind string
 	UntilRefs string
+	// From replays from a seq instead of the cursor. Replay never moves the
+	// cursor: re-reading is not reading, and a lead reconstructing an hour of
+	// its crew's findings must not lose its place doing it.
+	From  int64
+	Since time.Duration
 }
 
 // drain reads until the caught-up sentinel, or until wait expires. It never
@@ -52,6 +57,13 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 		q.Set("kind", o.Kind)
 	}
 	after := Cursor(o.Actor, o.Room, o.Lane)
+	if o.From > 0 {
+		after = o.From - 1 // inclusive: --from 50014 prints 50014
+	}
+	if o.Since > 0 {
+		after = 0 // the server has no time index; filter locally below
+		q.Set("since", fmt.Sprint(time.Now().Add(-o.Since).UTC().Format(time.RFC3339)))
+	}
 
 	req, err := http.NewRequest("GET", e.Server+"/stream?"+q.Encode(), nil)
 	if err != nil {
@@ -173,6 +185,16 @@ func matchesLocal(f frame, o readOpts) bool {
 	if o.Author != "" && f.Data["author"] != o.Author {
 		return false
 	}
+	if o.Since > 0 {
+		ts, ok := f.Data["ts"].(string)
+		if !ok {
+			return false
+		}
+		at, err := time.Parse(time.RFC3339, ts)
+		if err != nil || at.Before(time.Now().Add(-o.Since)) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -230,12 +252,32 @@ func emit(e *Env, o readOpts, events []frame, meta map[string]any) int {
 		"ok": true, "outcome": r.Outcome, "count": r.Count,
 		"room": o.Room, "lane": string(o.Lane),
 	}
+	// count:0 has two meanings and an agent has to tell them apart: "I am
+	// current" is a reason to work, "nobody has said anything ever" is a reason
+	// to check whether the other seat has started.
+	if len(events) == 0 {
+		if head, ok := meta["caught_up_seq"].(float64); ok && head > 0 {
+			term["state"] = "caught-up"
+			term["head"] = int64(head)
+			term["detail"] = "nothing new since your cursor; the room has content above it"
+		} else {
+			term["state"] = "empty"
+			term["detail"] = "no events in this room and lane at all"
+		}
+	}
+
 	if advanced > 0 {
 		term["cursor"] = advanced
 	}
 	if o.Peek {
 		term["peek"] = true
 		term["detail"] = "a filtered read does not advance the cursor"
+	}
+	// A replay says so last: it is the more specific reason the cursor stayed
+	// put, and the reader should be told re-reading is not reading.
+	if o.From > 0 || o.Since > 0 {
+		term["replay"] = true
+		term["detail"] = "a replay does not advance the cursor; re-reading is not reading"
 	}
 	if meta["truncated"] == true {
 		term["truncated"] = true
@@ -265,7 +307,18 @@ func compact(f frame) map[string]any {
 	}
 	if body, ok := f.Data["body"].(map[string]any); ok {
 		if txt, ok := body["text"].(string); ok {
-			out["preview"] = truncateText(txt, 120)
+			preview, clipped := truncateText(txt, 120)
+			out["preview"] = preview
+			if clipped {
+				// An ellipsis alone reads as authorial style. An agent that
+				// mistakes a clipped handoff for a garbled one asks its lead to
+				// re-send a message that arrived intact — which is what happened
+				// on 2026-08-07.
+				out["truncated"] = true
+				out["full_chars"] = len(txt)
+				out["next"] = fmt.Sprintf(
+					"read it whole: agent_comms read --from %v --full", f.Data["seq"])
+			}
 		}
 		if sev, ok := body["severity"]; ok {
 			out["severity"] = sev
@@ -286,9 +339,12 @@ func compact(f frame) map[string]any {
 	return out
 }
 
-func truncateText(s string, n int) string {
+func truncateText(s string, n int) (string, bool) {
 	if len(s) <= n {
-		return s
+		return s, false
 	}
-	return s[:n-1] + "…"
+	return s[:n-1] + "…", true
 }
+
+// first drops the clipped flag where the caller only wants the text.
+func first(s string, _ bool) string { return s }

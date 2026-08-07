@@ -68,8 +68,7 @@ func Run(e *Env, args []string) int {
 	case "room":
 		return runRoom(e, args[1:])
 	case "search":
-		return e.Out.Fail(ExitUsage, "usage", "verb.not_built",
-			args[0]+" is designed but not built yet; see docs/CLI.md and .scratch/core/issues/")
+		return runSearch(e, args[1:])
 	case "-h", "--help", "help":
 		return usage(e)
 	}
@@ -201,6 +200,7 @@ func runPost(e *Env, args []string) int {
 	room := fs.String("room", "", "room to post in")
 	text := fs.String("text", "", "the entry")
 	severity := fs.String("severity", "", "p0|p1|p2|p3, findings only")
+	about := fs.String("about", "", "what this concerns: a ticket, a file, a ref")
 	url := fs.String("url", "", "pr.link only")
 	to := fs.String("to", "", "recipient, addressed kinds only")
 	refs := fs.String("refs", "", "comma-separated refs")
@@ -221,6 +221,10 @@ kinds: %s
 
   agent_comms post finding --as agent:bcm/claude-1 --severity p2 \
       --text "auth.py:88 flakes under -race"
+
+--about names what the entry concerns (a ticket, a file, a ref). It is indexed,
+so: search --kind finding "24" finds every finding about ticket 24 rather than
+every finding whose prose happens to contain the digits.
 
 The entry can come from anywhere quoting is easier: --text "…", --text-file
 PATH, or --text - to read stdin. Long content belongs in an artifact instead:
@@ -318,6 +322,9 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	body := map[string]any{}
 	if entry != "" {
 		body["text"] = entry
+	}
+	if *about != "" {
+		body["about"] = *about
 	}
 	if *severity != "" {
 		body["severity"] = *severity
@@ -541,7 +548,7 @@ question can tell in a glance whether it is new.`)
 				preview, _ := h.Body["text"].(string)
 				e.Out.Line(map[string]any{
 					"type": "attached", "seq": h.Seq, "kind": h.Kind,
-					"preview": truncateText(preview, 100),
+					"preview": first(truncateText(preview, 100)),
 					"why":     "the room already contains this; it is attached to your question",
 				})
 			}
@@ -667,15 +674,30 @@ func runRead(e *Env, args []string) int {
 	kind := fs.String("kind", "", "only this kind (implies --peek)")
 	author := fs.String("author", "", "only this author (implies --peek)")
 	reset := fs.Bool("reset", false, "rewind this lane's cursor and read from the start")
+	from := fs.Int64("from", 0, "replay from this seq, inclusive; does not move the cursor")
+	since := fs.Duration("since", 0, "replay the last <duration>; does not move the cursor")
+	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
+	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
+	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
 		e.Out.Help(`agent_comms read --as <seat> [--room core]
 
 Prints what is new since you last read, then exits. It does not hang: a quiet
-room returns count 0 in one round trip.
+room returns count 0 in one round trip, and says whether that means you are
+caught up or the room is empty.
 
   agent_comms read --as agent:bcm/claude-1
-  agent_comms read --as agent:bcm/claude-1 --full        # whole bodies
-  agent_comms read --as agent:bcm/claude-1 --kind finding  # filtered, does not advance
+  agent_comms read --as agent:bcm/claude-1 --full            # whole bodies
+  agent_comms read --as agent:bcm/claude-1 --kind finding    # filtered, does not advance
+  agent_comms read --as agent:bcm/claude-1 --from 50014 --full   # re-read one event
+  agent_comms read --as agent:bcm/claude-1 --since 1h        # replay the last hour
+  agent_comms read --as agent:bcm/claude-1 --wait 5m         # block on the ambient lane
+
+--from and --since replay: they print what you have already seen and leave your
+cursor where it was. Re-reading is not reading.
+
+Findings and status land ambient, so --wait belongs here as well as on inbox:
+waiting on your crew is the ambient case.
 
 read and inbox keep separate cursors, so draining one never hides the other.`)
 	}
@@ -696,12 +718,23 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 		}
 	}
 
+	if *wait > maxWait {
+		return e.Out.Fail(ExitUsage, "usage", "wait.too_long",
+			fmt.Sprintf("--wait is capped at %s so a stuck agent surfaces; got %s", maxWait, *wait))
+	}
+	if *from > 0 && *since > 0 {
+		return e.Out.Fail(ExitUsage, "usage", "replay.contested",
+			"--from and --since both choose a start; use one")
+	}
+
 	o := readOpts{
 		Actor: seat, Room: inRoom, Lane: LaneAll,
 		Kind: *kind, Author: *author, Full: *full,
+		From: *from, Since: *since,
+		Wait: *wait, UntilKind: *untilKind, UntilRefs: *untilRefs,
 		// A filter means the read did not see everything, so it must not claim
-		// the cursor did.
-		Peek: *peek || *kind != "" || *author != "",
+		// the cursor did. A replay is not a read at all.
+		Peek: *peek || *kind != "" || *author != "" || *from > 0 || *since > 0,
 	}
 	events, meta, err := drain(e, o)
 	if err != nil {
@@ -714,17 +747,22 @@ func runInbox(e *Env, args []string) int {
 	fs, sink := newFlags("inbox")
 	actor := fs.String("as", "", "the seat reading")
 	room := fs.String("room", "", "room to read")
-	full := fs.Bool("full", false, "print whole bodies")
+	compactOut := fs.Bool("compact", false, "one line per event instead of whole bodies")
 	peek := fs.Bool("peek", false, "do not advance the cursor")
+	from := fs.Int64("from", 0, "replay from this seq, inclusive; does not move the cursor")
 	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
 	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
 		e.Out.Help(`agent_comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
 
-Prints only what is addressed to you, then exits.
+Prints only what is addressed to you, in full, then exits. A handoff is not
+ambient chatter: the one message you must act on is the one you must not have
+to reconstruct. Use --compact for one line per event.
 
   agent_comms inbox --as agent:bcm/claude-1
+  agent_comms inbox --as agent:bcm/claude-1 --compact
+  agent_comms inbox --as agent:bcm/claude-1 --from 50027       # re-read an assignment
   agent_comms inbox --as agent:bcm/claude-1 --wait 15m --until-kind answer --refs 20014
 
 --wait blocks against a deadline and exits 0 either way. Waiting out the clock
@@ -748,7 +786,8 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 
 	o := readOpts{
 		Actor: seat, Room: inRoom, Lane: LaneAddressed,
-		Recipient: seat, Full: *full, Peek: *peek,
+		Recipient: seat, Full: !*compactOut, Peek: *peek || *from > 0,
+		From: *from,
 		Wait: *wait, UntilKind: *untilKind, UntilRefs: *untilRefs,
 	}
 	events, meta, err := drain(e, o)

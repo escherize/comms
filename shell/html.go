@@ -103,6 +103,8 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
 .folio { color: var(--ink-faint); text-align:right; font-variant-numeric: tabular-nums; }
 .author { color: var(--ink-mute); overflow:hidden; text-overflow:ellipsis; }
 .kind { color: var(--ink-faint); font-size:.72rem; letter-spacing:.05em; }
+.about { color: var(--ink-faint); font-size:.78rem; border:1px solid var(--rule);
+  padding:0 .3rem; border-radius:2px; margin-right:.35rem; }
 .tick { color: var(--ok); text-align:center; opacity:.55; }
 .body { white-space:pre-wrap; word-break:break-word; }
 .body a { color: inherit; }

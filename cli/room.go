@@ -193,3 +193,134 @@ func str(v any, fallback string) string {
 	}
 	return fallback
 }
+
+func runSearch(e *Env, args []string) int {
+	fs, sink := newFlags("search")
+	actor := fs.String("as", "", "the seat searching")
+	room := fs.String("room", "", "room to search")
+	kind := fs.String("kind", "", "only this kind")
+	author := fs.String("author", "", "only this author")
+	since := fs.String("since", "", "only events at or after this RFC3339 date")
+	limit := fs.Int("limit", 20, "most hits to print")
+	allRooms := fs.Bool("all-rooms", false, "search every room, not just the selected one")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20]
+
+Searches the room you are in. Filters are flags, not inline syntax: every
+whitespace-delimited token is quoted before it reaches FTS5, so typing
+kind:finding into the query searches for that literal string.
+
+  agent_comms search "migration 0031"
+  agent_comms search flaky --kind finding --limit 5
+  agent_comms search "auth suite" --all-rooms
+
+Zero hits is exit 0 and says so. The reply names which lanes were searched: a
+lexical-only result over an absent semantic lane is a true result that an agent
+can draw a false conclusion from.`)
+	}
+
+	// The query is positional, and flags may follow it.
+	var terms []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			if isHelp(err) {
+				return e.Out.Succeed(Result{Outcome: "usage"})
+			}
+			return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+		}
+		if fs.NArg() == 0 {
+			break
+		}
+		terms = append(terms, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	query := strings.Join(terms, " ")
+	if strings.TrimSpace(query) == "" {
+		return e.Out.Fail(ExitUsage, "usage", "query.required",
+			"search needs words; filters alone match nothing, and zero hits would "+
+				"read as \"the room does not know this\" when nothing was asked")
+	}
+
+	q := url.Values{}
+	q.Set("q", query)
+	if !*allRooms {
+		q.Set("room", resolveRoom(seat, *room))
+	}
+	for k, v := range map[string]string{"kind": *kind, "author": *author, "since": *since} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+
+	req, err := http.NewRequest("GET", e.Server+"/search?"+q.Encode(), nil)
+	if err != nil {
+		return e.Out.Fail(ExitInternal, "internal", "request.failed", err.Error())
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+	}
+	defer resp.Body.Close()
+
+	// The lane is JSONL: events, then one terminal object. Relay both rather
+	// than re-deriving the count, so the client cannot disagree with the server
+	// about how many hits there were.
+	dec := json.NewDecoder(resp.Body)
+	var hits int
+	var terminal map[string]any
+	for {
+		var m map[string]any
+		if err := dec.Decode(&m); err != nil {
+			break
+		}
+		if m["type"] == "event" {
+			if hits < *limit {
+				e.Out.Line(m)
+			}
+			hits++
+			continue
+		}
+		terminal = m
+	}
+	if terminal != nil && terminal["ok"] == false {
+		exit, outcome := statusToExit(resp.StatusCode, str(terminal["invariant"], ""))
+		return e.Out.Fail(exit, outcome,
+			str(terminal["invariant"], "search.failed"), str(terminal["detail"], ""))
+	}
+
+	shown := hits
+	if shown > *limit {
+		shown = *limit
+	}
+	out := Result{Outcome: "searched", Count: shown}
+	if hits == 0 {
+		e.Out.Note("0 hits — this looks new to the room")
+	} else {
+		e.Out.Note("%d hit(s) for %q", hits, query)
+	}
+	term := map[string]any{
+		"ok": true, "outcome": out.Outcome, "hits": hits, "shown": shown,
+		"query": query,
+	}
+	if terminal != nil {
+		// The server owns the lane story; a client that invented it would go
+		// stale the day the vector lane lands.
+		for _, k := range []string{"lanes", "vector", "note"} {
+			if v, ok := terminal[k]; ok {
+				term[k] = v
+			}
+		}
+	}
+	if hits > shown {
+		term["truncated"] = true
+		term["next"] = "raise --limit to see the rest"
+	}
+	e.Out.Line(term)
+	return ExitOK
+}
