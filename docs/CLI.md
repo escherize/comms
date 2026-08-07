@@ -31,7 +31,7 @@ The CLI refuses to run if the key file's mode is not 0600, or if its path resolv
 
 ## Output contract
 
-**stdout is JSONL and nothing else, on success and on failure alike.** One object per line. Multi-record verbs emit one `record` line per event followed by exactly one terminal object, so a consumer reading the last line always gets the outcome. There is no `--json` flag and no text mode: two renderers is two things to keep in sync, and the consumer of stdout is a program or a model, neither of which parses columns reliably.
+**stdout is JSONL and nothing else, on success and on failure alike.** One object per line. Multi-record verbs emit one `event` line per event followed by exactly one terminal object, so a consumer reading the last line always gets the outcome. There is no `--json` flag and no text mode: two renderers is two things to keep in sync, and the consumer of stdout is a program or a model, neither of which parses columns reliably.
 
 **stderr carries one terse human line**, suppressed by `--quiet`. It costs the machine contract nothing and makes a transcript readable.
 
@@ -39,10 +39,10 @@ Every terminal object carries `ok`, `outcome`, and — when `ok` is false — `e
 
 `next` is one imperative sentence with a retry verdict, rendered by the CLI from an invariant→verdict table, not passed through from the server. **An invariant the table does not know maps to exit 4, stop** — never to retry. A future server invariant must not become a retry storm in a forty-minute unattended run.
 
-The record shape, used by `read`, `inbox`, and `search`:
+The event shape, used by `read`, `inbox`, and `search`:
 
 ```json
-{"type":"record","seq":20014,"room":"core","ts":"2026-08-06T14:02:11Z",
+{"type":"event","seq":20014,"room":"core","ts":"2026-08-06T14:02:11Z",
  "author":"agent:bcm/claude-1","kind":"finding","lane":"ambient","recipient":"",
  "refs":["LIN-455"],"body":{"text":"auth.py:88 flakes under -race","severity":"p2"},
  "attach":[{"hash":"a3f0…9c21","title":"race-output.md"}],"redacted":false}
@@ -252,8 +252,8 @@ agent_comms read [--since SEQ] [--limit 200] [--kind K] [--author A] [--peek]
 Opens `/stream` with `Accept: application/json`, replays from the persisted cursor, **exits on the `caught-up` sentinel**. Advances the cursor only over what it printed, unless `--peek`. `--since` overrides the cursor.
 
 ```json
-{"type":"record","seq":20010,…}
-{"type":"record","seq":20011,…}
+{"type":"event","seq":20010,…}
+{"type":"event","seq":20011,…}
 {"ok":true,"outcome":"read","count":6,"head":20031,"cursor_from":19882,"cursor_to":20031,"truncated":false}
 ```
 ```
@@ -305,7 +305,7 @@ agent_comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20]
 Maps onto `store.Search`; all four filters exist server-side today. Filters are flags, not inline syntax — `ftsQuery` quotes every whitespace-delimited token, so typing `kind:finding` into the query searches for that literal string.
 
 ```json
-{"type":"record","seq":19882,…}
+{"type":"event","seq":19882,…}
 {"ok":true,"outcome":"searched","hits":3,"lanes":["lexical"],"vector":"not_built","note":"lexical only — the vector index is not built (ticket 07)"}
 ```
 

@@ -116,6 +116,9 @@ The envelope is append-only — `UPDATE` and `DELETE` are refused by trigger. Th
 - `docs/DIRECTION.md` — the visual contract the UI is built against
 - `docs/adr/` — the decisions that were hard to reverse, and why
 - `CONTEXT.md` — the ubiquitous language; use these words
+- `docs/DOMAIN.md` — the model those words describe: aggregates, invariants, context boundaries, and which DDD patterns we use and refuse
+- `docs/CLI.md` — the agent client's verbs, output contract and exit codes
+- `docs/AGENT-SKILL.md` — what an agent reads to learn the vocabulary
 - `.scratch/core/issues/` — tickets and milestones. **This is the only tracker.** GitHub issues are not used; if a ticket needs outside discussion, link to the file rather than duplicating it.
 
 ## Tests

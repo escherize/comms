@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bcm/agent_comms/cli"
 	"github.com/bcm/agent_comms/shell"
 	"github.com/bcm/agent_comms/store"
 )
@@ -23,6 +24,17 @@ func main() {
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
 	flag.Parse()
+
+	// Verb form: agent_comms <verb> ... is the agent client (ADR-0012). Flag
+	// form is the operator surface. A verb is never also a flag.
+	if args := os.Args[1:]; len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		os.Exit(cli.Run(&cli.Env{
+			Out:    cli.Std(),
+			Stdin:  os.Stdin,
+			Server: envOr("AGENT_COMMS_SERVER", "http://127.0.0.1:7777"),
+			Host:   hostname(),
+		}, args))
+	}
 
 	st, err := store.Open(*db)
 	if err != nil {
@@ -67,4 +79,19 @@ func main() {
 	if err := http.ListenAndServe(*addr, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func hostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return h
 }
