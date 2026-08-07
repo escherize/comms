@@ -768,23 +768,63 @@ func (s *Store) markRedactions(recs []Record) []Record {
 // Purge erases a body permanently. The envelope, its hash, and the chain
 // survive, so the log still verifies and now attests: a body with this hash was
 // here and is gone.
+// Purge erases a body permanently: the blob, its attachments, its lexical index
+// row and its embedding, all in one transaction.
+//
+// One transaction because a partial erasure is worse than none — it reports
+// success while the secret survives in whichever table the failure came after,
+// and nobody looks again.
+//
+// The embedding is not an afterthought. It is derived from the body, so it is
+// the secret in a form nobody thinks to look at, and it outlives every surface
+// that suppression covers: a semantic search would still return the event that
+// lexical search had stopped returning.
 func (s *Store) Purge(seq int64) error {
-	// Attachments die with the body. A secret pasted into a report must not
-	// outlive the redaction that erased the message carrying it.
+	// Read the attachments before opening the transaction. The pool is one
+	// connection by design, so a query issued while a transaction is open waits
+	// for the connection that transaction holds.
+	var hashes []string
 	if recs, err := s.bySeq(seq); err == nil {
 		for _, r := range recs {
 			for _, a := range r.Attach {
-				if err := s.PurgeArtifact(a.Hash); err != nil {
-					return err
-				}
+				hashes = append(hashes, a.Hash)
 			}
 		}
 	}
-	if _, err := s.db.Exec(`DELETE FROM body WHERE seq = ?`, seq); err != nil {
+
+	tx, err := s.db.Begin()
+	if err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`DELETE FROM search WHERE seq = ?`, seq)
-	return err
+	defer tx.Rollback()
+
+	// Attachments die with the body. A secret pasted into a report must not
+	// outlive the redaction that erased the message carrying it.
+	for _, h := range hashes {
+		if _, err := tx.Exec(`DELETE FROM artifact WHERE hash = ?`, h); err != nil {
+			return err
+		}
+	}
+	for _, stmt := range []string{
+		`DELETE FROM body WHERE seq = ?`,
+		`DELETE FROM search WHERE seq = ?`,
+		`DELETE FROM vector WHERE seq = ?`,
+	} {
+		if _, err := tx.Exec(stmt, seq); err != nil {
+			return err
+		}
+	}
+	// Record the erasure so a rebuild does not try to embed a body that is gone
+	// by design, and so a missing hit is a fact rather than a gap.
+	if _, err := tx.Exec(
+		`INSERT INTO embed_failure(seq, attempts, last, at) VALUES(?,?,?,?)
+		 ON CONFLICT(seq) DO UPDATE SET attempts = excluded.attempts,
+		   last = excluded.last, at = excluded.at`,
+		seq, EmbedAttempts, "body purged; there is nothing to embed",
+		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) bySeq(seq int64) ([]Record, error) {

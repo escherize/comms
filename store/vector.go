@@ -160,6 +160,12 @@ func (s *Store) PendingEmbeds(limit int) ([]Record, error) {
 		WHERE e.seq > ?
 		  AND e.seq NOT IN (SELECT seq FROM vector)
 		  AND e.seq NOT IN (SELECT seq FROM embed_failure WHERE attempts >= ?)
+		  -- A suppressed or erased body has nothing to embed and never will.
+		  -- Without this a rebuild manufactures dead letters for events that
+		  -- are gone on purpose, and the list that should mean "something is
+		  -- wrong" fills with entries that mean "something worked".
+		  AND e.seq NOT IN (SELECT seq FROM redacted)
+		  AND b.json IS NOT NULL
 		ORDER BY e.seq LIMIT ?`, s.EmbeddedThrough(), EmbedAttempts, limit)
 	if err != nil {
 		return nil, err

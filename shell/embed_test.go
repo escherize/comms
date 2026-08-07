@@ -325,3 +325,92 @@ func TestAnUnrelatedEventIsNotASemanticHit(t *testing.T) {
 		t.Error("the floor must not exclude a real match")
 	}
 }
+
+// A purge erases the body permanently, and the embedding is part of the body:
+// it is derived from it, so it is the secret in a form nobody thinks to look
+// at, and it survives every surface suppression covers.
+func TestPurgeLeavesNoEmbeddingAndARebuildDoesNotResurrectOne(t *testing.T) {
+	srv, st, sv := newServerFull(t, time.Millisecond)
+	secret := "the token is PLACEHOLDER-NOT-REAL and it must not survive"
+
+	code, out := post(t, srv, cmd("chat", secret, "p1"))
+	if code != 200 {
+		t.Fatalf("setup: %v", out)
+	}
+	target := int64(out["seq"].(float64))
+
+	for sv.embed.step(context.Background(), 32) > 0 {
+	}
+	if hits, _ := st.NearestVectors(mustEmbed(t, secret), "core", 10); len(hits) == 0 {
+		t.Fatal("setup: the event should be in the semantic lane before the purge")
+	}
+
+	if err := st.Purge(target); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+
+	// Gone from the semantic lane.
+	hits, _ := st.NearestVectors(mustEmbed(t, secret), "core", 10)
+	for _, h := range hits {
+		if h.Seq == target {
+			t.Error("the embedding outlived the purge")
+		}
+	}
+	// And from the lexical one.
+	if lex, _ := st.Search("PLACEHOLDER", "core", "", "", "", 10); len(lex) != 0 {
+		t.Errorf("the purged body is still in the lexical index: %d hits", len(lex))
+	}
+
+	// A rebuild of the semantic lane must not put it back. There is no body to
+	// embed, and trying would either fail three times or — worse — embed an
+	// empty string and call it done.
+	if _, err := sv.embed.Reembed(context.Background(), 0); err != nil {
+		t.Fatal(err)
+	}
+	hits, _ = st.NearestVectors(mustEmbed(t, secret), "core", 10)
+	for _, h := range hits {
+		if h.Seq == target {
+			t.Error("a rebuild resurrected the embedding of a purged body")
+		}
+	}
+
+	// And a rebuild of the projections does not put the text back either.
+	if err := st.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if lex, _ := st.Search("PLACEHOLDER", "core", "", "", "", 10); len(lex) != 0 {
+		t.Errorf("a projection rebuild resurrected a purged body: %d hits", len(lex))
+	}
+}
+
+// A purged body is not a pending embed. Without that, a rebuild manufactures
+// dead letters for events that are gone on purpose, and the list that should
+// mean "something is wrong" fills with entries that mean "something worked".
+func TestAPurgedBodyIsNotAPendingEmbed(t *testing.T) {
+	srv, st, sv := newServerFull(t, time.Millisecond)
+	_, out := post(t, srv, cmd("chat", "something to purge", "pp1"))
+	target := int64(out["seq"].(float64))
+	post(t, srv, cmd("til", "something to keep", "pp2"))
+
+	if err := st.Purge(target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sv.embed.Reembed(context.Background(), 0); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := st.PendingEmbeds(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pending {
+		if p.Seq == target {
+			t.Error("a purged body is still queued for embedding")
+		}
+	}
+	// The surviving event is embedded, so the skip is targeted rather than
+	// a blanket refusal to work.
+	if hits, _ := st.NearestVectors(mustEmbed(t, "something to keep"), "core", 10); len(hits) == 0 {
+		t.Error("the rebuild skipped events it should have embedded")
+	}
+}
