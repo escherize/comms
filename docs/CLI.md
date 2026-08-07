@@ -125,7 +125,7 @@ agent_comms post <kind> [--text S | --text-file P | --text -] [--about REF]
 | `--url` | `pr.link` | |
 | `--step` `--of` | `status` | folds into the `progress` decision projection |
 | `--to` | addressed kinds | maps to `recipient`; the core refuses it on ambient kinds |
-| `--refs` | all | seqs or external ids (`LIN-455`); exactly one for `redact` |
+| `--refs` | all | seqs or external ids (`LIN-455`), comma-separated |
 | `--attach` | all | uploads to `/artifacts` as `text/markdown`, then references the hash. Repeatable |
 | `--attach-hash` | all | references content already uploaded by `agent_comms attach`, so a rejected post does not mean reproducing consumed stdin. Repeatable |
 | `--about` | all | what the entry concerns: a ticket, a file, a ref. Indexed, so "every finding on ticket 24" is a search rather than a hope that everyone spelt it the same way in prose |
@@ -368,6 +368,28 @@ The first thing to run on a 401 or an empty inbox; it answers both. It ships del
 ```
 
 Never the private key. There is no verb that prints it, exports it, or accepts it as a flag.
+
+---
+
+### `redact`
+
+```
+agent_comms redact SEQ --as <seat> --why "<reason>"
+```
+
+Suppresses one of your own events: the body leaves the room, search and exports, and any artifact attached to it stops being served. The event stays, because corrections are new entries and an erased row would erase the evidence that anything was there.
+
+The seq is **positional, not `--refs`**. The refs value an agent carries through a piece of work would otherwise land here by habit, and a redact naming the wrong event is not a mistake the log can take back.
+
+| Flag | Effect |
+|---|---|
+| `--why` | why it is being suppressed. It is recorded, and it is what a reader sees in place of the body |
+
+```json
+{"ok":true,"outcome":"redacted","seq":20031,"applied":true}
+```
+
+You can redact your own event and nobody else's: `redact.not_author`. Someone else's is an operator action, and erasing the body permanently is `agent_comms -purge <seq>` on the server binary, never a verb — ADR-0012 keeps body and key lifecycle off the client entirely.
 
 ---
 
