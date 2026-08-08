@@ -676,3 +676,27 @@ func TestTheKindsVerbMatchesTheCore(t *testing.T) {
 		}
 	}
 }
+
+// An operator flag that creates a database is almost always the wrong
+// database. -db defaults to comms.db relative to the working directory, so
+// running -invite from the wrong place mints a real token into a file no hub
+// has opened — and the only symptom is "unknown enrolment token" much later,
+// pointing at the token. That cost two sessions in one day.
+func TestOperatorActionsRefuseANeverServedDatabase(t *testing.T) {
+	src := mustRead(t, "../main.go")
+
+	if !strings.Contains(src, "it has no rooms, so no hub has ever") {
+		t.Error("operator actions must refuse a database nothing has served")
+	}
+	// The guard only works if ensuring rooms is a serving concern. Doing it for
+	// every invocation is what erased the evidence in the first place.
+	guard := strings.Index(src, "refusing to act on")
+	ensure := strings.Index(src, "if err := st.EnsureRoom(r)")
+	if guard == -1 || ensure == -1 {
+		t.Fatal("expected both the guard and the room-ensuring loop")
+	}
+	if ensure < guard {
+		t.Error("rooms are ensured before the guard runs, so every database looks served " +
+			"and the guard can never fire")
+	}
+}

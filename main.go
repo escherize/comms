@@ -87,11 +87,21 @@ func main() {
 	}
 	defer st.Close()
 
-	for _, r := range strings.Split(*rooms, ",") {
-		if r = strings.TrimSpace(r); r != "" {
-			if err := st.EnsureRoom(r); err != nil {
-				log.Fatalf("ensure room %s: %v", r, err)
-			}
+	// An operator action on a database nothing has ever served is almost always
+	// the wrong database. -db defaults to comms.db relative to the working
+	// directory, and every operator flag will happily create one — so running
+	// -invite from the wrong directory mints a real token into a file the hub
+	// has never opened, and the only symptom is "unknown enrolment token" much
+	// later, pointing at the token. That has cost two sessions in one day.
+	if *invite != "" || *grant != "" || *purge > 0 || *flagged != "" {
+		if rooms, err := st.Rooms(); err == nil && len(rooms) == 0 {
+			abs, _ := filepath.Abs(*db)
+			log.Fatalf("refusing to act on %s: it has no rooms, so no hub has ever "+
+				"served it — this is almost certainly not the database you meant.\n\n"+
+				"A running hub prints the file it serves at startup. Pass that path "+
+				"with -db.\n\n"+
+				"If you really are setting up a new hub, start it once first:\n"+
+				"  agent_comms serve -db %s -rooms core", abs, *db)
 		}
 	}
 
@@ -183,6 +193,17 @@ func main() {
 				r.ServerTS.Format(time.RFC3339), r.Kind, r.Text())
 		}
 		return
+	}
+
+	// Ensuring rooms is what turns a file into a hub, so it belongs to serving.
+	// Doing it for every operator action erased the only evidence that a
+	// database had never been served, which is exactly the check below needs.
+	for _, r := range strings.Split(*rooms, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			if err := st.EnsureRoom(r); err != nil {
+				log.Fatalf("ensure room %s: %v", r, err)
+			}
+		}
 	}
 
 	if *seed {
