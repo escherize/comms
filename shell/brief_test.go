@@ -1048,3 +1048,30 @@ func TestTheComposerShowsWhyItRefused(t *testing.T) {
 		}
 	}
 }
+
+// A bare letter is a hotkey; the same letter with a modifier belongs to the
+// browser. cmd-C focused the composer and swallowed the copy, which a reader
+// blames on their own hands rather than on the page.
+func TestHotkeysIgnoreModifiersAndSelections(t *testing.T) {
+	srv, _ := newServer(t)
+	page := getPage(t, srv.URL+"/?room=core")
+
+	i := strings.Index(page, "document.addEventListener('keydown'")
+	if i == -1 {
+		t.Fatal("no keydown handler")
+	}
+	handler := page[i : i+900]
+
+	if !strings.Contains(handler, "e.metaKey") || !strings.Contains(handler, "e.ctrlKey") {
+		t.Error("hotkeys must bail on a modifier, or they steal cmd-C, cmd-T and cmd-/")
+	}
+	if !strings.Contains(handler, "isCollapsed") {
+		t.Error("a selection means the reader is reading; hotkeys must not fire over one")
+	}
+	// The guards have to come before the first key test, or they guard nothing.
+	guard := strings.Index(handler, "e.metaKey")
+	first := strings.Index(handler, "if(e.key===")
+	if guard > first {
+		t.Error("the modifier guard runs after the first hotkey, so it protects nothing")
+	}
+}

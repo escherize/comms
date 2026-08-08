@@ -265,6 +265,13 @@ const themeScript = `
 
   document.addEventListener('keydown', function(e){
     if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+    // A bare letter is a hotkey; the same letter with a modifier belongs to the
+    // browser. Without this, cmd-C focused the composer and swallowed the copy,
+    // which is the kind of theft a reader blames on their own hands.
+    if(e.metaKey || e.ctrlKey || e.altKey) return;
+    // And a selection means the reader is reading, not navigating.
+    var sel = window.getSelection && window.getSelection();
+    if(sel && !sel.isCollapsed) return;
     if(e.key==='/'){ e.preventDefault(); var q=document.getElementById('q'); if(q) q.focus(); }
     if(e.key==='t'){ cycleTheme(); }
     if(e.key==='c'){ var c=document.getElementById('ctext'); if(c){ e.preventDefault(); c.focus(); } }

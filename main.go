@@ -22,7 +22,12 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address")
-	db := flag.String("db", "comms.db", "path to the event log")
+	// AGENT_COMMS_DB is the default when set, so a shell that exports it once
+	// stops every "wrong database" mistake at the source. The flag still wins:
+	// an explicit -db is a deliberate act and must not be overridden by an
+	// environment variable somebody forgot they set.
+	db := flag.String("db", envOr("AGENT_COMMS_DB", "comms.db"),
+		"path to the event log (default $AGENT_COMMS_DB, else ./comms.db)")
 	rooms := flag.String("rooms", "core", "comma-separated rooms to ensure at startup")
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
