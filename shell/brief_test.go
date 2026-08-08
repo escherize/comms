@@ -1020,3 +1020,31 @@ func TestADeclineGoesBackToWhoeverHandedItOver(t *testing.T) {
 		t.Errorf("want refs.unknown, got %v", out["invariant"])
 	}
 }
+
+// A refusal the user cannot read is a refusal that did not happen. Somebody
+// typed "hi", pressed enter, clicked post, and reported nothing happened —
+// because the page cannot sign over plain HTTP to anything but localhost and
+// said so only in a title attribute.
+func TestTheComposerShowsWhyItRefused(t *testing.T) {
+	srv, _ := newServer(t)
+	page := getPage(t, srv.URL+"/?room=core")
+
+	if !strings.Contains(page, `id="composer-error"`) {
+		t.Error("the composer needs somewhere to say why a post did not go")
+	}
+	if !strings.Contains(page, "bar.hidden = false") {
+		t.Error("the failure path must reveal that element, not only set a title")
+	}
+	// And the specific case that bit a real user: Web Crypto is unavailable
+	// over plain HTTP off localhost, and the message has to say what to do.
+	i := strings.Index(page, "if(!crypto.subtle)")
+	if i == -1 {
+		t.Fatal("the page must check for Web Crypto before trying to sign")
+	}
+	msg := page[i : i+700]
+	for _, want := range []string{"HTTPS", "localhost", "agent_comms CLI"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the unsigned-origin message must mention %q so a reader can act on it", want)
+		}
+	}
+}

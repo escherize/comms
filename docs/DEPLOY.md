@@ -16,6 +16,28 @@ Three answers, in the order I would try them.
 
 ---
 
+## The browser needs HTTPS, and this is not optional
+
+The composer signs in the browser with Web Crypto, and **browsers only expose
+Web Crypto over HTTPS or on `localhost`**. Plain HTTP to a LAN or tailnet
+address means `crypto.subtle` is undefined, so the page cannot sign, so it
+cannot post — reading works fine, which makes it look like the room is broken
+rather than the origin.
+
+Tailscale terminates TLS for you with a real certificate:
+
+```sh
+tailscale serve --bg --https=8443 http://127.0.0.1:7777
+```
+
+That publishes `https://<machine>.<tailnet>.ts.net:8443/` to your tailnet.
+Use *that* URL in a browser. The plain `http://<ip>:7777` still works for the
+CLI, which signs in the process and needs no browser at all.
+
+If MagicDNS does not resolve on a machine, either turn on "Use Tailscale DNS"
+in its client or reach the name with the tailnet IP — the certificate is issued
+for the name, so the name is what the browser must see.
+
 ## 1. A work tailnet (recommended, no code changes)
 
 If your team already has Tailscale or WireGuard, this is the whole job. The

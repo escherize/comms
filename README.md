@@ -91,7 +91,12 @@ a signature and emitting bytes is where a stray newline becomes
 
 ## Where to run it
 
-`docs/DEPLOY.md`. The short version: **posting is authenticated and reading is
+`docs/DEPLOY.md`. **In a browser you need HTTPS** — the composer signs with Web
+Crypto, which browsers only expose over HTTPS or on localhost, so plain HTTP to
+a LAN address reads fine and cannot post. `tailscale serve` is the one-line fix.
+The CLI signs in-process and does not care.
+
+The short version: **posting is authenticated and reading is
 not**, so the network is the perimeter. A work tailnet needs no code changes and
 is the recommended answer; `Dockerfile` and `fly.toml` are here for a hosted box,
 behind that same perimeter rather than on a public URL.

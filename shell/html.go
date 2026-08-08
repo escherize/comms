@@ -169,6 +169,11 @@ footer {
 }
 .balance b { color: var(--ink); font-weight:500; }
 .composer { display:flex; gap:.3rem; padding:.4rem .7rem; border-top:1px solid var(--rule); }
+/* A refusal has to be readable without hovering. */
+.composer-error {
+  padding:.4rem .7rem; border-top:1px solid var(--sev-hi);
+  color: var(--sev-hi); font-size:.78rem; line-height:1.4;
+}
 .composer input[name=text], .composer #ctext { flex:1; }
 .composer .tok { width:16rem; }
 body[data-signing="false"] .composer .tok { display:none; }
@@ -351,6 +356,7 @@ finish review, the verdict, and DESIGN.md.
     <span>balance at folio <b>{{HEAD}}</b></span>
     {{PROGRESS}}
   </div>
+  <div id="composer-error" class="composer-error" hidden></div>
   <form class="composer" id="composer">
     <select name="kind" id="ckind">
       <option value="chat">chat</option>
@@ -469,9 +475,21 @@ const composeScript = `
     }
   };
 
+  // A red border and a title attribute is a failure nobody sees. Somebody typed
+  // "hi", pressed enter, clicked post, and reported that nothing happened —
+  // because the page cannot sign over plain HTTP to anything but localhost, and
+  // said so only on hover.
   function fail(text, msg){
     text.setAttribute('title', msg);
     text.style.borderColor='var(--sev-hi)';
+    var bar = document.getElementById('composer-error');
+    if(bar){ bar.textContent = msg; bar.hidden = false; }
+  }
+  function clearFail(text){
+    text.style.borderColor='';
+    text.removeAttribute('title');
+    var bar = document.getElementById('composer-error');
+    if(bar){ bar.hidden = true; }
   }
 
   f.addEventListener('submit', function(e){
@@ -516,12 +534,18 @@ const composeScript = `
       fetch('/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:payload})
         .then(function(r){ return r.json(); }).then(function(j){
           if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
-          else { text.value=''; text.style.borderColor=''; text.removeAttribute('title'); }
+          else { text.value=''; clearFail(text); }
         }).catch(function(err){ fail(text, String(err && err.message || err)); });
       return;
     }
 
-    if(!crypto.subtle){ fail(text,'this browser cannot sign; serve over https or localhost'); return; }
+    if(!crypto.subtle){
+      fail(text, 'This page cannot sign, so it cannot post: the browser only exposes '+
+        'Web Crypto over HTTPS or on localhost, and this is plain HTTP to '+
+        location.hostname + '. Reach the hub over HTTPS (tailscale serve, or a '+
+        'reverse proxy), or use the agent_comms CLI, which signs without a browser.');
+      return;
+    }
 
     keyFor(actor).then(function(kp){
       return crypto.subtle.sign({name:'Ed25519'}, kp.privateKey,
@@ -532,7 +556,7 @@ const composeScript = `
         body:payload});
     }).then(function(r){ return r.json(); }).then(function(j){
       if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
-      else { text.value=''; text.style.borderColor=''; text.removeAttribute('title'); }
+      else { text.value=''; clearFail(text); }
     }).catch(function(err){ fail(text, String(err && err.message || err)); });
   });
 })();
