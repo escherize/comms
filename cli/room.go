@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -341,4 +342,96 @@ func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []str
 		out = append(out, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
+}
+
+// runInvite asks the running hub to mint a token.
+//
+// The operator flag opens a database by path; this asks the process that will
+// redeem the token to create it. There is no second database for it to land in,
+// which is the entire point — that mistake cost three separate fixes in one day
+// and each of them was another thing to remember.
+func runInvite(e *Env, args []string) int {
+	fs, sink := newFlags("invite")
+	as := fs.String("as", "", "the seat minting, if you are not on the hub itself")
+	fs.Usage = func() {
+		e.Out.Help(`agent_comms invite <seat>
+
+Mints a one-time enrolment token, from the hub you are pointed at. The token
+exists in the database that hub is serving, because that hub created it.
+
+  agent_comms invite human:sarah
+  agent_comms invite agent:bcm/claude-2
+
+Allowed from the machine serving the hub, or by a seat holding the invite
+capability — granted with agent_comms -grant-invite <seat> on the hub, which is
+an operator act with no verb by construction.
+
+The token is read from stdin by enrol, never passed as a flag: argv is visible
+to every process on the machine and lands in shell history.
+
+  agent_comms invite human:sarah          # you, on the hub
+  echo "<token>" | agent_comms enrol --as human:sarah`)
+	}
+
+	seats, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
+	}
+	if len(seats) != 1 {
+		return e.Out.Fail(ExitUsage, "usage", "actor.required",
+			"name one seat: agent_comms invite human:sarah")
+	}
+
+	body := map[string]any{"actor": seats[0]}
+	if *as != "" {
+		body["as"] = *as
+	}
+
+	var sent Sent
+	var err error
+	if *as != "" {
+		priv, lerr := LoadSeat(*as)
+		if lerr != nil {
+			return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", lerr.Error())
+		}
+		sent, err = NewClient(e.Server, *as, priv).PostTo("/invite", body)
+	} else {
+		sent, err = postUnsigned(e.Server, "/invite", body)
+	}
+	if err != nil {
+		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+	}
+	if sent.Status != http.StatusOK {
+		exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
+		r := Result{Outcome: outcome, Exit: exit,
+			Invariant: sent.Body.Invariant, Detail: sent.Body.Detail}
+		if sent.Body.Next != "" {
+			r.Next = sent.Body.Next
+		}
+		return e.Out.FailWith(r)
+	}
+
+	e.Out.Note("one use. Hand it over out of band:\n\n  %s\n", sent.Body.Token)
+	return e.Out.Succeed(Result{
+		Outcome: "invited", Actor: seats[0], Token: sent.Body.Token,
+		Detail: sent.Body.Detail,
+	})
+}
+
+// postUnsigned sends a body with no signature, for the routes that authorise by
+// being reachable rather than by a key.
+func postUnsigned(server, path string, body map[string]any) (Sent, error) {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return Sent{}, err
+	}
+	resp, err := http.Post(server+path, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return Sent{}, err
+	}
+	defer resp.Body.Close()
+	var out wireResponse
+	raw, _ := io.ReadAll(resp.Body)
+	_ = json.Unmarshal(raw, &out)
+	return Sent{Status: resp.StatusCode, Body: out, Bytes: payload}, nil
 }

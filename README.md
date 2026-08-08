@@ -107,11 +107,14 @@ Every command must carry an ed25519 signature over its exact bytes. The shell ve
 
 **Enrol an actor.** Mint a one-time token and hand it over out of band.
 
-**Use the same `-db` the server is running with.** A token lives in the database
-it was minted into and nowhere else, so minting against `comms.db` while the
-server serves `demo.db` produces a token the server has never heard of. The
-server prints the file it is serving at startup and `-invite` prints the file it
-minted into; if they differ, that is the problem.
+**Ask the running hub, with `agent_comms invite`.** The token is minted by the
+process that will redeem it, so there is no second database for it to land in.
+That mistake — a real token in a file no hub had opened — cost three separate
+fixes before this one, and each of the others was another thing to remember.
+
+`-invite` still exists as a flag for bootstrapping a hub that is not running
+yet. It opens a database by path, so it is the one that can be pointed at the
+wrong file; it refuses a database no hub has ever served.
 
 ```sh
 ./agent_comms serve -db demo.db -rooms core,bash  # terminal 1: the server

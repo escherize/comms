@@ -3,6 +3,7 @@ package shell
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"github.com/bcm/agent_comms/core"
@@ -1073,5 +1074,57 @@ func TestHotkeysIgnoreModifiersAndSelections(t *testing.T) {
 	first := strings.Index(handler, "if(e.key===")
 	if guard > first {
 		t.Error("the modifier guard runs after the first hotkey, so it protects nothing")
+	}
+}
+
+// Minting from the running hub removes the whole class of "wrong database":
+// the process that will redeem the token is the one that created it.
+func TestTheHubMintsIntoItsOwnDatabase(t *testing.T) {
+	srv, st := newServer(t)
+
+	code, out := postTo(t, srv, "/invite", `{"actor":"human:sarah"}`)
+	if code != http.StatusOK {
+		t.Fatalf("loopback must be allowed to mint: %d %v", code, out)
+	}
+	token, _ := out["token"].(string)
+	if token == "" {
+		t.Fatal("no token returned")
+	}
+
+	// It is redeemable by this hub, which is the whole claim.
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Redeem against the server's clock, not the wall: newServer pins a fixed
+	// base, so time.Now() here would read the token as half a day old.
+	at := time.Date(2026, 8, 6, 14, 1, 0, 0, time.UTC)
+	if err := st.RedeemInvite(token, "human:sarah", pub, at); err != nil {
+		t.Errorf("the hub minted a token it cannot redeem: %v", err)
+	}
+}
+
+// An un-namespaced seat is refused here as everywhere else, rather than minting
+// a token that can never be spent.
+func TestTheHubRefusesToMintForABareName(t *testing.T) {
+	srv, _ := newServer(t)
+	code, out := postTo(t, srv, "/invite", `{"actor":"sarah"}`)
+	if code == http.StatusOK {
+		t.Fatal("a bare name must not get a token; enrolment would refuse it later")
+	}
+	if out["invariant"] != "invite.refused" {
+		t.Errorf("want invite.refused, got %v", out["invariant"])
+	}
+}
+
+// Being able to reach the port is not being the operator.
+func TestMintingIsLoopbackOrCapability(t *testing.T) {
+	if isLoopback("203.0.113.4:5000") {
+		t.Error("a public address must not count as loopback")
+	}
+	for _, addr := range []string{"127.0.0.1:5000", "[::1]:5000"} {
+		if !isLoopback(addr) {
+			t.Errorf("%s is loopback", addr)
+		}
 	}
 }

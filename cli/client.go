@@ -42,6 +42,7 @@ type wireResponse struct {
 	RetryAfterMS int64  `json:"retry_after_ms"`
 	Attempts     int    `json:"attempts"`
 	Remaining    int    `json:"remaining"`
+	Token        string `json:"token"`
 }
 
 // Sent is the outcome of one post, including the exact bytes that were signed

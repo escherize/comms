@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -87,6 +88,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /escalate", s.postEscalation)
 	mux.HandleFunc("GET /index", s.indexStatus)
 	mux.HandleFunc("POST /delivered", s.postDelivered)
+	mux.HandleFunc("POST /invite", s.postInvite)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	return mux
@@ -1087,4 +1089,92 @@ func (s *Server) postDelivered(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "outcome": "recorded", "addressed_through": req.Through,
 	})
+}
+
+// postInvite mints an enrolment token from the running hub.
+//
+// The operator flag `-invite` opens a database by path, and the path defaults
+// to ./comms.db. That put a real token into a file no hub had ever opened
+// three times in one day, and every fix — a clearer message, a hard refusal, an
+// environment variable — was another thing to remember. This removes the thing
+// to remember: the token is minted by the process that will redeem it, so there
+// is no second database for it to land in.
+//
+// Who may mint: loopback, or a seat holding the invite capability. Loopback
+// because it is exactly the trust the operator flags already assume — being on
+// the box is holding the database — and a capability so a human working from a
+// laptop can be granted it deliberately rather than by being on the network.
+func (s *Server) postInvite(w http.ResponseWriter, r *http.Request) {
+	raw := make([]byte, 0, 1024)
+	buf := make([]byte, 1024)
+	for {
+		n, err := r.Body.Read(buf)
+		raw = append(raw, buf[:n]...)
+		if err != nil || len(raw) > 1<<16 {
+			break
+		}
+	}
+	var req struct {
+		Actor string `json:"actor"`
+		As    string `json:"as"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, rejectedResponse{"parse.failed", err.Error(), ""})
+		return
+	}
+	if req.Actor == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, rejectedResponse{"actor.required",
+			"name the seat to invite: agent:<human>/<name> or human:<name>", ""})
+		return
+	}
+
+	if !s.mayInvite(r, req.As, raw) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"ok": false, "outcome": "refused", "exit": 4,
+			"invariant": "invite.not_authorized",
+			"detail": "minting an enrolment token is an operator act. Run it on the " +
+				"machine serving the hub, or hold the invite capability",
+			"next": "on the hub: agent_comms invite " + req.Actor,
+		})
+		return
+	}
+
+	token, err := s.st.MintInvite(req.Actor, s.now())
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity,
+			rejectedResponse{"invite.refused", err.Error(), ""})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "outcome": "invited", "actor": req.Actor, "token": token,
+		"detail": "one use. It exists in the database this hub is serving, which is " +
+			"the point of minting it here",
+	})
+}
+
+// mayInvite is loopback, or a seat holding the capability and proving it.
+func (s *Server) mayInvite(r *http.Request, as string, raw []byte) bool {
+	if isLoopback(r.RemoteAddr) {
+		return true
+	}
+	if as == "" || !s.st.HasCapability(as, CapInvite) {
+		return false
+	}
+	sig, err := decodeSig(r.Header.Get("X-Signature"))
+	if err != nil {
+		return false
+	}
+	return s.st.VerifySignature(core.Actor(as), raw, sig, s.now()) == nil
+}
+
+// CapInvite lets a seat mint enrolment tokens without being on the box.
+const CapInvite = "invite"
+
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

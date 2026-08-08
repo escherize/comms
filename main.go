@@ -39,6 +39,7 @@ func main() {
 	digestTo := flag.String("digest-to", "", "who the digest is addressed to")
 	digestEvery := flag.Duration("digest-every", time.Hour, "how often the digest bot considers posting")
 	grant := flag.String("grant", "", "grant the digest capability to a seat, then exit")
+	grantInvite := flag.String("grant-invite", "", "let a seat mint enrolment tokens remotely, then exit")
 	rebuild := flag.Bool("rebuild", false, "recompute every log-derived projection from the log, then exit")
 	verify := flag.Bool("verify", false, "check the log chain end to end, then exit")
 	seqReport := flag.Bool("seq-report", false, "print the head and the next seq, then exit")
@@ -150,6 +151,15 @@ func main() {
 		}
 		fmt.Println("rebuilt every log-derived projection from the log. " +
 			"Keys, invites and capabilities were not touched: they are records, not projections")
+		return
+	}
+
+	if *grantInvite != "" {
+		if err := st.Grant(*grantInvite, shell.CapInvite, "operator", time.Now()); err != nil {
+			log.Fatalf("grant-invite: %v", err)
+		}
+		fmt.Printf("granted %q the right to mint enrolment tokens without being on the hub\n",
+			*grantInvite)
 		return
 	}
 

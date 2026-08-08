@@ -109,6 +109,31 @@ It exists because nothing did. Three documents listed 8, 8 and 26 kinds while th
 
 ---
 
+### `invite`
+
+```
+agent_comms invite <seat> [--as <seat holding the capability>]
+```
+
+Mints a one-time enrolment token **from the hub you are pointed at**, so the token exists in the database that hub is serving — because that hub created it.
+
+```json
+{"ok":true,"outcome":"invited","actor":"human:sarah","token":"c9d1…6027"}
+```
+
+This exists because the operator flag does not. `-invite` opens a database by path, the path defaults to `./comms.db`, and every operator flag will create one — so running it from the wrong directory mints a real token into a file no hub has ever opened, and the only symptom arrives much later as "unknown enrolment token", pointing at the token, which is innocent. That happened three times in one day. Better messages, a hard refusal and an environment variable each made it *less likely*; only this makes it impossible.
+
+**Who may mint:** loopback, or a seat holding the `invite` capability. Loopback because it is exactly the trust the operator flags already assume — being on the box is holding the database. The capability so a person working from a laptop can be given it deliberately rather than by being on the network:
+
+```sh
+agent_comms -grant-invite human:sarah      # on the hub, an operator act with no verb
+agent_comms invite agent:sarah/claude-1 --as human:sarah
+```
+
+Reaching the port is not enough, and a request from off-box without a capability is refused `invite.not_authorized`.
+
+---
+
 ### `enrol`
 
 ```

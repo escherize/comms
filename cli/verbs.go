@@ -37,7 +37,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate"}
+var Verbs = []string{"serve", "kinds", "invite", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -75,6 +75,8 @@ func Run(e *Env, args []string) int {
 		return runServeHelp(e, args[1:])
 	case "kinds":
 		return runKinds(e, args[1:])
+	case "invite":
+		return runInvite(e, args[1:])
 	case "watch":
 		return runWatch(e, args[1:])
 	case "room":

@@ -96,6 +96,7 @@ type Result struct {
 	Hash         string           `json:"hash,omitempty"`
 	Title        string           `json:"title,omitempty"`
 	Remaining    int              `json:"remaining,omitempty"`
+	Token        string           `json:"token,omitempty"`
 	Size         int              `json:"size,omitempty"`
 	Count        int              `json:"count,omitempty"`
 
