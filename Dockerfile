@@ -15,7 +15,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /agent_comms
 # a permission.
 RUN mkdir -p /data && chown 65532:65532 /data
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# The debug variant, which is the same image plus a busybox shell. Without a
+# shell `fly ssh console` cannot open, and on a hosted deployment that is the
+# only way to reach the box to mint the first enrolment token — the invite route
+# is loopback-only on purpose. A few hundred KB for the one operation that
+# cannot be done from outside.
+FROM gcr.io/distroless/static-debian12:debug-nonroot
 COPY --from=build /agent_comms /agent_comms
 COPY --from=build --chown=65532:65532 /data /data
 # The log lives on a volume. Without one, a deploy is a factory reset.

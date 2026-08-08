@@ -91,7 +91,10 @@ a signature and emitting bytes is where a stray newline becomes
 
 ## Where to run it
 
-`docs/DEPLOY.md`. **In a browser you need HTTPS** — the composer signs with Web
+`docs/DEPLOY.md` for the choices, `docs/DEPLOY-FLY.md` for a hosted box step by
+step (about $3/month, behind Cloudflare Access).
+
+**In a browser you need HTTPS** — the composer signs with Web
 Crypto, which browsers only expose over HTTPS or on localhost, so plain HTTP to
 a LAN address reads fine and cannot post. `tailscale serve` is the one-line fix.
 The CLI signs in-process and does not care.

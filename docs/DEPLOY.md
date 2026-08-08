@@ -63,7 +63,7 @@ the company keeps reading unless you remember the tailnet as well as the SSO.
 
 ---
 
-## 2. Fly.io behind Tailscale (a hosted box, same perimeter)
+## 2. Fly.io (a hosted box) — step by step in `DEPLOY-FLY.md`
 
 `Dockerfile` and `fly.toml` in this repository build a 24 MB distroless image
 that runs as non-root. Verified locally: `docker build`, `docker run`, serves.
