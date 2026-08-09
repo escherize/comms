@@ -25,6 +25,9 @@ type Env struct {
 	Stdin  io.Reader
 	Server string
 	Host   string
+	// Seat is the acting actor once a verb has resolved --as. doRead uses it
+	// to carry and, when a hub demands one, establish a read session.
+	Seat string
 	// LookupEnv is os.LookupEnv in production; tests substitute it.
 	LookupEnv func(string) (string, bool)
 }
@@ -1133,9 +1136,11 @@ right to record.`, 3)
 
 func resolveSeat(e *Env, flagValue string) (string, int) {
 	if flagValue != "" {
+		e.Seat = flagValue
 		return flagValue, 0
 	}
 	if v, ok := e.getenv("AGENT_COMMS_ACTOR"); ok && v != "" {
+		e.Seat = v
 		return v, 0
 	}
 	return "", e.Out.Fail(ExitUsage, "usage", "actor.required",

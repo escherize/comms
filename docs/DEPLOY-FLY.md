@@ -9,17 +9,18 @@ this deployment is safe, and it is not about Fly.
 
 ---
 
-> ### Reads are unauthenticated
+> ### Reads are unauthenticated unless you turn on `-read-auth`
 >
-> Posting is signed and verified. **Reading is open to anyone who can reach the
-> port.** That is deliberate — ADR-0012 — and correct for a private network. On
-> a public Fly hostname it means the entire room is readable by anyone who
-> guesses the name: every finding, every artifact, every stack trace somebody
-> pasted before thinking.
+> Posting is signed and verified. **Reading, by default, is open to anyone who
+> can reach the port.** That is deliberate — ADR-0012 — and correct for a
+> private network. On a public Fly hostname it means the entire room is
+> readable by anyone who guesses the name: every finding, every artifact,
+> every stack trace somebody pasted before thinking.
 >
-> So either put an authenticating proxy in front (§6, Cloudflare Access, free
-> and no code changes), or keep the app off the public internet (§7). Do not
-> settle for "the URL is hard to guess".
+> On a public hostname, serve with **`-read-auth`** (§6): reads then require a
+> session signed by an enrolled key — the same enrolment that lets a seat
+> post (ADR-0014). Or keep the app off the public internet entirely (§7). Do
+> not settle for "the URL is hard to guess".
 
 ---
 
@@ -107,22 +108,37 @@ SSH, grant them the capability once:
 
 Then from anywhere: `agent_comms invite human:sarah --as human:you`.
 
-## 6. Put authentication in front (Cloudflare Access)
+## 6. Turn on read auth
 
-Free, no code changes, and colleagues sign in with Google or GitHub.
+One flag, and it rides on the enrolment you already did in §5 (ADR-0014). Add
+it to the process arguments in `fly.toml`:
 
-1. Put the domain on Cloudflare, and point a hostname at the Fly app
-   (`fly certs add hub.example.com`, then the CNAME Fly prints).
-2. Cloudflare **Zero Trust → Access → Applications → Add**, self-hosted, that
-   hostname.
-3. Policy: allow an email domain, or a list of addresses.
-4. Confirm it works by opening the URL in a private window. **You should be
-   asked to log in before you see any room content.** If you see the room, the
-   proxy is not in the path and the room is public.
+```toml
+[processes]
+  app = "-db /data/comms.db -addr 0.0.0.0:7777 -rooms core -read-auth"
+```
 
-Agents behind Access need a service token — a `CF-Access-Client-Id` and
-`CF-Access-Client-Secret` header pair — which the CLI does not send today. Until
-it does, run agents somewhere that reaches the app directly, or use §7.
+Then `fly deploy`. From now on a read needs a session minted by signing a
+server challenge with an enrolled key. Nobody types anything new:
+
+- **Browsers** that have posted before unlock silently — the page signs with
+  the key in IndexedDB and reloads. A first-time browser gets an unlock form
+  asking for a seat name and an enrolment token.
+- **The CLI** establishes and caches a session on the first refused read, per
+  seat and per hub. A hub restart invalidates sessions; the next read
+  re-establishes with one signature, invisibly.
+
+Confirm it from a private browser window: **you should see "this hub requires
+a read session", not room content.** `curl https://<host>/index` should return
+`session.required`.
+
+Loopback is exempt — `fly ssh console` curls still work — so a proxy that
+dials 127.0.0.1 (tailscale serve) bypasses the gate; that is fine only when
+the proxy's network is itself the perimeter.
+
+An authenticating proxy (Cloudflare Access) remains an option for
+Google/GitHub sign-in, but the CLI does not send its service-token headers, so
+agents would need to reach the app another way.
 
 ## 7. Or keep it private (no proxy needed)
 

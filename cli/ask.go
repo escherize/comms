@@ -62,12 +62,14 @@ func searchFor(e *Env, room, query string, limit int) []searchHit {
 	q := url.Values{}
 	q.Set("q", query)
 	q.Set("room", room)
-	req, err := http.NewRequest("GET", e.Server+"/search?"+q.Encode(), nil)
-	if err != nil {
-		return nil
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRead(e, nil, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", e.Server+"/search?"+q.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return nil
 	}
@@ -99,12 +101,14 @@ func searchFor(e *Env, room, query string, limit int) []searchHit {
 // and sniffs nothing: ADR-0011 puts the boundary at the renderer, and a file
 // extension is not evidence about bytes.
 func uploadArtifact(e *Env, content []byte) (string, int, error) {
-	req, err := http.NewRequest("POST", e.Server+"/artifacts", bytes.NewReader(content))
-	if err != nil {
-		return "", 0, err
-	}
-	req.Header.Set("Content-Type", "text/markdown")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRead(e, nil, func() (*http.Request, error) {
+		req, err := http.NewRequest("POST", e.Server+"/artifacts", bytes.NewReader(content))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "text/markdown")
+		return req, nil
+	})
 	if err != nil {
 		return "", 0, err
 	}

@@ -53,12 +53,14 @@ func resolveRoom(actor, flagValue string) string {
 
 // fetchJSON reads one JSON object from a lane.
 func fetchJSON(e *Env, path string) (map[string]any, int, error) {
-	req, err := http.NewRequest("GET", e.Server+path, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRead(e, nil, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", e.Server+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -242,12 +244,14 @@ can draw a false conclusion from.`)
 		}
 	}
 
-	req, err := http.NewRequest("GET", e.Server+"/search?"+q.Encode(), nil)
-	if err != nil {
-		return e.Out.Fail(ExitInternal, "internal", "request.failed", err.Error())
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRead(e, nil, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", e.Server+"/search?"+q.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
 	}

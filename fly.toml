@@ -1,33 +1,33 @@
-# Fly.io. Read docs/DEPLOY.md before running this — the defaults below are
-# load-bearing and two of them exist to stop Fly doing its normal job.
+# fly.toml app configuration file generated for agent-comms-thrumming-tree-1758 on 2026-08-09T08:17:04-06:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "agent-comms"
-primary_region = "iad"          # put it near the people, not near the data
+app = 'agent-comms-thrumming-tree-1758'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  # Every operator flag can also come from the command line in [processes].
-  TZ = "UTC"
+  TZ = 'UTC'
 
-# One machine. Not a preference — a correctness constraint. The whole ordering
-# story is single-writer: one process assigns seq, and two processes appending
-# to one log would hand out the same fencing token twice. A volume attaches to
-# exactly one machine, which enforces this, but say it out loud anyway.
-[[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+# Reads on a public hostname require a session signed by an enrolled key
+# (ADR-0014, DEPLOY-FLY.md §6). Overrides the Dockerfile CMD.
+[processes]
+  app = '-db /data/comms.db -addr 0.0.0.0:7777 -rooms core -read-auth'
+
+[[mounts]]
+  source = 'agent_comms_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 7777
   force_https = true
-  # auto_stop_machines is off: the embedder fills the semantic lane in the
-  # background and a stopped machine is a lane that falls behind silently.
-  auto_stop_machines = false
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
-[mounts]
-  source = "agent_comms_data"
-  destination = "/data"
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'

@@ -31,6 +31,8 @@ func main() {
 	rooms := flag.String("rooms", "core", "comma-separated rooms to ensure at startup")
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
+	readAuth := flag.Bool("read-auth", false,
+		"require a read session signed by an enrolled key (for hubs without a network perimeter)")
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
 	purge := flag.Int64("purge", 0, "erase one event's body and attachments permanently, then exit")
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
@@ -236,6 +238,11 @@ func main() {
 		srv.RequireSignature = false
 		log.Printf("WARNING: -insecure is set. Unsigned commands are accepted, so anyone " +
 			"who can reach this port can post as anyone. Localhost demos only.")
+	}
+	if *readAuth {
+		srv.ReadAuth = true
+		log.Printf("read auth is on: reads require a session signed by an enrolled key " +
+			"(loopback is exempt)")
 	}
 	// The semantic lane fills in the background. It is eventually consistent by
 	// design; /index and the search foot both publish how far behind it is.

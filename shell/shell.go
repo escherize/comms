@@ -43,11 +43,17 @@ type Server struct {
 	// deployment is a decision someone made rather than one they inherited.
 	RequireSignature bool
 
+	// ReadAuth gates every read behind a session an enrolled key signed for
+	// (ADR-0014). Off by default: on a private network the perimeter is the
+	// auth, and this flag is for deployments that do not have one.
+	ReadAuth bool
+
 	limit    *limiter
 	correct  *corrections
 	escalate *escalations
 	posting  *posting
 	embed    *embedder
+	sess     *sessions
 }
 
 // PostsPerMinute and PostBurst bound one seat. The burst is what an agent
@@ -67,7 +73,8 @@ func New(st *store.Store, now Clock) *Server {
 		limit:            newLimiter(PostsPerMinute, PostBurst, now),
 		correct:          newCorrections(),
 		escalate:         newEscalations(now),
-		posting:          newPosting(now)}
+		posting:          newPosting(now),
+		sess:             newSessions(now)}
 	// The lane ships wired to a stand-in rather than dark. An adapter seam
 	// nobody runs is a seam nobody knows is broken, and the watermark, the
 	// retries and the fusion are all real whatever produces the numbers.
@@ -75,7 +82,7 @@ func New(st *store.Store, now Clock) *Server {
 	return sv
 }
 
-func (s *Server) Routes() *http.ServeMux {
+func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /commands", s.postCommand)
 	mux.HandleFunc("POST /keys", s.postKey)
@@ -89,8 +96,13 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /index", s.indexStatus)
 	mux.HandleFunc("POST /delivered", s.postDelivered)
 	mux.HandleFunc("POST /invite", s.postInvite)
+	mux.HandleFunc("GET /session/challenge", s.getChallenge)
+	mux.HandleFunc("POST /session", s.postSession)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
+	if s.ReadAuth {
+		return s.readGate(mux)
+	}
 	return mux
 }
 

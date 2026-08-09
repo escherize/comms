@@ -66,18 +66,19 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 		q.Set("since", fmt.Sprint(time.Now().Add(-o.Since).UTC().Format(time.RFC3339)))
 	}
 
-	req, err := http.NewRequest("GET", e.Server+"/stream?"+q.Encode(), nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	if after > 0 {
-		req.Header.Set("Last-Event-ID", fmt.Sprint(after))
-	}
-
 	// No client timeout: the deadline is enforced per-read below, so a ping
 	// counts toward liveness and a long --wait is not cut short by the client.
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := doRead(e, &http.Client{}, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", e.Server+"/stream?"+q.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		if after > 0 {
+			req.Header.Set("Last-Event-ID", fmt.Sprint(after))
+		}
+		return req, nil
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -375,12 +376,14 @@ func reportDelivered(e *Env, actor, room string, through int64) {
 	if err != nil {
 		return
 	}
-	req, err := http.NewRequest("POST", e.Server+"/delivered", bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if resp, err := http.DefaultClient.Do(req); err == nil {
+	if resp, err := doRead(e, nil, func() (*http.Request, error) {
+		req, err := http.NewRequest("POST", e.Server+"/delivered", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	}); err == nil {
 		resp.Body.Close()
 	}
 }
