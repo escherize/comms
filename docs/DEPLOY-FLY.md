@@ -200,7 +200,15 @@ have a shell and could not be reached; the first version also died with
 "unable to open database file", which reads as corruption rather than a
 permission, because the container ran as `nonroot` against a root-owned mount.
 
-Not verified: the `fly` commands themselves. There is no Fly account on this
-machine, so §2–§4 and §6 are from Fly's documented behaviour rather than from a
-deployment I watched succeed. Expect to correct a detail, and please write down
-what you correct.
+Deployed for real on 2026-08-09: §2–§4 and §6 ran against a live Fly app and
+succeeded. Two corrections from that run:
+
+- `fly launch` regenerates `fly.toml` even when the repo has one; the
+  generated file kept the mount and `auto_stop_machines = 'off'`, but check
+  both after launching rather than trusting the answer to one prompt.
+- A `[processes]` block makes Fly demand the service name it: `[http_service]`
+  needs `processes = ['app']` or the deploy fails config validation.
+
+Read auth (§6) was verified against the deployed hub: anonymous `/index`
+returns `session.required`, a browser gets the unlock page, and the machine's
+own log shows the flag on.

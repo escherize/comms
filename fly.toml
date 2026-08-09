@@ -22,6 +22,7 @@ primary_region = 'iad'
   destination = '/data'
 
 [http_service]
+  processes = ['app']
   internal_port = 7777
   force_https = true
   auto_stop_machines = 'off'
