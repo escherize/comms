@@ -6,7 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
-	"github.com/bcm/agent_comms/core"
+	"github.com/escherize/agent-comms/core"
 	"net/http"
 	"strings"
 	"testing"

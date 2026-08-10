@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/store"
 )
 
 func adminServer(t *testing.T) (http.Handler, *store.Store, ed25519.PrivateKey) {

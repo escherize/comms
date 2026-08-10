@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bcm/agent_comms/core"
+	"github.com/escherize/agent-comms/core"
 )
 
 const keySchema = `

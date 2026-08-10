@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/store"
 )
 
 // gatedServer is a hub with -read-auth on and one enrolled seat. The clock is

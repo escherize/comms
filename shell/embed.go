@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/store"
 )
 
 // Embedder is the seam. Which model produces the numbers is a decision this

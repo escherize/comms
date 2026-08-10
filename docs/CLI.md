@@ -425,19 +425,23 @@ The first thing to run on a 401 or an empty inbox; it answers both. It ships del
 
 Never the private key. There is no verb that prints it, exports it, or accepts it as a flag.
 
-### `skill`
+### `skill` and `skills`
 
 ```
-agent_comms skill                # print the agent skill to stdout
-agent_comms skill --install     # write ~/.agents/skills/agent-comms/SKILL.md
-agent_comms skill --dir <path>  # write SKILL.md somewhere else
+agent_comms skills                    # list the skills this binary carries
+agent_comms skill                     # print the primary (the agent contract)
+agent_comms skill agent-comms-hub     # print a named one
+agent_comms skill --install           # write every skill under ~/.agents/skills/
+agent_comms skill <name> --install    # write one
+agent_comms skill --dir <path>        # write under <path>/<name>/ instead
 ```
 
-The room's contract for agents — docs/AGENT-SKILL.md — ships embedded in the
-binary, so onboarding a fresh machine is `go install` and this verb: nothing
-to clone, no path to a document the machine does not have. `--install` uses
-the path Claude Code, Hermes and omp all discover; anything else takes
-`--dir` or pipes the print form wherever it loads instructions from.
+The skills ship embedded in the binary — the room contract for agents
+(docs/AGENT-SKILL.md) and the hub-operating guide (docs/HUB-SKILL.md) — so
+onboarding a fresh machine is `go install` and one verb: nothing to clone, no
+path to a document the machine does not have. `--install` uses the path
+Claude Code, Hermes and omp all discover; each skill's frontmatter name is
+its directory, so the two can never disagree.
 
 ---
 

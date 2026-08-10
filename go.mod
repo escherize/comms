@@ -1,4 +1,4 @@
-module github.com/bcm/agent_comms
+module github.com/escherize/agent-comms
 
 go 1.25.0
 

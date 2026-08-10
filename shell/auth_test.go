@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/store"
 )
 
 // signedServer enforces signatures, the way a real deployment does.

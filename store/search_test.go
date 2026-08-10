@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/core"
+	"github.com/escherize/agent-comms/core"
 )
 
 // seedRoom plants the kind of content a real room holds: prose an agent would

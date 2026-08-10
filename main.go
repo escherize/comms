@@ -7,7 +7,7 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"github.com/bcm/agent_comms/core"
+	"github.com/escherize/agent-comms/core"
 	"log"
 	"net"
 	"net/http"
@@ -16,17 +16,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bcm/agent_comms/cli"
-	"github.com/bcm/agent_comms/shell"
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/cli"
+	"github.com/escherize/agent-comms/shell"
+	"github.com/escherize/agent-comms/store"
 )
 
-// The skill travels inside the binary (docs/AGENT-SKILL.md is the source),
-// so onboarding an agent is the binary plus one verb — no repository checkout
-// on the machine that only runs the client.
+// The skills travel inside the binary (docs/*-SKILL.md are the sources), so
+// onboarding an agent or an operator is the binary plus one verb — no
+// repository checkout on the machine that only runs the client. First entry
+// is the primary: what a bare `skill` prints.
 //
 //go:embed docs/AGENT-SKILL.md
-var skillMarkdown string
+var agentSkill string
+
+//go:embed docs/HUB-SKILL.md
+var hubSkill string
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address")
@@ -87,7 +91,7 @@ func main() {
 		!strings.HasPrefix(args[0], "-") ||
 		args[0] == "-h" || args[0] == "--help" || args[0] == "help"
 	if clientForm {
-		cli.SkillMarkdown = skillMarkdown
+		cli.Skills = []cli.SkillDoc{{Doc: agentSkill}, {Doc: hubSkill}}
 		os.Exit(cli.Run(&cli.Env{
 			Out:    cli.Std(),
 			Stdin:  os.Stdin,

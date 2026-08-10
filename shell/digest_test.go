@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/core"
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/agent-comms/store"
 )
 
 // grantDigest gives the bot the capability the core checks. Without it the bot

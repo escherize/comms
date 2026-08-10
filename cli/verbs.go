@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bcm/agent_comms/core"
+	"github.com/escherize/agent-comms/core"
 )
 
 // Env is everything a verb needs, injected so tests drive the real code paths
@@ -40,7 +40,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "skill"}
+var Verbs = []string{"serve", "kinds", "invite", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "skill", "skills"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -88,6 +88,8 @@ func Run(e *Env, args []string) int {
 		return runSearch(e, args[1:])
 	case "skill":
 		return runSkillVerb(e, args[1:])
+	case "skills":
+		return runSkillsList(e, args[1:])
 	case "-h", "--help", "help":
 		return usage(e)
 	}
@@ -109,7 +111,10 @@ To run the hub instead of talking to one:
 
 See agent_comms -h-server for every operator flag.`,
 		strings.Join(Verbs, ", "))
-	e.Out.Line(Result{OK: true, Outcome: "usage"})
+	// The terminal object is for programs; Help already answered the person.
+	if e.Out.Quiet {
+		e.Out.Line(Result{OK: true, Outcome: "usage"})
+	}
 	return ExitOK
 }
 

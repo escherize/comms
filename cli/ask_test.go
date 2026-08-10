@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/core"
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/agent-comms/store"
 )
 
 // Searching the raw sentence matches on its stopwords, which every other

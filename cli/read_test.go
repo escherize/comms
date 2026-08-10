@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/core"
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/agent-comms/store"
 )
 
 func lines(t *testing.T, c *capture) []map[string]any {

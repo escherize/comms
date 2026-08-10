@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
-	"github.com/bcm/agent_comms/core"
+	"github.com/escherize/agent-comms/core"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/shell"
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/shell"
+	"github.com/escherize/agent-comms/store"
 )
 
 type capture struct{ out, err bytes.Buffer }

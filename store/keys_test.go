@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bcm/agent_comms/core"
+	"github.com/escherize/agent-comms/core"
 )
 
 func keyStore(t *testing.T) (*Store, ed25519.PrivateKey, ed25519.PublicKey) {

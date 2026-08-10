@@ -57,12 +57,17 @@ func (o *Out) Note(format string, args ...any) {
 	fmt.Fprintf(o.Stderr, format+"\n", args...)
 }
 
-// Help answers --help. It ignores --quiet and writes to both streams: the text
-// is the answer to the question the caller asked, and --quiet defaults on when
-// stdout is piped, which is every agent that shells out to read a verb's flags.
+// Help answers --help, once, in the caller's own language. Piped stdout means
+// a program is reading: one JSONL line. A terminal means a person is reading:
+// the text, once. Writing both to both — the old behaviour — showed a person
+// the same help twice with a JSON blob on top, which reads as a bug and was
+// reported as one.
 func (o *Out) Help(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
-	o.Line(map[string]any{"type": "help", "text": text})
+	if o.Quiet {
+		o.Line(map[string]any{"type": "help", "text": text})
+		return
+	}
 	fmt.Fprintln(o.Stderr, text)
 }
 

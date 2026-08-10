@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bcm/agent_comms/core"
-	"github.com/bcm/agent_comms/store"
+	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/agent-comms/store"
 )
 
 // Clock is an internal adapter seam. Tests replace it with a fake; lease expiry
