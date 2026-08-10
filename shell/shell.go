@@ -96,6 +96,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /index", s.indexStatus)
 	mux.HandleFunc("POST /delivered", s.postDelivered)
 	mux.HandleFunc("POST /invite", s.postInvite)
+	mux.HandleFunc("POST /invites/whose", s.whoseInvite)
 	mux.HandleFunc("GET /session/challenge", s.getChallenge)
 	mux.HandleFunc("POST /session", s.postSession)
 	mux.HandleFunc("GET /caps", s.getCaps)
@@ -151,6 +152,36 @@ func (s *Server) postKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actor": req.Actor, "enrolled": true})
+}
+
+// whoseInvite answers which seat a live token enrols, spending nothing.
+// POST because a token belongs in a body, never a URL; self-authenticating
+// because the token is the credential, same as /keys. This is what lets the
+// composer set its actor from a pasted token instead of making the person
+// match two fields by hand.
+func (s *Server) whoseInvite(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	raw, err := readLimited(r.Body, 1024)
+	if err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge,
+			rejectedResponse{"body.too_large", err.Error(), ""})
+		return
+	}
+	if err := json.Unmarshal(raw, &req); err != nil || strings.TrimSpace(req.Token) == "" {
+		writeJSON(w, http.StatusBadRequest,
+			rejectedResponse{"token.required", "name the token to look up", ""})
+		return
+	}
+	actor, err := s.st.InviteActor(strings.TrimSpace(req.Token), s.now())
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, rejectedResponse{
+			"token.unknown", err.Error(),
+			"mint one with: comms invite <actor>"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "outcome": "read", "actor": actor})
 }
 
 // postArtifact stores GFM content-addressed and returns its hash. Only markdown

@@ -394,6 +394,72 @@ func TestMintingAnInviteRetiresTheOutstandingOne(t *testing.T) {
 	}
 }
 
+// The bootstrap token binds to whoever redeems it, because an empty hub has
+// nobody to name a token for — and it dies the moment the hub is not empty.
+func TestBootstrapInviteEnrolsTheFirstSeatOnly(t *testing.T) {
+	s, _, pub := keyStore(t)
+
+	tok, err := s.MintBootstrapInvite(kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.EnrolledSeats() != 0 {
+		t.Fatal("a fresh store must report zero enrolled seats")
+	}
+	if err := s.RedeemInvite(tok, "human:ada", pub, kt0.Add(time.Minute)); err != nil {
+		t.Fatalf("the bootstrap token must enrol a seat it was not minted for: %v", err)
+	}
+	if s.EnrolledSeats() != 1 {
+		t.Errorf("want one enrolled seat, got %d", s.EnrolledSeats())
+	}
+
+	// A second bootstrap token is refused once anyone holds a key, even
+	// though the token itself is unspent.
+	tok2, err := s.MintBootstrapInvite(kt0.Add(2 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, _, _ := ed25519.GenerateKey(nil)
+	err = s.RedeemInvite(tok2, "human:eve", pub2, kt0.Add(3*time.Minute))
+	if err == nil {
+		t.Fatal("a bootstrap token must not enrol onto a hub that has seats")
+	}
+	if !strings.Contains(err.Error(), "already enrolled") {
+		t.Errorf("the refusal must say someone is already enrolled, got %v", err)
+	}
+}
+
+// A restart mints a fresh bootstrap token; the one in old scrollback dies,
+// same rule as one live invite per actor.
+func TestMintingABootstrapInviteRetiresTheOutstandingOne(t *testing.T) {
+	s, _, pub := keyStore(t)
+	first, _ := s.MintBootstrapInvite(kt0)
+	second, _ := s.MintBootstrapInvite(kt0.Add(time.Minute))
+
+	if err := s.RedeemInvite(first, "human:ada", pub, kt0.Add(2*time.Minute)); err == nil {
+		t.Error("the superseded bootstrap token must not enrol")
+	}
+	if err := s.RedeemInvite(second, "human:ada", pub, kt0.Add(3*time.Minute)); err != nil {
+		t.Errorf("the live bootstrap token must enrol: %v", err)
+	}
+}
+
+// The mismatch refusal names both actors: the guess it kills is "which seat
+// was this token for", asked in a browser far from the operator's scrollback.
+func TestActorMismatchRefusalNamesBothActors(t *testing.T) {
+	s, _, pub := keyStore(t)
+	tok, _ := s.MintInvite("human:ada", kt0)
+	err := s.RedeemInvite(tok, "human:eve", pub, kt0.Add(time.Minute))
+	if err == nil {
+		t.Fatal("a token must not enrol a different actor")
+	}
+	for _, want := range []string{"human:ada", "human:eve"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must name %s, got %v", want, err)
+		}
+	}
+}
+
 // The digest capability is an operator grant. No verb reaches it.
 func TestCapabilitiesAreGrantedNotClaimed(t *testing.T) {
 	s, _, _ := keyStore(t)

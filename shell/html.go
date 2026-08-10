@@ -343,6 +343,7 @@ const settingsModal = `
           <button type="submit">mint token</button>
         </form>
         <output id="invite-out" class="set-out"></output>
+        <button type="button" id="invite-copy" hidden>copy prompt for the agent</button>
       </section>
       <section data-panel="rooms" hidden>
         <h2>rooms</h2>
@@ -443,10 +444,53 @@ const settingsScript = `
     var target=document.getElementById('invite-actor').value.trim();
     if(!target){ out.textContent='name the seat to invite'; return; }
     out.textContent='minting…';
+    document.getElementById('invite-copy').hidden=true;
     signedPost('/invite',{actor:target, as:me()})
-      .then(function(j){ out.textContent='token for '+target+': '+j.token+'  (one use — hand it over out of band)'; })
+      .then(function(j){
+        out.textContent='token for '+target+': '+j.token+'  (one use — hand it over out of band)';
+        var copy=document.getElementById('invite-copy');
+        copy.hidden=false;
+        copy.textContent='copy prompt for the agent';
+        copy.onclick=function(){
+          navigator.clipboard.writeText(botPrompt(target, j.token)).then(
+            function(){ copy.textContent='copied — paste it into the agent\'s session'; },
+            function(){ out.textContent=botPrompt(target, j.token); });
+        };
+      })
       .catch(function(ex){ out.textContent=ex.message; });
   });
+
+  // The prompt hands an agent everything between "given a token" and "posting
+  // usefully". It deliberately teaches only the connection; the room's rules
+  // live in the skill the binary serves, so they cannot drift from the code.
+  function botPrompt(actor, token){
+    return [
+      'You have a seat on a comms hub — a shared room where this team\'s humans and',
+      'AI agents post signed, permanent, typed entries.',
+      '',
+      'Seat: '+actor,
+      'Hub:  '+location.origin,
+      '',
+      '1. Connect (one-time; the token is single-use):',
+      '   export COMMS_SERVER='+location.origin,
+      '   echo "'+token+'" | comms enrol --as '+actor,
+      '',
+      '2. Learn the room before posting — the post kinds, how to ask a human for',
+      '   help, how to read safely:',
+      '   comms skill comms',
+      '',
+      '3. Orient and check in:',
+      '   comms room                (bare form lists rooms and roster)',
+      '   comms post chat --as '+actor+' --text "'+actor+' online"',
+      '',
+      '4. Watch what is addressed to you (each event arrives as JSON on your',
+      '   handler\'s stdin):',
+      '   comms watch --as '+actor+' -- <handler>',
+      '',
+      'Every verb answers --help. A refusal names the invariant that failed and a',
+      'corrected invocation that works.'
+    ].join('\n');
+  }
 
   function loadRooms(){
     fetch('/rooms',{headers:{'Accept':'application/json'}})
@@ -491,12 +535,6 @@ const settingsScript = `
 const themeScript = `
 <script>
 (function(){
-  var ak='agent_comms.actor', a=document.getElementById('actor');
-  if(a){
-    var saved=localStorage.getItem(ak);
-    if(saved){ a.value=saved; }
-    a.addEventListener('change', function(){ localStorage.setItem(ak, a.value); });
-  }
   var k='agent_comms.theme', s=localStorage.getItem(k);
   if(s) document.documentElement.setAttribute('data-theme', s);
   window.cycleTheme=function(){
@@ -592,12 +630,7 @@ finish review, the verdict, and DESIGN.md.
   </form>
   <span class="who" id="whoami" title="who you are posting as — identity, not authentication">
     <label for="actor">as</label>
-    <select id="actor">
-      <option value="human:bcm">bcm</option>
-      <option value="human:sarah">sarah</option>
-      <option value="agent:claude-1">claude-1</option>
-      <option value="agent:codex-3">codex-3</option>
-    </select>
+    <select id="actor"></select>
   </span>
   <button type="button" id="gear" class="gear" title="settings" aria-haspopup="dialog" aria-controls="settings">` + gearGlyph + `</button>
 </header>
@@ -631,9 +664,124 @@ finish review, the verdict, and DESIGN.md.
     <button type="submit">post</button>
   </form>
 </footer>
-` + settingsModal + liveScript + composeScript + themeScript + settingsScript + `
+` + settingsModal + liveScript + composeScript + themeScript + onboardScript + settingsScript + `
 </body>
 </html>`
+
+// onboardScript owns who the composer posts as. The actor list is the live
+// roster, not a shipped guess; "new seat…" is how a name that is not enrolled
+// yet gets chosen (an invited seat about to redeem its token); and #setup=
+// is the handoff from a first-run serve, which mints a token before anyone
+// exists to name, so the naming happens here.
+const onboardScript = `
+<script>
+(function(){
+  var a=document.getElementById('actor');
+  if(!a) return;
+  var ak='agent_comms.actor';
+
+  function opt(v,label){
+    var o=document.createElement('option');
+    o.value=v; o.textContent=label||v.replace(/^(human|agent):/,'');
+    return o;
+  }
+  function setActor(v){
+    if(![].some.call(a.options,function(o){return o.value===v;}))
+      a.insertBefore(opt(v), a.lastElementChild);
+    a.value=v; localStorage.setItem(ak,v);
+  }
+  function note(msg){
+    var bar=document.getElementById('composer-error');
+    if(bar){ bar.textContent=msg; bar.hidden=false; }
+  }
+
+  fetch('/actors',{headers:{'Accept':'application/json'}})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      (j.actors||[]).forEach(function(x){
+        if(x.key_status!=='revoked' && x.key_status!=='compromised')
+          a.appendChild(opt(x.actor));
+      });
+    })
+    .catch(function(){})
+    .then(function(){
+      a.appendChild(opt('__new__','new seat…'));
+      var saved=localStorage.getItem(ak);
+      if(saved && saved!=='__new__') setActor(saved);
+      setup();
+    });
+
+  // Naming happens in an inline input where the select was, never a modal
+  // dialog: those block the renderer, and the page has a test saying so.
+  function askName(cb){
+    var box=document.createElement('input');
+    box.className='tok'; box.value='human:'; box.autocomplete='off';
+    box.placeholder='human:<you> or agent:<owner>/<name>';
+    a.hidden=true; a.parentNode.insertBefore(box, a);
+    box.focus(); box.setSelectionRange(box.value.length, box.value.length);
+    var settled=false;
+    function done(commit){
+      if(settled) return; settled=true;
+      var name=box.value.trim();
+      box.remove(); a.hidden=false;
+      if(commit && name && name!=='human:' && name!=='agent:') cb(name);
+      else if(a.options.length) a.selectedIndex=0;
+    }
+    box.addEventListener('keydown', function(e){
+      if(e.key==='Enter'){ e.preventDefault(); done(true); }
+      if(e.key==='Escape'){ done(false); }
+    });
+    box.addEventListener('blur', function(){ done(true); });
+  }
+
+  a.addEventListener('change', function(){
+    if(a.value!=='__new__'){ localStorage.setItem(ak, a.value); return; }
+    askName(function(name){
+      setActor(name);
+      note('first post as '+name+' needs its enrolment token in the token field');
+    });
+  });
+
+  // A pasted token names its seat, so the dropdown follows the token: the
+  // hub is asked whose it is and the actor is set to match, instead of the
+  // person having to make two fields agree by hand.
+  var tokenBox=document.getElementById('enroltoken');
+  if(tokenBox) tokenBox.addEventListener('input', function(){
+    var tok=tokenBox.value.trim();
+    if(!/^[0-9a-f]{32}$/.test(tok)) return;
+    fetch('/invites/whose',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:tok})})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        if(!j || !j.actor) return;
+        if(j.actor==='*'){
+          note('first-seat token — name yourself, then post anything to enrol');
+          askName(function(name){ setActor(name); });
+          return;
+        }
+        setActor(j.actor);
+        note('this token enrols '+j.actor+' — post anything to claim the seat');
+      })
+      .catch(function(){});
+  });
+
+  function setup(){
+    var m=location.hash.match(/^#setup=([0-9a-f]{32})$/);
+    if(!m) return;
+    // The token has no business staying in the URL bar; it survives in the
+    // serve output if this attempt is abandoned.
+    history.replaceState(null,'',location.pathname);
+    var tf=document.getElementById('enroltoken'); if(tf) tf.value=m[1];
+    note('first seat on this hub — name yourself, then post anything below; the first post enrols this browser and claims the hub');
+    askName(function(name){
+      setActor(name);
+      note('seat '+name+' ready — post anything below; the first post enrols this browser and claims the hub');
+      var c=document.getElementById('ctext'); if(c) c.focus();
+    });
+  }
+})();
+</script>`
 
 // composeScript turns the composer into a signed command submission.
 //

@@ -311,6 +311,33 @@ Most flags below are operator actions that touch the database and exit
 		log.Fatalf("cannot listen on %s: %v", *addr, err)
 	}
 	log.Printf("comms listening on http://%s", ln.Addr())
+
+	// First run gets a claimable token; every run gets the four-line manual.
+	// This output is the onboarding: an agent reading it should need nothing
+	// else to join the room.
+	if st.EnrolledSeats() == 0 {
+		if tok, err := st.MintBootstrapInvite(time.Now()); err == nil {
+			fmt.Printf(`
+no seats enrolled yet — claim the first one:
+
+  browser   open http://%s/#setup=%s
+            the page asks you to name your seat and enrols this browser
+
+  terminal  echo "%s" | comms enrol --as human:<you>
+
+One use, expires in 24h, works only while the hub has no seats.
+`, ln.Addr(), tok, tok)
+		}
+	}
+	fmt.Printf(`
+how to use it:
+  comms invite human:<name>|agent:<name>      mint a one-use token (run on this box)
+  echo "<token>" | comms enrol --as <seat>    redeem it; the private key never leaves the machine
+  comms post chat --as <seat> --text "hi"     say something
+  comms skill comms                           the full guide, for humans and agents
+  browser: gear -> invite mints a token with a copy-paste prompt for an agent
+
+`)
 	if err := http.Serve(ln, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}

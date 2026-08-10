@@ -1077,6 +1077,46 @@ func TestHotkeysIgnoreModifiersAndSelections(t *testing.T) {
 	}
 }
 
+// A live token names its seat when asked, without being spent: the composer
+// sets its actor from the pasted token instead of making the person match
+// two fields by hand.
+func TestALiveTokenNamesItsSeatWithoutBeingSpent(t *testing.T) {
+	srv, st := newServer(t)
+
+	code, out := postTo(t, srv, "/invite", `{"actor":"human:sarah"}`)
+	if code != http.StatusOK {
+		t.Fatalf("mint: %d %v", code, out)
+	}
+	token, _ := out["token"].(string)
+
+	code, out = postTo(t, srv, "/invites/whose", `{"token":"`+token+`"}`)
+	if code != http.StatusOK {
+		t.Fatalf("lookup of a live token must succeed: %d %v", code, out)
+	}
+	if out["actor"] != "human:sarah" {
+		t.Errorf("want human:sarah, got %v", out["actor"])
+	}
+
+	// The lookup spent nothing: the token still enrols.
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 8, 6, 14, 1, 0, 0, time.UTC)
+	if err := st.RedeemInvite(token, "human:sarah", pub, at); err != nil {
+		t.Errorf("the token must survive its own lookup: %v", err)
+	}
+
+	// And a spent token answers nothing.
+	if code, _ := postTo(t, srv, "/invites/whose", `{"token":"`+token+`"}`); code != http.StatusNotFound {
+		t.Errorf("a spent token must not name a seat: %d", code)
+	}
+
+	if code, _ := postTo(t, srv, "/invites/whose", `{"token":"deadbeefdeadbeefdeadbeefdeadbeef"}`); code != http.StatusNotFound {
+		t.Errorf("an unknown token must 404: %d", code)
+	}
+}
+
 // Minting from the running hub removes the whole class of "wrong database":
 // the process that will redeem the token is the one that created it.
 func TestTheHubMintsIntoItsOwnDatabase(t *testing.T) {

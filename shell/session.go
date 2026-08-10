@@ -220,7 +220,8 @@ func (s *Server) readGate(next http.Handler) http.Handler {
 func selfAuthenticating(r *http.Request) bool {
 	switch r.Method + " " + r.URL.Path {
 	case "POST /commands", "POST /keys", "POST /escalate",
-		"POST /invite", "POST /rooms", "POST /session", "GET /session/challenge":
+		"POST /invite", "POST /invites/whose",
+		"POST /rooms", "POST /session", "GET /session/challenge":
 		return true
 	}
 	return false

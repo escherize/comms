@@ -331,6 +331,69 @@ func (s *Store) MintInvite(actor string, now time.Time) (string, error) {
 	return token, nil
 }
 
+// EnrolledSeats counts seats that have ever registered a key. Zero is the
+// first-run signal: a hub nobody has joined yet.
+func (s *Store) EnrolledSeats() int {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM actor_key`).Scan(&n); err != nil {
+		return 0
+	}
+	return n
+}
+
+// MintBootstrapInvite creates the first-seat token, minted only by serve and
+// only when the hub is empty. It binds to whichever actor redeems it, because
+// on an empty hub there is nobody to name yet — and RedeemInvite refuses it
+// the moment any seat is enrolled, so it cannot outlive its purpose.
+func (s *Store) MintBootstrapInvite(now time.Time) (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(buf)
+	// One live bootstrap token, same rule as one live invite per actor: a
+	// restart mints a fresh one and the one in old scrollback dies.
+	if _, err := s.db.Exec(
+		`UPDATE invite SET used_at = ? WHERE actor = '*' AND used_at = ''`,
+		"superseded:"+now.UTC().Format(time.RFC3339Nano)); err != nil {
+		return "", err
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO invite(token, actor, created, expires) VALUES(?,'*',?,?)`,
+		token, now.UTC().Format(time.RFC3339Nano),
+		now.Add(InviteTTL).UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// InviteActor reports which seat a live token enrols, spending nothing. The
+// holder already has the whole credential; naming its seat is what lets the
+// composer set the right actor instead of making the person guess. "*" means
+// a bootstrap token: the redeemer names the seat.
+func (s *Store) InviteActor(token string, now time.Time) (string, error) {
+	var actor, usedAt, expires string
+	err := s.db.QueryRow(
+		`SELECT actor, used_at, COALESCE(expires,'') FROM invite WHERE token = ?`, token).
+		Scan(&actor, &usedAt, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errors.New("unknown token")
+	}
+	if err != nil {
+		return "", err
+	}
+	if usedAt != "" {
+		return "", errors.New("token already used")
+	}
+	if expires != "" {
+		if exp, perr := time.Parse(time.RFC3339Nano, expires); perr == nil && now.After(exp) {
+			return "", errors.New("token expired")
+		}
+	}
+	return actor, nil
+}
+
 // RedeemInvite consumes a token for an actor, returning an error if the token
 // is unknown, already used, or issued for a different actor. Redemption and
 // key registration happen in one transaction, so a crash cannot burn a token
@@ -361,8 +424,21 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 	if usedAt != "" {
 		return errors.New("enrolment token already used")
 	}
-	if forActor != actor {
-		return errors.New("enrolment token was issued for a different actor")
+	if forActor == "*" {
+		// A bootstrap token names its seat at redemption — but only onto an
+		// empty hub. Once anyone is enrolled, real invites exist, and a
+		// floating bind-anyone token is a liability, not a convenience.
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM actor_key`).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			return errors.New("this first-seat token only works on a hub with no seats, " +
+				"and someone is already enrolled — ask them (or the operator) for an invite")
+		}
+	} else if forActor != actor {
+		return fmt.Errorf("enrolment token was minted for %s and cannot enrol %s — "+
+			"enrol with --as %s, or mint a token for %s", forActor, actor, forActor, actor)
 	}
 	if expires != "" {
 		exp, perr := time.Parse(time.RFC3339Nano, expires)
