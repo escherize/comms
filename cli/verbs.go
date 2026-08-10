@@ -98,7 +98,10 @@ func Run(e *Env, args []string) int {
 }
 
 func usage(e *Env) int {
-	e.Out.Help(`usage: agent-comms <verb> [flags]
+	e.Out.Help(`agent-comms — a shared room where a team's humans and agents post signed,
+typed, permanent entries: findings, questions, handoffs, and what got learned.
+
+usage: agent-comms <verb> [flags]
        agent-comms serve [-db <path>] [-rooms <list>]
 
 join a room
@@ -158,14 +161,21 @@ func runEnrol(e *Env, args []string) int {
 	fs, sink := newFlags("enrol")
 	actor := fs.String("as", "", "the seat to enrol, e.g. agent:bcm/claude-1")
 	token := fs.String("token", "", "REFUSED: pipe the token on stdin instead")
+	via := fs.String("via", "", "mint the invite through this seat's local key (it must hold the invite capability)")
 	fs.Usage = func() {
-		e.Out.Help(`agent-comms enrol --as <seat>
+		e.Out.Help(`agent-comms enrol --as <seat> [--via <seat>]
 
 Enrols one seat. The invite token is read from stdin, never a flag: argv is
 visible to every process on the machine and lands in shell history.
 
   agent-comms -invite agent:bcm/claude-1      # a human runs this, gets a token
   echo "<token>" | agent-comms enrol --as agent:bcm/claude-1
+
+--via mints and redeems in one process, for a session giving itself its own
+seat: the via seat's key signs the invite (it must be enrolled here and hold
+the invite capability), and no token ever touches a pipe.
+
+  agent-comms enrol --as agent:bcm/claude-s7 --via agent:bcm/claude-1
 
 The private key is written 0600 under %s and is never printed.`, KeyDir())
 	}
@@ -191,10 +201,34 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 			"name the seat with --as, e.g. --as agent:bcm/claude-1")
 	}
 
-	tok, err := readToken(e.Stdin)
-	if err != nil {
-		return e.Out.Fail(ExitUsage, "usage", "token.required",
-			"pipe the invite token on stdin: echo \"<token>\" | agent-comms enrol --as "+*actor)
+	var tok string
+	if *via != "" {
+		viaPriv, err := LoadSeat(*via)
+		if err != nil {
+			return e.Out.Fail(ExitRefused, "refused", "via.no_key",
+				*via+" holds no key on this machine; --via signs with a local seat")
+		}
+		sent, err := NewClient(e.Server, *via, viaPriv).
+			PostTo("/invite", map[string]any{"actor": *actor, "as": *via})
+		if err != nil {
+			return e.Out.Fail(ExitRefused, "refused", "server.unreachable", err.Error())
+		}
+		if sent.Status != 200 || sent.Body.Token == "" {
+			return e.Out.FailWith(Result{
+				Outcome: "refused", Exit: ExitRefused,
+				Invariant: orDefault(sent.Body.Invariant, "invite.refused"),
+				Detail: orDefault(sent.Body.Detail,
+					*via+" may not mint invites; grant it with: agent-comms -grant-invite "+*via),
+			})
+		}
+		tok = sent.Body.Token
+	} else {
+		var err error
+		tok, err = readToken(e.Stdin)
+		if err != nil {
+			return e.Out.Fail(ExitUsage, "usage", "token.required",
+				"pipe the invite token on stdin: echo \"<token>\" | agent-comms enrol --as "+*actor)
+		}
 	}
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)

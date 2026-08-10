@@ -140,7 +140,13 @@ Reaching the port is not enough, and a request from off-box without a capability
 agent-comms enrol --as agent:bcm/claude-1 --host bcm-mbp [--keychain]
 ```
 
-A **human** runs this. The invite token is a bearer credential read from stdin or a tty — never a flag value, never argv. The keypair is generated in-process; only the public half is POSTed to `/keys` with the token; the private half is written 0600 and is not printed, not recoverable, and has no read path through any verb.
+A **human** runs this, or granted it once: the invite token is a bearer credential read from stdin or a tty — never a flag value, never argv. The keypair is generated in-process; only the public half is POSTed to `/keys` with the token; the private half is written 0600 and is not printed, not recoverable, and has no read path through any verb.
+
+`--via <seat>` is the session form — one session, one seat. It mints the invite through the via seat's local key and redeems it in the same process, so no token touches a pipe. The via seat must be enrolled on this machine and hold the invite capability, which a human granted deliberately (`agent-comms -grant-invite <seat>`); the grant is the human act, standing.
+
+```
+agent-comms enrol --as agent:bcm/claude-s7 --via agent:bcm/claude-1
+```
 
 ```json
 {"ok":true,"outcome":"enrolled","actor":"agent:bcm/claude-1","host":"bcm-mbp",
