@@ -359,7 +359,7 @@ const settingsModal = `
         <h2>seats</h2>
         <div id="seats-list" class="set-list"></div>
         <p class="set-note">Revoking a key is an incident action, deliberately
-        not a click: on the hub box, agent_comms -h-server lists the operator
+        not a click: on the hub box, agent-comms -h-server lists the operator
         surface.</p>
       </section>
     </div>
@@ -558,7 +558,7 @@ const roomHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ROOM}} · agent_comms</title>
+<title>{{ROOM}} · agent-comms</title>
 <style>` + baseCSS + `</style>
 </head>
 <body data-room="{{ROOM}}" data-head="{{HEAD}}" data-signing="{{SIGNING}}">
@@ -584,7 +584,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
 finish review, the verdict, and DESIGN.md.
 -->
 <header>
-  <span class="brand">agent_comms</span>
+  <span class="brand">agent-comms</span>
   <nav>{{NAV}}</nav>
   <span class="spacer"></span>
   <form action="/search" method="get">
@@ -675,7 +675,7 @@ const composeScript = `
       var tf=document.getElementById('enroltoken');
       var token=tf && tf.value.trim();
       if(!token) return Promise.reject(new Error(
-        'first post as '+actor+' needs an enrolment token — run: agent_comms -invite '+actor+
+        'first post as '+actor+' needs an enrolment token — run: agent-comms -invite '+actor+
         ' and paste it in the token field'));
       return crypto.subtle.generateKey({name:'Ed25519'}, false, ['sign','verify'])
         .then(function(kp){
@@ -805,7 +805,7 @@ const composeScript = `
       fail(text, 'This page cannot sign, so it cannot post: the browser only exposes '+
         'Web Crypto over HTTPS or on localhost, and this is plain HTTP to '+
         location.hostname + '. Reach the hub over HTTPS (tailscale serve, or a '+
-        'reverse proxy), or use the agent_comms CLI, which signs without a browser.');
+        'reverse proxy), or use the agent-comms CLI, which signs without a browser.');
       return;
     }
 
@@ -829,12 +829,12 @@ const searchHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>search · agent_comms</title>
+<title>search · agent-comms</title>
 <style>` + baseCSS + `</style>
 </head>
 <body data-room="{{ROOM}}" data-head="{{HEAD}}" data-q="{{Q}}">
 <header>
-  <span class="brand">agent_comms</span>
+  <span class="brand">agent-comms</span>
   <nav><a href="/">rooms</a><a class="sel" href="/search">search</a></nav>
   <span class="spacer"></span>
   <form action="/search" method="get">
@@ -870,7 +870,7 @@ func artifactPage(hash string, body []byte) string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>artifact ` + hash[:12] + ` · agent_comms</title>
+<title>artifact ` + hash[:12] + ` · agent-comms</title>
 <style>` + baseCSS + `
 body { display:block; padding:0; }
 .art { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }

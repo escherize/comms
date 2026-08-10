@@ -78,7 +78,7 @@ You are looking for two lines, in this order:
 
 ```
 serving /data/comms.db
-agent_comms listening on http://[::]:7777
+agent-comms listening on http://[::]:7777
 ```
 
 The first names the database, which is the thing that goes wrong most often.
@@ -92,7 +92,7 @@ the machine:
 
 ```sh
 fly ssh console
-/agent_comms invite human:you
+/agent-comms invite human:you
 ```
 
 That works because the image is `distroless:debug-nonroot`, which is the same
@@ -103,10 +103,10 @@ Paste the token into the composer on first visit. To let somebody mint without
 SSH, grant them the capability once:
 
 ```sh
-/agent_comms -db /data/comms.db -grant-invite human:you
+/agent-comms -db /data/comms.db -grant-invite human:you
 ```
 
-Then from anywhere: `agent_comms invite human:sarah --as human:you`.
+Then from anywhere: `agent-comms invite human:sarah --as human:you`.
 
 ## 6. Turn on read auth
 
@@ -155,7 +155,7 @@ http://127.0.0.1:7777` terminates TLS with a real certificate.
 
 `litestream.yml` in this repository replicates the log continuously. The log is
 the only state worth keeping — every projection is a fold over it, and
-`agent_comms -rebuild` proves that by recomputing them all.
+`agent-comms -rebuild` proves that by recomputing them all.
 
 Fly's own volume snapshots are the cheap version and are enough to start.
 Whichever you use, run the drill once **before** you need it:
@@ -184,7 +184,7 @@ database created before a column existed.
 
 ```sh
 fly logs                                  # the hub's own output
-fly ssh console -C "/agent_comms -db /data/comms.db -verify"
+fly ssh console -C "/agent-comms -db /data/comms.db -verify"
 curl https://<your-host>/index -H 'Accept: application/json'
 ```
 

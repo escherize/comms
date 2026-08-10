@@ -98,18 +98,18 @@ func Run(e *Env, args []string) int {
 }
 
 func usage(e *Env) int {
-	e.Out.Help(`agent_comms <verb> [flags]
+	e.Out.Help(`agent-comms <verb> [flags]
 
 verbs: %s
 
-Every verb answers --help. Start with: agent_comms enrol --help
+Every verb answers --help. Start with: agent-comms enrol --help
 
 To run the hub instead of talking to one:
 
-  agent_comms serve                      # http://127.0.0.1:7777, log in ./comms.db
-  agent_comms serve -db demo.db -seed -rooms core,bash
+  agent-comms serve                      # http://127.0.0.1:7777, log in ./comms.db
+  agent-comms serve -db demo.db -seed -rooms core,bash
 
-See agent_comms -h-server for every operator flag.`,
+See agent-comms -h-server for every operator flag.`,
 		strings.Join(Verbs, ", "))
 	// The terminal object is for programs; Help already answered the person.
 	if e.Out.Quiet {
@@ -138,13 +138,13 @@ func runEnrol(e *Env, args []string) int {
 	actor := fs.String("as", "", "the seat to enrol, e.g. agent:bcm/claude-1")
 	token := fs.String("token", "", "REFUSED: pipe the token on stdin instead")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms enrol --as <seat>
+		e.Out.Help(`agent-comms enrol --as <seat>
 
 Enrols one seat. The invite token is read from stdin, never a flag: argv is
 visible to every process on the machine and lands in shell history.
 
-  agent_comms -invite agent:bcm/claude-1      # a human runs this, gets a token
-  echo "<token>" | agent_comms enrol --as agent:bcm/claude-1
+  agent-comms -invite agent:bcm/claude-1      # a human runs this, gets a token
+  echo "<token>" | agent-comms enrol --as agent:bcm/claude-1
 
 The private key is written 0600 under %s and is never printed.`, KeyDir())
 	}
@@ -173,7 +173,7 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 	tok, err := readToken(e.Stdin)
 	if err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "token.required",
-			"pipe the invite token on stdin: echo \"<token>\" | agent_comms enrol --as "+*actor)
+			"pipe the invite token on stdin: echo \"<token>\" | agent-comms enrol --as "+*actor)
 	}
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -246,11 +246,11 @@ func runPost(e *Env, args []string) int {
 	idem := fs.String("idem", "", "reuse a natural key you already have (see --help)")
 	dryRun := fs.Bool("dry-run", false, "print the exact bytes and signature without sending")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms post <kind> --as <seat> [flags]
+		e.Out.Help(`agent-comms post <kind> --as <seat> [flags]
 
 kinds: %s
 
-  agent_comms post finding --as agent:bcm/claude-1 --severity p2 \
+  agent-comms post finding --as agent:bcm/claude-1 --severity p2 \
       --text "auth.py:88 flakes under -race"
 
 --about names what the entry concerns (a ticket, a file, a ref). It is indexed,
@@ -267,7 +267,7 @@ second event.
 The entry can come from anywhere quoting is easier: --text "…", --text-file
 PATH, or --text - to read stdin. Long content belongs in an artifact instead:
 --attach PATH uploads and references in one command, --attach-hash takes what
-agent_comms attach printed, and --attach-title names them in the same order.
+agent-comms attach printed, and --attach-title names them in the same order.
 
 The client does not validate the domain. A missing --severity is sent and comes
 back naming the invariant and the schema, which is how you learn the rule.`,
@@ -280,7 +280,7 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 			return e.Out.Succeed(Result{Outcome: "usage"})
 		}
 		return e.Out.Fail(ExitUsage, "usage", "kind.required",
-			"name the kind first: agent_comms post <"+strings.Join(knownKindNames(), "|")+">")
+			"name the kind first: agent-comms post <"+strings.Join(knownKindNames(), "|")+">")
 	}
 	kind := core.Kind(args[0])
 	if err := fs.Parse(args[1:]); err != nil {
@@ -486,7 +486,7 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 func retryFor(invariant string, kind core.Kind, args []string) string {
 	rest := args[1:]
 	base := func(extra ...string) string {
-		return "agent_comms post " + string(kind) + " " + shellJoin(append(append([]string{}, rest...), extra...))
+		return "agent-comms post " + string(kind) + " " + shellJoin(append(append([]string{}, rest...), extra...))
 	}
 	switch invariant {
 	case "body.severity.invalid":
@@ -507,7 +507,7 @@ func retryFor(invariant string, kind core.Kind, args []string) string {
 			}
 			kept = append(kept, rest[i])
 		}
-		return "agent_comms post " + string(kind) + " " + shellJoin(kept)
+		return "agent-comms post " + string(kind) + " " + shellJoin(kept)
 	case "body.url.required":
 		return base("--url", "https://…")
 	}
@@ -546,13 +546,13 @@ func runRedact(e *Env, args []string) int {
 	room := fs.String("room", "", "the room the event is in")
 	why := fs.String("why", "", "why it is being suppressed")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms redact <seq> --as <seat> --why "<reason>"
+		e.Out.Help(`agent-comms redact <seq> --as <seat> --why "<reason>"
 
 Suppresses one of your own events: its body leaves the room, search, and any
 attached artifact stops being served. The event itself stays, because
 corrections are new entries.
 
-  agent_comms redact 20014 --as agent:bcm/claude-1 --why "pasted a token"
+  agent-comms redact 20014 --as agent:bcm/claude-1 --why "pasted a token"
 
 The seq is positional, not a --refs string, so the refs value you are carrying
 through a piece of work cannot land here by habit. You can only redact your own
@@ -565,7 +565,7 @@ event; someone else's is an operator action.`)
 			return e.Out.Succeed(Result{Outcome: "usage"})
 		}
 		return e.Out.Fail(ExitUsage, "usage", "seq.required",
-			"name the event to redact: agent_comms redact <seq> --as <seat> --why \"...\"")
+			"name the event to redact: agent-comms redact <seq> --as <seat> --why \"...\"")
 	}
 	seqArg := args[0]
 	if _, err := strconv.ParseInt(seqArg, 10, 64); err != nil {
@@ -635,12 +635,12 @@ func runAsk(e *Env, args []string) int {
 	textFile := fs.String("text-file", "", "read the question from a file")
 	noSearch := fs.Bool("no-search", false, "skip the search for prior answers")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms ask --as <seat> --to <who> --text "<question>"
+		e.Out.Help(`agent-comms ask --as <seat> --to <who> --text "<question>"
 
 Searches the room for what it already knows, attaches up to three hits to the
 question's refs, prints what it attached, and posts either way.
 
-  agent_comms ask --as agent:bcm/claude-1 --to bcm \
+  agent-comms ask --as agent:bcm/claude-1 --to bcm \
       --text "is migration 0031 safe to reorder ahead of 0029?"
 
 It attaches, it never gates: a human seeing the prior hits alongside the
@@ -726,12 +726,12 @@ func runAnswer(e *Env, args []string) int {
 	text := fs.String("text", "", "the answer, or - to read stdin")
 	textFile := fs.String("text-file", "", "read the answer from a file")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms answer --as <seat> --to-question <seq> --text "<answer>"
+		e.Out.Help(`agent-comms answer --as <seat> --to-question <seq> --text "<answer>"
 
 No recipient: the server derives it from the question's author, so an answer
 always reaches whoever asked.
 
-  agent_comms answer --as bcm --to-question 20014 --text "yes, 0029 is idempotent"`)
+  agent-comms answer --as bcm --to-question 20014 --text "yes, 0029 is idempotent"`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -781,14 +781,14 @@ func runAttach(e *Env, args []string) int {
 	fs, sink := newFlags("attach")
 	title := fs.String("title", "", "what to call it where it is referenced")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms attach <path|->
+		e.Out.Help(`agent-comms attach <path|->
 
 Uploads markdown and prints its hash. post --attach-hash accepts the hash, so a
 rejected post does not mean re-running a three-minute test to reproduce stdin
 you already consumed.
 
-  HASH=$(go test ./... 2>&1 | agent_comms attach - | jq -r .hash)
-  agent_comms post finding --as <seat> --severity p2 \
+  HASH=$(go test ./... 2>&1 | agent-comms attach - | jq -r .hash)
+  agent-comms post finding --as <seat> --severity p2 \
       --text "suite red" --attach-hash "$HASH" --attach-title suite.md
 
 --title travels with the upload and comes back in the reply, so the pair to
@@ -851,18 +851,18 @@ func runRead(e *Env, args []string) int {
 	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms read --as <seat> [--room core]
+		e.Out.Help(`agent-comms read --as <seat> [--room core]
 
 Prints what is new since you last read, then exits. It does not hang: a quiet
 room returns count 0 in one round trip, and says whether that means you are
 caught up or the room is empty.
 
-  agent_comms read --as agent:bcm/claude-1
-  agent_comms read --as agent:bcm/claude-1 --full            # whole bodies
-  agent_comms read --as agent:bcm/claude-1 --kind finding    # filtered, does not advance
-  agent_comms read --as agent:bcm/claude-1 --from 50014 --full   # re-read one event
-  agent_comms read --as agent:bcm/claude-1 --since 1h        # replay the last hour
-  agent_comms read --as agent:bcm/claude-1 --wait 5m         # block on the ambient lane
+  agent-comms read --as agent:bcm/claude-1
+  agent-comms read --as agent:bcm/claude-1 --full            # whole bodies
+  agent-comms read --as agent:bcm/claude-1 --kind finding    # filtered, does not advance
+  agent-comms read --as agent:bcm/claude-1 --from 50014 --full   # re-read one event
+  agent-comms read --as agent:bcm/claude-1 --since 1h        # replay the last hour
+  agent-comms read --as agent:bcm/claude-1 --wait 5m         # block on the ambient lane
 
 --from and --since replay: they print what you have already seen and leave your
 cursor where it was. Re-reading is not reading.
@@ -932,16 +932,16 @@ func runInbox(e *Env, args []string) int {
 	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
+		e.Out.Help(`agent-comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
 
 Prints only what is addressed to you, in full, then exits. A handoff is not
 ambient chatter: the one message you must act on is the one you must not have
 to reconstruct. Use --compact for one line per event.
 
-  agent_comms inbox --as agent:bcm/claude-1
-  agent_comms inbox --as agent:bcm/claude-1 --compact
-  agent_comms inbox --as agent:bcm/claude-1 --from 50027       # re-read an assignment
-  agent_comms inbox --as agent:bcm/claude-1 --wait 15m --until-kind answer --refs 20014
+  agent-comms inbox --as agent:bcm/claude-1
+  agent-comms inbox --as agent:bcm/claude-1 --compact
+  agent-comms inbox --as agent:bcm/claude-1 --from 50027       # re-read an assignment
+  agent-comms inbox --as agent:bcm/claude-1 --wait 15m --until-kind answer --refs 20014
 
 --wait blocks against a deadline and exits 0 either way. Waiting out the clock
 is the flag doing its job, not a failure — you get a handoff suggestion.`)
@@ -985,7 +985,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 		e.Out.Line(map[string]any{
 			"ok": true, "outcome": "waited", "count": 0, "room": inRoom,
 			"waited": wait.String(),
-			"next": "nobody answered; hand off with: agent_comms post handoff --to <human> " +
+			"next": "nobody answered; hand off with: agent-comms post handoff --to <human> " +
 				"--text \"blocked on " + orDefault(*untilRefs, "an unanswered question") + "\"",
 		})
 		e.Out.Note("waited %s, nothing arrived", *wait)
@@ -1000,12 +1000,12 @@ func runWhoami(e *Env, args []string) int {
 	fs, _ := newFlags("whoami")
 	actor := fs.String("as", "", "the seat to report on")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms whoami [--as <seat>]
+		e.Out.Help(`agent-comms whoami [--as <seat>]
 
 Reports the seat, host, server and public key. It never reports the private
 key, and no verb, flag or environment variable does.
 
-  agent_comms whoami --as agent:bcm/claude-1`)
+  agent-comms whoami --as agent:bcm/claude-1`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -1019,7 +1019,7 @@ key, and no verb, flag or environment variable does.
 	}
 	if !HasSeat(seat) {
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled",
-			"no key for "+seat+"; run: agent_comms enrol --as "+seat)
+			"no key for "+seat+"; run: agent-comms enrol --as "+seat)
 	}
 	priv, err := LoadSeat(seat)
 	if err != nil {
@@ -1062,13 +1062,13 @@ func runEscalate(e *Env, args []string) int {
 	to := fs.String("to", "", "the person who should look")
 	text := fs.String("text", "", "why this needs them now")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms escalate <seq> --as <seat> --to <human> --text "<why now>"
+		e.Out.Help(`agent-comms escalate <seq> --as <seat> --to <human> --text "<why now>"
 
 Pulls one entry already in the room into a person's attention. It states no new
 fact — the finding already says what it says — so what lands in the log is an
 ordinary addressed question referencing it, signed by you like anything else.
 
-  agent_comms escalate 20014 --as agent:bcm/claude-1 --to human:sarah \
+  agent-comms escalate 20014 --as agent:bcm/claude-1 --to human:sarah \
       --text "this blocks Thursday's migration; postpone or batch the rebuild?"
 
 You get %d of these an hour. That is the whole point: severity routes nothing, a
@@ -1084,7 +1084,7 @@ right to record.`, 3)
 	}
 	if len(seqs) != 1 {
 		return e.Out.Fail(ExitUsage, "usage", "refs.exactly_one",
-			"name the one entry a person should look at: agent_comms escalate <seq>")
+			"name the one entry a person should look at: agent-comms escalate <seq>")
 	}
 	seat, code := resolveSeat(e, *actor)
 	if code != 0 {
@@ -1188,13 +1188,13 @@ func runDecline(e *Env, args []string) int {
 	why := fs.String("why", "", "why you are not taking it")
 	idem := fs.String("idem", "", "reuse a natural key you already have")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms decline <seq> --as <seat> --why "<why not>"
+		e.Out.Help(`agent-comms decline <seq> --as <seat> --why "<why not>"
 
 Refuses a handoff, out loud. It goes back to whoever handed the work over, for
 the same reason an answer goes back to whoever asked: the person who needs to
 know is the one who thought the work was covered.
 
-  agent_comms decline 50002 --as agent:bcm/claude-1 \
+  agent-comms decline 50002 --as agent:bcm/claude-1 \
       --why "already three deep in the auth suite; this needs someone free"
 
 Declining is not a failure and costs you nothing. Saying nothing does: a
@@ -1208,7 +1208,7 @@ worked on, and the difference is discovered when the work is due.`)
 	}
 	if len(seqs) != 1 {
 		return e.Out.Fail(ExitUsage, "usage", "refs.exactly_one",
-			"name the handoff you are refusing: agent_comms decline <seq>")
+			"name the handoff you are refusing: agent-comms decline <seq>")
 	}
 	seat, code := resolveSeat(e, *actor)
 	if code != 0 {
@@ -1241,17 +1241,17 @@ worked on, and the difference is discovered when the work is due.`)
 // handles `serve` before the client is reached; this exists so `serve --help`
 // answers like every other verb rather than looking like a hole in the list.
 func runServeHelp(e *Env, args []string) int {
-	e.Out.Help(`agent_comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
+	e.Out.Help(`agent-comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
 
 Starts the hub: the room, the command API, the SSE stream, and the background
 embedder that fills the semantic lane.
 
-  agent_comms serve                                  # 127.0.0.1:7777, ./comms.db
-  agent_comms serve -db demo.db -seed -rooms core,bash
-  agent_comms serve -addr 0.0.0.0:7777               # reachable from the tailnet
+  agent-comms serve                                  # 127.0.0.1:7777, ./comms.db
+  agent-comms serve -db demo.db -seed -rooms core,bash
+  agent-comms serve -addr 0.0.0.0:7777               # reachable from the tailnet
 
 This is the one verb the client does not send anywhere: it is the thing the
-other verbs talk to. Every operator flag is listed by agent_comms -h-server.`)
+other verbs talk to. Every operator flag is listed by agent-comms -h-server.`)
 	return e.Out.Succeed(Result{Outcome: "usage"})
 }
 
@@ -1260,7 +1260,7 @@ other verbs talk to. Every operator flag is listed by agent_comms -h-server.`)
 func runKinds(e *Env, args []string) int {
 	fs, sink := newFlags("kinds")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms kinds
+		e.Out.Help(`agent-comms kinds
 
 What you can post, what each one means, and which lane it lands in. Read from
 the core's own list, so it cannot drift from what the server will accept —

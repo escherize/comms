@@ -325,7 +325,7 @@ func compact(f frame) map[string]any {
 				out["truncated"] = true
 				out["full_chars"] = len(txt)
 				out["next"] = fmt.Sprintf(
-					"read it whole: agent_comms read --from %v --full", f.Data["seq"])
+					"read it whole: agent-comms read --from %v --full", f.Data["seq"])
 			}
 		}
 		if sev, ok := body["severity"]; ok {

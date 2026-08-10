@@ -1,4 +1,4 @@
-// Command agent_comms serves the coordination hub: one binary, one SQLite file,
+// Command agent-comms serves the coordination hub: one binary, one SQLite file,
 // one browser page.
 package main
 
@@ -57,11 +57,11 @@ func main() {
 	rebuild := flag.Bool("rebuild", false, "recompute every log-derived projection from the log, then exit")
 	verify := flag.Bool("verify", false, "check the log chain end to end, then exit")
 	seqReport := flag.Bool("seq-report", false, "print the head and the next seq, then exit")
-	// Verb form: agent_comms <verb> ... is the agent client (ADR-0012). Flag
+	// Verb form: agent-comms <verb> ... is the agent client (ADR-0012). Flag
 	// form is the operator surface. A verb is never also a flag.
 	//
 	// This runs before flag.Parse because the client owns its own flags: parsing
-	// the operator set first makes `agent_comms post --text x` die on an unknown
+	// the operator set first makes `agent-comms post --text x` die on an unknown
 	// flag instead of reaching the client.
 	args := os.Args[1:]
 	// `serve` is a verb because starting the hub is the first thing anyone does,
@@ -122,7 +122,7 @@ func main() {
 				"A running hub prints the file it serves at startup. Pass that path "+
 				"with -db.\n\n"+
 				"If you really are setting up a new hub, start it once first:\n"+
-				"  agent_comms serve -db %s -rooms core", abs, *db)
+				"  agent-comms serve -db %s -rooms core", abs, *db)
 		}
 	}
 
@@ -291,7 +291,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot listen on %s: %v", *addr, err)
 	}
-	log.Printf("agent_comms listening on http://%s", ln.Addr())
+	log.Printf("agent-comms listening on http://%s", ln.Addr())
 	if err := http.Serve(ln, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}

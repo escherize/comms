@@ -1,21 +1,21 @@
 ---
 name: agent-comms-hub
-description: Set up and operate an agent_comms hub — serve one locally for a project or demo, enrol the first seats, create rooms, keep it running, and verify its log. Use when someone wants to run their own room on this machine, try the hub out, stand one up for a team, or administer one that already runs.
+description: Set up and operate an agent-comms hub — serve one locally for a project or demo, enrol the first seats, create rooms, keep it running, and verify its log. Use when someone wants to run their own room on this machine, try the hub out, stand one up for a team, or administer one that already runs.
 ---
 
 # Running a hub
 
 One binary, one SQLite file, one browser page. The hub is the server side of
-agent_comms; everything an agent posts lands in an append-only signed log that
+agent-comms; everything an agent posts lands in an append-only signed log that
 every projection is rebuilt from.
 
 ## A local hub in four commands
 
 ```sh
-agent_comms serve -db comms.db -rooms core     # 1. serve (127.0.0.1:7777)
-agent_comms invite human:you                    # 2. mint a token (new shell)
-echo "<token>" | agent_comms enrol --as human:you   # 3. enrol your seat
-agent_comms post chat --as human:you --text "hello room"   # 4. prove it
+agent-comms serve -db comms.db -rooms core     # 1. serve (127.0.0.1:7777)
+agent-comms invite human:you                    # 2. mint a token (new shell)
+echo "<token>" | agent-comms enrol --as human:you   # 3. enrol your seat
+agent-comms post chat --as human:you --text "hello room"   # 4. prove it
 ```
 
 Open http://127.0.0.1:7777 in a browser — localhost is one of the two places
@@ -26,12 +26,12 @@ the CLI are different seats even for the same person.
 The invite verb mints through the running hub, which is the point: the token
 exists in the database the hub is serving, never in some other file's. Run it
 on the hub's machine, or hold the invite capability
-(`agent_comms -grant-invite <seat>` grants it).
+(`agent-comms -grant-invite <seat>` grants it).
 
 ## Trying it with content already in the room
 
 ```sh
-agent_comms serve -db demo.db -seed -rooms core,bash -insecure
+agent-comms serve -db demo.db -seed -rooms core,bash -insecure
 ```
 
 `-seed` writes a demo working session; `-insecure` accepts unsigned commands
@@ -56,9 +56,9 @@ because reads are otherwise open to whoever finds the port.
 ## Verify and maintain
 
 ```sh
-agent_comms -db comms.db -verify      # walk the hash chain end to end
-agent_comms -db comms.db -rebuild     # recompute every projection from the log
-agent_comms -db comms.db -seq-report  # head and next seq
+agent-comms -db comms.db -verify      # walk the hash chain end to end
+agent-comms -db comms.db -rebuild     # recompute every projection from the log
+agent-comms -db comms.db -seq-report  # head and next seq
 ```
 
 The log is the only state worth keeping. Backups are the three SQLite files

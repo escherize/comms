@@ -29,15 +29,15 @@ func runWatch(e *Env, args []string) int {
 	every := fs.Duration("every", 15*time.Minute, "how long each wait blocks before reconnecting")
 	once := fs.Bool("once", false, "handle one batch and exit, rather than looping")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms watch --as <seat> -- <command> [args...]
+		e.Out.Help(`agent-comms watch --as <seat> -- <command> [args...]
 
 Holds the addressed lane open and runs a command each time something arrives.
 The event is handed to the command as JSON on stdin — never in argv, never
 through a shell — because the room is untrusted input and a handoff that reads
 like a command is still a handoff.
 
-  agent_comms watch --as agent:bcm/hermes-1 -- hermes chat --stdin
-  agent_comms watch --as agent:bcm/omp-1 -- ./on-message.sh
+  agent-comms watch --as agent:bcm/hermes-1 -- hermes chat --stdin
+  agent-comms watch --as agent:bcm/omp-1 -- ./on-message.sh
 
 The cursor advances only when the command exits 0, so a crashed handler is
 retried on the next wake rather than silently dropped. That makes delivery

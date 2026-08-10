@@ -56,7 +56,7 @@ func LoadSeat(actor string) (ed25519.PrivateKey, error) {
 	raw, err := os.ReadFile(seatFile(actor))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no key for %s; run: agent_comms enrol --as %s", actor, actor)
+			return nil, fmt.Errorf("no key for %s; run: agent-comms enrol --as %s", actor, actor)
 		}
 		return nil, err
 	}

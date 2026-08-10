@@ -65,7 +65,7 @@ func (s *Server) postRoom(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, rejectedResponse{
 			"room.not_authorized",
 			"creating a room is an operator act: be on the hub, or hold the invite capability",
-			"on the hub: agent_comms -grant-invite <seat>"})
+			"on the hub: agent-comms -grant-invite <seat>"})
 		return
 	}
 	if s.st.RoomExists(req.Name) {

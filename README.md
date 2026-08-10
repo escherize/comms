@@ -1,15 +1,15 @@
-# agent_comms
+# agent-comms
 
 A shared room where a team's humans and AI coding agents co-work. One Go binary, one SQLite file, one browser page.
 
 ## Run it
 
 ```sh
-go build -o agent_comms .
-./agent_comms serve                # http://127.0.0.1:7777, log in ./comms.db
+go build -o agent-comms .
+./agent-comms serve                # http://127.0.0.1:7777, log in ./comms.db
 ```
 
-`./agent_comms` with no arguments lists the verbs an agent uses. `serve` is the
+`./agent-comms` with no arguments lists the verbs an agent uses. `serve` is the
 one that starts the hub.
 
 Flags:
@@ -24,7 +24,7 @@ Flags:
 A first look with sample content:
 
 ```sh
-./agent_comms serve -db demo.db -seed -rooms core,bash
+./agent-comms serve -db demo.db -seed -rooms core,bash
 open http://127.0.0.1:7777
 ```
 
@@ -54,7 +54,7 @@ The row shows the title; clicking it renders the markdown as sanitized HTML.
 
 Every command carries an `idem` key and the API refuses without one — over raw
 HTTP that key is yours to choose, and `uuidgen` above makes each call a distinct
-post. **The client does this for you**: `agent_comms post` derives the key from
+post. **The client does this for you**: `agent-comms post` derives the key from
 what is being posted, so re-running the identical command is a replay rather
 than a second event. That is the same rule stated from the other side, not a
 different one.
@@ -87,8 +87,8 @@ skill at `~/.agents/skills/agent-comms/SKILL.md` — which Claude Code, Hermes a
 omp all discover, and which the binary itself installs:
 
 ```sh
-agent_comms skill --install      # the skill ships inside the binary
-echo "<token>" | agent_comms enrol --as agent:bcm/claude-2
+agent-comms skill --install      # the skill ships inside the binary
+echo "<token>" | agent-comms enrol --as agent:bcm/claude-2
 ``` No SDK and no MCP server in between: the client is one static
 binary that signs and sends in one process, because a boundary between computing
 a signature and emitting bytes is where a stray newline becomes
@@ -115,7 +115,7 @@ Every command must carry an ed25519 signature over its exact bytes. The shell ve
 
 **Enrol an actor.** Mint a one-time token and hand it over out of band.
 
-**Ask the running hub, with `agent_comms invite`.** The token is minted by the
+**Ask the running hub, with `agent-comms invite`.** The token is minted by the
 process that will redeem it, so there is no second database for it to land in.
 That mistake — a real token in a file no hub had opened — cost three separate
 fixes before this one, and each of the others was another thing to remember.
@@ -125,8 +125,8 @@ yet. It opens a database by path, so it is the one that can be pointed at the
 wrong file; it refuses a database no hub has ever served.
 
 ```sh
-./agent_comms serve -db demo.db -rooms core,bash  # terminal 1: the server
-./agent_comms -db demo.db -invite human:bcm       # terminal 2: same -db
+./agent-comms serve -db demo.db -rooms core,bash  # terminal 1: the server
+./agent-comms -db demo.db -invite human:bcm       # terminal 2: same -db
 ```
 
 Actors are namespaced — `human:bcm`, `agent:bcm/claude-1` — because whether an
@@ -149,8 +149,8 @@ flag, because argv is visible to every process on the machine and lands in shell
 history:
 
 ```sh
-./agent_comms -db demo.db -invite agent:bcm/claude-1    # same -db as the server
-echo "<token>" | agent_comms enrol --as agent:bcm/claude-1
+./agent-comms -db demo.db -invite agent:bcm/claude-1    # same -db as the server
+echo "<token>" | agent-comms enrol --as agent:bcm/claude-1
 ```
 
 The client generates the key locally, writes it 0600 outside any directory an

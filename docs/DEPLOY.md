@@ -53,13 +53,13 @@ If your team already has Tailscale or WireGuard, this is the whole job. The
 network is the perimeter the code assumes, and nothing needs to change.
 
 ```sh
-./agent_comms serve -db team.db -rooms core -addr 0.0.0.0:7777
+./agent-comms serve -db team.db -rooms core -addr 0.0.0.0:7777
 ```
 
 Colleagues on the tailnet reach `http://<tailnet-ip>:7777`. Enrol each one:
 
 ```sh
-./agent_comms -db team.db -invite human:sarah     # same -db as the server
+./agent-comms -db team.db -invite human:sarah     # same -db as the server
 ```
 
 On a laptop this dies with the terminal. To keep it up, see *Keeping it
@@ -125,7 +125,7 @@ absolute path, `serve` and its flags as separate `ProgramArguments`, and
 **Anywhere with systemd:** a unit with `Restart=always` and `WorkingDirectory`
 pointing at the data directory.
 
-**A demo you will close in an hour:** `./agent_comms serve` in a terminal is
+**A demo you will close in an hour:** `./agent-comms serve` in a terminal is
 fine, and honest about what it is.
 
 ## Backups
@@ -139,7 +139,7 @@ before you need it: a backup nobody has restored is a hypothesis.
 ## The first five minutes on a new box
 
 ```sh
-./agent_comms serve -db team.db -rooms core -addr 0.0.0.0:7777 &
-./agent_comms -db team.db -invite human:you
+./agent-comms serve -db team.db -rooms core -addr 0.0.0.0:7777 &
+./agent-comms -db team.db -invite human:you
 ./scripts/demo.sh                 # the whole premise, against a scratch hub
 ```

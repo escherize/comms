@@ -41,10 +41,10 @@ func skillField(doc, field string) string {
 func runSkillsList(e *Env, args []string) int {
 	fs, sink := newFlags("skills")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms skills
+		e.Out.Help(`agent-comms skills
 
 List the skills this binary carries. Each is printed by
-agent_comms skill <name>, and installed by agent_comms skill --install.`)
+agent-comms skill <name>, and installed by agent-comms skill --install.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if isHelp(err) {
@@ -68,16 +68,16 @@ func runSkillVerb(e *Env, args []string) int {
 	dir := fs.String("dir", "",
 		"write into <dir>/<name>/SKILL.md instead")
 	fs.Usage = func() {
-		e.Out.Help(`agent_comms skill [name] [--install | --dir <path>]
+		e.Out.Help(`agent-comms skill [name] [--install | --dir <path>]
 
 The skills this binary carries, embedded at build time. Bare form prints the
-primary (the room contract for agents); a name picks one; agent_comms skills
+primary (the room contract for agents); a name picks one; agent-comms skills
 lists them.
 
-  agent_comms skill                      # print the agent skill
-  agent_comms skill agent-comms-hub      # print the hub-operating skill
-  agent_comms skill --install            # install every skill
-  agent_comms skill <name> --install     # install one
+  agent-comms skill                      # print the agent skill
+  agent-comms skill agent-comms-hub      # print the hub-operating skill
+  agent-comms skill --install            # install every skill
+  agent-comms skill <name> --install     # install one
 
 --install writes ~/.agents/skills/<name>/SKILL.md, the path Claude Code,
 Hermes and omp all discover. New sessions load it; current ones do not.`)

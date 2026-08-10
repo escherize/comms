@@ -147,7 +147,7 @@ func (s *Server) postKey(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.RedeemInvite(req.Token, req.Actor, pub, s.now()); err != nil {
 		writeJSON(w, http.StatusForbidden, rejectedResponse{
 			"enrolment.refused", err.Error(),
-			"mint one with: agent_comms -invite <actor>"})
+			"mint one with: agent-comms -invite <actor>"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actor": req.Actor, "enrolled": true})
@@ -433,7 +433,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 				"invariant": rej.Invariant, "detail": rej.Detail,
 				"schema":   schemaFor(cmd.Kind),
 				"attempts": attempts,
-				"next": "stop correcting and ask a person: agent_comms ask --to <human> " +
+				"next": "stop correcting and ask a person: agent-comms ask --to <human> " +
 					"--text \"I keep getting " + rej.Invariant + " on a " + string(cmd.Kind) + "\"",
 			})
 			return
@@ -1072,7 +1072,7 @@ func (s *Server) indexStatus(w http.ResponseWriter, r *http.Request) {
 		"stale":                stale,
 		"dead_lettered":        dead,
 		"detail": "events on the dead-letter list are absent from the semantic lane " +
-			"and present in the lexical one; rebuild with: agent_comms -reembed <seq>",
+			"and present in the lexical one; rebuild with: agent-comms -reembed <seq>",
 	})
 }
 
@@ -1148,7 +1148,7 @@ func (s *Server) postInvite(w http.ResponseWriter, r *http.Request) {
 			"invariant": "invite.not_authorized",
 			"detail": "minting an enrolment token is an operator act. Run it on the " +
 				"machine serving the hub, or hold the invite capability",
-			"next": "on the hub: agent_comms invite " + req.Actor,
+			"next": "on the hub: agent-comms invite " + req.Actor,
 		})
 		return
 	}

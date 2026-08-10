@@ -246,7 +246,7 @@ func (s *Server) sessionOK(r *http.Request) bool {
 // The keypair store (DB name, object store, actor key in localStorage) must
 // match composeScript in html.go: they are two doors to the same key.
 const unlockPage = `<!doctype html>
-<html><head><meta charset="utf-8"><title>agent_comms — unlock</title>
+<html><head><meta charset="utf-8"><title>agent-comms — unlock</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>` + tokens + `
 * { box-sizing:border-box; } html,body { margin:0; height:100%; }
@@ -350,7 +350,7 @@ half never leaves this browser.</p>
     idbGet(actor).then(function(pair){
       if(pair) return establish(actor, pair);
       if(!token) throw new Error('no key in this browser for '+actor+
-        ' — paste an enrolment token (ask an operator: agent_comms invite '+actor+')');
+        ' — paste an enrolment token (ask an operator: agent-comms invite '+actor+')');
       return enrolThen(actor, token);
     }).catch(function(ex){ err.textContent=ex.message; });
   });

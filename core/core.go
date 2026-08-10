@@ -234,7 +234,7 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, &Rejection{"recipient.unknown",
 			"no seat " + string(c.Recipient) + " is enrolled; addressing an event to a " +
 				"seat that does not exist waits for an answer nobody was asked for. " +
-				"Run: agent_comms room"}
+				"Run: agent-comms room"}
 	}
 	if lane == Ambient && c.Recipient != "" {
 		return nil, &Rejection{"recipient.forbidden",
@@ -451,7 +451,7 @@ type KindDoc struct {
 //
 // It is derived from Kinds() rather than written out beside it. It used to be a
 // second list, in a _test.go file — which meant no production code could read
-// it, so `agent_comms kinds` could not exist and three documents each kept
+// it, so `agent-comms kinds` could not exist and three documents each kept
 // their own copy. It also meant the guard could rot: `decline` was added and
 // the list was not updated, so the check against forgetting a kind had itself
 // forgotten one. One list, and adding a kind is one edit.

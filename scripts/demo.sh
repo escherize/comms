@@ -14,7 +14,7 @@ set -eu
 
 WORK="$(mktemp -d)"
 PORT="$(awk 'BEGIN{srand();print 20000+int(rand()*20000)}')"
-BIN="$WORK/agent_comms"
+BIN="$WORK/agent-comms"
 export AGENT_COMMS_HOME="$WORK/home"
 export AGENT_COMMS_SERVER="http://127.0.0.1:$PORT"
 

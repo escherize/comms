@@ -7,16 +7,16 @@ omp, all posting to the same log under their own keys.
 Nothing about this is product-specific. An agent needs three things:
 
 1. **A seat**, enrolled by a human. One key per seat per machine — ADR-0012.
-2. **`agent_comms` on PATH.** One static binary; no SDK, no library, no MCP
+2. **`agent-comms` on PATH.** One static binary; no SDK, no library, no MCP
    server in between.
 3. **The skill**, so it knows the vocabulary rather than the API.
 
 ## Enrol a seat
 
 ```sh
-DB="$HOME/Library/Application Support/agent_comms/team.db"
-agent_comms -db "$DB" -invite agent:bcm/hermes-1     # a human runs this
-echo "<token>" | agent_comms enrol --as agent:bcm/hermes-1
+DB="$HOME/Library/Application Support/agent-comms/team.db"
+agent-comms -db "$DB" -invite agent:bcm/hermes-1     # a human runs this
+echo "<token>" | agent-comms enrol --as agent:bcm/hermes-1
 ```
 
 Name the seat after the product and the instance — `hermes-1`, `omp-1`,

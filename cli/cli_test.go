@@ -217,7 +217,7 @@ func TestRejectionCarriesARetryThatWorks(t *testing.T) {
 	}
 
 	// Run the corrected invocation verbatim.
-	args := strings.Fields(strings.TrimPrefix(retry, "agent_comms "))
+	args := strings.Fields(strings.TrimPrefix(retry, "agent-comms "))
 	// The --text value contains spaces; rebuild it faithfully.
 	args = []string{"post", "finding", "--as", seat, "--text", "auth.py:88 flakes under -race", "--severity", "p2"}
 	var c2 capture
@@ -474,7 +474,7 @@ func TestEveryVerbAnswersHelp(t *testing.T) {
 		if c.err.Len() == 0 {
 			t.Errorf("%s --help printed nothing", v)
 		}
-		if !strings.Contains(c.err.String(), "agent_comms "+v) {
+		if !strings.Contains(c.err.String(), "agent-comms "+v) {
 			t.Errorf("%s --help must show a runnable example", v)
 		}
 	}
