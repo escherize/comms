@@ -71,7 +71,8 @@ func main() {
 	// makes both true rather than picking one. It is a prefix, not a second
 	// implementation: it drops itself and the operator path runs as it always
 	// did, so there is nothing to keep in sync.
-	if len(args) > 0 && args[0] == "serve" {
+	serveVerb := len(args) > 0 && args[0] == "serve"
+	if serveVerb {
 		// A fresh slice. args aliases os.Args[1:], so appending into
 		// os.Args[:1] overwrites the elements being copied out of it — the
 		// second flag lands where the first was read from, and `serve -db
@@ -81,15 +82,33 @@ func main() {
 		os.Args = append([]string{os.Args[0]}, rest...)
 		args = rest
 	}
+	// The operator flag set prints double-dash: Go's flag package accepts one
+	// dash and two interchangeably, but the help must show the standard form.
+	flag.Usage = func() {
+		cli.Std().Help(`comms serve — the hub, and the operator actions on its database
+
+usage: comms serve [--db <path>] [--rooms <list>] [flags]
+
+  comms serve                                  # 127.0.0.1:7777, ./comms.db
+  comms serve --db demo.db --seed --rooms core,bash
+  comms serve --addr 0.0.0.0:7777              # reachable from the tailnet
+
+Most flags below are operator actions that touch the database and exit
+(--invite, --verify, --rebuild, --grant, --purge) rather than serve.
+
+%s`, cli.FlagsHelp(flag.CommandLine))
+	}
 	// -h-server is the escape hatch: the operator flag set, which the client
 	// form now shadows.
-	if len(args) == 1 && args[0] == "-h-server" {
+	if len(args) == 1 && (args[0] == "-h-server" || args[0] == "--h-server") {
 		flag.Usage()
 		return
 	}
-	clientForm := len(args) == 0 ||
+	// A bare `comms serve` leaves zero args, which must mean "serve with
+	// defaults", not the no-verb client help.
+	clientForm := !serveVerb && (len(args) == 0 ||
 		!strings.HasPrefix(args[0], "-") ||
-		args[0] == "-h" || args[0] == "--help" || args[0] == "help"
+		args[0] == "-h" || args[0] == "--help" || args[0] == "help")
 	if clientForm {
 		cli.Skills = []cli.SkillDoc{{Doc: agentSkill}, {Doc: hubSkill}}
 		os.Exit(cli.Run(&cli.Env{
@@ -120,9 +139,9 @@ func main() {
 			log.Fatalf("refusing to act on %s: it has no rooms, so no hub has ever "+
 				"served it — this is almost certainly not the database you meant.\n\n"+
 				"A running hub prints the file it serves at startup. Pass that path "+
-				"with -db.\n\n"+
+				"with --db.\n\n"+
 				"If you really are setting up a new hub, start it once first:\n"+
-				"  comms serve -db %s -rooms core", abs, *db)
+				"  comms serve --db %s --rooms core", abs, *db)
 		}
 	}
 
@@ -135,7 +154,7 @@ func main() {
 		fmt.Printf("enrolment token for %s:\n\n  %s\n\n"+
 			"One use. Hand it over out of band.\n\n"+
 			"Minted into %s — the token only exists in this database.\n"+
-			"The server redeeming it must be running with the same -db, or the\n"+
+			"The server redeeming it must be running with the same --db, or the\n"+
 			"token will come back as unknown.\n", *invite, tok, abs)
 		return
 	}
@@ -249,7 +268,7 @@ func main() {
 	srv := shell.New(st, time.Now)
 	if *insecure {
 		srv.RequireSignature = false
-		log.Printf("WARNING: -insecure is set. Unsigned commands are accepted, so anyone " +
+		log.Printf("WARNING: --insecure is set. Unsigned commands are accepted, so anyone " +
 			"who can reach this port can post as anyone. Localhost demos only.")
 	}
 	if *readAuth {

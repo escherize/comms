@@ -41,7 +41,7 @@ func skillField(doc, field string) string {
 func runSkillsList(e *Env, args []string) int {
 	fs, sink := newFlags("skills")
 	fs.Usage = func() {
-		e.Out.Help(`comms skills
+		e.Out.HelpFS(fs, `comms skills
 
 List the skills this binary carries. Each is printed by
 comms skill <name>, and installed by comms skill --install.`)
@@ -68,7 +68,7 @@ func runSkillVerb(e *Env, args []string) int {
 	dir := fs.String("dir", "",
 		"write into <dir>/<name>/SKILL.md instead")
 	fs.Usage = func() {
-		e.Out.Help(`comms skill [name] [--install | --dir <path>]
+		e.Out.HelpFS(fs, `comms skill [name] [--install | --dir <path>]
 
 The skills this binary carries, embedded at build time. Bare form prints the
 primary (the room contract for agents); a name picks one; comms skills

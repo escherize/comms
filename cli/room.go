@@ -78,7 +78,7 @@ func runRoom(e *Env, args []string) int {
 	actor := fs.String("as", "", "the seat orienting")
 	brief := fs.Bool("brief", true, "print the room brief after selecting")
 	fs.Usage = func() {
-		e.Out.Help(`comms room [<name>] [--as <seat>]
+		e.Out.HelpFS(fs, `comms room [<name>] [--as <seat>]
 
 With a name: selects that room and prints its brief. The selection sticks, so
 the next post with no --room lands where you oriented. --room still overrides.
@@ -202,7 +202,7 @@ func runSearch(e *Env, args []string) int {
 	limit := fs.Int("limit", 20, "most hits to print")
 	allRooms := fs.Bool("all-rooms", false, "search every room, not just the selected one")
 	fs.Usage = func() {
-		e.Out.Help(`comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20]
+		e.Out.HelpFS(fs, `comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20]
 
 Searches the room you are in. Filters are flags, not inline syntax: every
 whitespace-delimited token is quoted before it reaches FTS5, so typing
@@ -358,7 +358,7 @@ func runInvite(e *Env, args []string) int {
 	fs, sink := newFlags("invite")
 	as := fs.String("as", "", "the seat minting, if you are not on the hub itself")
 	fs.Usage = func() {
-		e.Out.Help(`comms invite <seat>
+		e.Out.HelpFS(fs, `comms invite <seat>
 
 Mints a one-time enrolment token, from the hub you are pointed at. The token
 exists in the database that hub is serving, because that hub created it.
@@ -367,7 +367,7 @@ exists in the database that hub is serving, because that hub created it.
   comms invite agent:bcm/claude-2
 
 Allowed from the machine serving the hub, or by a seat holding the invite
-capability — granted with comms -grant-invite <seat> on the hub, which is
+capability — granted with comms --grant-invite <seat> on the hub, which is
 an operator act with no verb by construction.
 
 The token is read from stdin by enrol, never passed as a flag: argv is visible

@@ -112,7 +112,7 @@ func usage(e *Env) int {
 typed, permanent entries: findings, questions, handoffs, and what got learned.
 
 usage: comms <verb> [flags]
-       comms serve [-db <path>] [-rooms <list>]
+       comms serve [--db <path>] [--rooms <list>]
 
 join a room
    enrol       register this seat's key against a one-time invite token
@@ -144,7 +144,7 @@ skills
    skills      list them
 
 'comms <verb> --help' explains any verb; start with enrol.
-'comms -h-server' lists the operator flags (verify, rebuild, grants).`)
+'comms --h-server' lists the operator flags (verify, rebuild, grants).`)
 	// The terminal object is for programs; Help already answered the person.
 	if e.Out.Quiet {
 		e.Out.Line(Result{OK: true, Outcome: "usage"})
@@ -173,12 +173,12 @@ func runEnrol(e *Env, args []string) int {
 	token := fs.String("token", "", "REFUSED: pipe the token on stdin instead")
 	via := fs.String("via", "", "mint the invite through this seat's local key (it must hold the invite capability)")
 	fs.Usage = func() {
-		e.Out.Help(`comms enrol --as <seat> [--via <seat>]
+		e.Out.HelpFS(fs, `comms enrol --as <seat> [--via <seat>]
 
 Enrols one seat. The invite token is read from stdin, never a flag: argv is
 visible to every process on the machine and lands in shell history.
 
-  comms -invite agent:bcm/claude-1      # a human runs this, gets a token
+  comms invite agent:bcm/claude-1       # a human runs this, gets a token
   echo "<token>" | comms enrol --as agent:bcm/claude-1
 
 --via mints and redeems in one process, for a session giving itself its own
@@ -228,7 +228,7 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 				Outcome: "refused", Exit: ExitRefused,
 				Invariant: orDefault(sent.Body.Invariant, "invite.refused"),
 				Detail: orDefault(sent.Body.Detail,
-					*via+" may not mint invites; grant it with: comms -grant-invite "+*via),
+					*via+" may not mint invites; grant it with: comms --grant-invite "+*via),
 			})
 		}
 		tok = sent.Body.Token
@@ -311,7 +311,7 @@ func runPost(e *Env, args []string) int {
 	idem := fs.String("idem", "", "reuse a natural key you already have (see --help)")
 	dryRun := fs.Bool("dry-run", false, "print the exact bytes and signature without sending")
 	fs.Usage = func() {
-		e.Out.Help(`comms post <kind> --as <seat> [flags]
+		e.Out.HelpFS(fs, `comms post <kind> --as <seat> [flags]
 
 kinds: %s
 
@@ -611,7 +611,7 @@ func runRedact(e *Env, args []string) int {
 	room := fs.String("room", "", "the room the event is in")
 	why := fs.String("why", "", "why it is being suppressed")
 	fs.Usage = func() {
-		e.Out.Help(`comms redact <seq> --as <seat> --why "<reason>"
+		e.Out.HelpFS(fs, `comms redact <seq> --as <seat> --why "<reason>"
 
 Suppresses one of your own events: its body leaves the room, search, and any
 attached artifact stops being served. The event itself stays, because
@@ -700,7 +700,7 @@ func runAsk(e *Env, args []string) int {
 	textFile := fs.String("text-file", "", "read the question from a file")
 	noSearch := fs.Bool("no-search", false, "skip the search for prior answers")
 	fs.Usage = func() {
-		e.Out.Help(`comms ask --as <seat> --to <who> --text "<question>"
+		e.Out.HelpFS(fs, `comms ask --as <seat> --to <who> --text "<question>"
 
 Searches the room for what it already knows, attaches up to three hits to the
 question's refs, prints what it attached, and posts either way.
@@ -791,7 +791,7 @@ func runAnswer(e *Env, args []string) int {
 	text := fs.String("text", "", "the answer, or - to read stdin")
 	textFile := fs.String("text-file", "", "read the answer from a file")
 	fs.Usage = func() {
-		e.Out.Help(`comms answer --as <seat> --to-question <seq> --text "<answer>"
+		e.Out.HelpFS(fs, `comms answer --as <seat> --to-question <seq> --text "<answer>"
 
 No recipient: the server derives it from the question's author, so an answer
 always reaches whoever asked.
@@ -846,7 +846,7 @@ func runAttach(e *Env, args []string) int {
 	fs, sink := newFlags("attach")
 	title := fs.String("title", "", "what to call it where it is referenced")
 	fs.Usage = func() {
-		e.Out.Help(`comms attach <path|->
+		e.Out.HelpFS(fs, `comms attach <path|->
 
 Uploads markdown and prints its hash. post --attach-hash accepts the hash, so a
 rejected post does not mean re-running a three-minute test to reproduce stdin
@@ -916,7 +916,7 @@ func runRead(e *Env, args []string) int {
 	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
-		e.Out.Help(`comms read --as <seat> [--room core]
+		e.Out.HelpFS(fs, `comms read --as <seat> [--room core]
 
 Prints what is new since you last read, then exits. It does not hang: a quiet
 room returns count 0 in one round trip, and says whether that means you are
@@ -997,7 +997,7 @@ func runInbox(e *Env, args []string) int {
 	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
-		e.Out.Help(`comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
+		e.Out.HelpFS(fs, `comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
 
 Prints only what is addressed to you, in full, then exits. A handoff is not
 ambient chatter: the one message you must act on is the one you must not have
@@ -1065,7 +1065,7 @@ func runWhoami(e *Env, args []string) int {
 	fs, _ := newFlags("whoami")
 	actor := fs.String("as", "", "the seat to report on")
 	fs.Usage = func() {
-		e.Out.Help(`comms whoami [--as <seat>]
+		e.Out.HelpFS(fs, `comms whoami [--as <seat>]
 
 Reports the seat, host, server and public key. It never reports the private
 key, and no verb, flag or environment variable does.
@@ -1127,7 +1127,7 @@ func runEscalate(e *Env, args []string) int {
 	to := fs.String("to", "", "the person who should look")
 	text := fs.String("text", "", "why this needs them now")
 	fs.Usage = func() {
-		e.Out.Help(`comms escalate <seq> --as <seat> --to <human> --text "<why now>"
+		e.Out.HelpFS(fs, `comms escalate <seq> --as <seat> --to <human> --text "<why now>"
 
 Pulls one entry already in the room into a person's attention. It states no new
 fact — the finding already says what it says — so what lands in the log is an
@@ -1253,7 +1253,7 @@ func runDecline(e *Env, args []string) int {
 	why := fs.String("why", "", "why you are not taking it")
 	idem := fs.String("idem", "", "reuse a natural key you already have")
 	fs.Usage = func() {
-		e.Out.Help(`comms decline <seq> --as <seat> --why "<why not>"
+		e.Out.HelpFS(fs, `comms decline <seq> --as <seat> --why "<why not>"
 
 Refuses a handoff, out loud. It goes back to whoever handed the work over, for
 the same reason an answer goes back to whoever asked: the person who needs to
@@ -1306,17 +1306,17 @@ worked on, and the difference is discovered when the work is due.`)
 // handles `serve` before the client is reached; this exists so `serve --help`
 // answers like every other verb rather than looking like a hole in the list.
 func runServeHelp(e *Env, args []string) int {
-	e.Out.Help(`comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
+	e.Out.Help(`comms serve [--addr ADDR] [--db PATH] [--rooms A,B] [--seed] [--insecure]
 
 Starts the hub: the room, the command API, the SSE stream, and the background
 embedder that fills the semantic lane.
 
   comms serve                                  # 127.0.0.1:7777, ./comms.db
-  comms serve -db demo.db -seed -rooms core,bash
-  comms serve -addr 0.0.0.0:7777               # reachable from the tailnet
+  comms serve --db demo.db --seed --rooms core,bash
+  comms serve --addr 0.0.0.0:7777              # reachable from the tailnet
 
 This is the one verb the client does not send anywhere: it is the thing the
-other verbs talk to. Every operator flag is listed by comms -h-server.`)
+other verbs talk to. Every operator flag is listed by comms --h-server.`)
 	return e.Out.Succeed(Result{Outcome: "usage"})
 }
 
@@ -1325,7 +1325,7 @@ other verbs talk to. Every operator flag is listed by comms -h-server.`)
 func runKinds(e *Env, args []string) int {
 	fs, sink := newFlags("kinds")
 	fs.Usage = func() {
-		e.Out.Help(`comms kinds
+		e.Out.HelpFS(fs, `comms kinds
 
 What you can post, what each one means, and which lane it lands in. Read from
 the core's own list, so it cannot drift from what the server will accept —

@@ -26,6 +26,9 @@ type Out struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Quiet  bool
+	// Color styles help for a terminal. Tests construct Out directly and get
+	// plain text; only Std() turns it on, and only when stderr is a tty.
+	Color bool
 }
 
 func Std() *Out {
@@ -33,7 +36,7 @@ func Std() *Out {
 	// merges the two streams receives JSON only.
 	fi, err := os.Stdout.Stat()
 	piped := err == nil && (fi.Mode()&os.ModeCharDevice) == 0
-	return &Out{Stdout: os.Stdout, Stderr: os.Stderr, Quiet: piped}
+	return &Out{Stdout: os.Stdout, Stderr: os.Stderr, Quiet: piped, Color: colorEnabled()}
 }
 
 // Line emits one JSONL object on stdout. stdout is JSONL and nothing else, on
@@ -67,6 +70,9 @@ func (o *Out) Help(format string, args ...any) {
 	if o.Quiet {
 		o.Line(map[string]any{"type": "help", "text": text})
 		return
+	}
+	if o.Color {
+		text = colorize(text)
 	}
 	fmt.Fprintln(o.Stderr, text)
 }

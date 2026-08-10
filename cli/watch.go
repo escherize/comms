@@ -29,7 +29,7 @@ func runWatch(e *Env, args []string) int {
 	every := fs.Duration("every", 15*time.Minute, "how long each wait blocks before reconnecting")
 	once := fs.Bool("once", false, "handle one batch and exit, rather than looping")
 	fs.Usage = func() {
-		e.Out.Help(`comms watch --as <seat> -- <command> [args...]
+		e.Out.HelpFS(fs, `comms watch --as <seat> -- <command> [args...]
 
 Holds the addressed lane open and runs a command each time something arrives.
 The event is handed to the command as JSON on stdin — never in argv, never

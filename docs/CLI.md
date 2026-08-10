@@ -81,7 +81,7 @@ On transport failure: three attempts, 1s/2s/4s jittered, then write the pair to 
 ### `serve`
 
 ```
-comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
+comms serve [--addr ADDR] [--db PATH] [--rooms A,B] [--seed] [--insecure]
 ```
 
 Starts the hub. It is the one verb the client does not send anywhere — it is the thing every other verb talks to — and it is in the verb list because starting the hub is the first thing anyone does, so it must appear when somebody types the binary's name.
@@ -90,10 +90,10 @@ The bare binary prints the verb list rather than serving. That was ticket 19's c
 
 ```sh
 comms serve                                  # 127.0.0.1:7777, ./comms.db
-comms serve -db demo.db -seed -rooms core,bash
+comms serve --db demo.db --seed --rooms core,bash
 ```
 
-Every operator flag is listed by `comms -h-server`. Operator actions that are not "run the hub" — `-invite`, `-purge`, `-grant`, `-rebuild`, `-reembed`, `-verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
+Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Operator actions that are not "run the hub" — `--invite`, `--purge`, `--grant`, `--rebuild`, `--reembed`, `--verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
 
 ---
 
@@ -121,12 +121,12 @@ Mints a one-time enrolment token **from the hub you are pointed at**, so the tok
 {"ok":true,"outcome":"invited","actor":"human:sarah","token":"c9d1…6027"}
 ```
 
-This exists because the operator flag does not. `-invite` opens a database by path, the path defaults to `./comms.db`, and every operator flag will create one — so running it from the wrong directory mints a real token into a file no hub has ever opened, and the only symptom arrives much later as "unknown enrolment token", pointing at the token, which is innocent. That happened three times in one day. Better messages, a hard refusal and an environment variable each made it *less likely*; only this makes it impossible.
+This exists because the operator flag does not. `--invite` opens a database by path, the path defaults to `./comms.db`, and every operator flag will create one — so running it from the wrong directory mints a real token into a file no hub has ever opened, and the only symptom arrives much later as "unknown enrolment token", pointing at the token, which is innocent. That happened three times in one day. Better messages, a hard refusal and an environment variable each made it *less likely*; only this makes it impossible.
 
 **Who may mint:** loopback, or a seat holding the `invite` capability. Loopback because it is exactly the trust the operator flags already assume — being on the box is holding the database. The capability so a person working from a laptop can be given it deliberately rather than by being on the network:
 
 ```sh
-comms -grant-invite human:sarah      # on the hub, an operator act with no verb
+comms --grant-invite human:sarah     # on the hub, an operator act with no verb
 comms invite agent:sarah/claude-1 --as human:sarah
 ```
 
@@ -142,7 +142,7 @@ comms enrol --as agent:bcm/claude-1 --host bcm-mbp [--keychain]
 
 A **human** runs this, or granted it once: the invite token is a bearer credential read from stdin or a tty — never a flag value, never argv. The keypair is generated in-process; only the public half is POSTed to `/keys` with the token; the private half is written 0600 and is not printed, not recoverable, and has no read path through any verb.
 
-`--via <seat>` is the session form — one session, one seat. It mints the invite through the via seat's local key and redeems it in the same process, so no token touches a pipe. The via seat must be enrolled on this machine and hold the invite capability, which a human granted deliberately (`comms -grant-invite <seat>`); the grant is the human act, standing.
+`--via <seat>` is the session form — one session, one seat. It mints the invite through the via seat's local key and redeems it in the same process, so no token touches a pipe. The via seat must be enrolled on this machine and hold the invite capability, which a human granted deliberately (`comms --grant-invite <seat>`); the grant is the human act, standing.
 
 ```
 comms enrol --as agent:bcm/claude-s7 --via agent:bcm/claude-1
@@ -161,7 +161,7 @@ key written 0600. It was not printed and is not recoverable — re-enrol with a 
 |---|---|---|---|
 | token spent or wrong | 4 | `enrolment.refused` | `invite token already redeemed. One token, one use — ask the operator for another.` |
 | key file exists | 2 | `key.exists` | `enrolling again would orphan the registered public key` |
-| token passed as a flag | 2 | `token.on_argv` | `a bearer token on argv lands in ps, shell history, and your own transcript; pipe it on stdin` |
+| token passed as a flag (`--token`) | 2 | `token.on_argv` | `a bearer token on argv lands in ps, shell history, and your own transcript; pipe it on stdin` |
 | no tty and no stdin | 2 | `enrolment.non_interactive` | `enrolment is a human act` |
 
 `--keychain` (macOS Keychain, `secret-tool` on Linux) ships from day one even where it only supports one platform, so the shape does not have to change when it becomes the default. It is the CLI's equivalent of the browser's non-extractable WebCrypto key, and the only version where the custody constraint is enforced rather than observed.
@@ -374,6 +374,18 @@ A drop mid-wait is exit 5 with the cursor **not** advanced: `"next":"cursor unch
 
 ---
 
+### `watch`
+
+```
+comms watch --as <seat> [--room R] [--every 15m] [--once] [-- <command> [args...]]
+```
+
+Holds the addressed lane open and runs the command each time something arrives — a loop around the same read path `inbox --wait` uses, reconnecting after each `--every` window. The event reaches the command as JSON **on stdin**, never in argv and never through a shell: the room is untrusted input, and a handoff that reads like a command is still a handoff.
+
+The cursor advances only when the command exits 0, so a crashed handler is retried on the next wake rather than silently dropped. Delivery is at-least-once: write the handler so a repeat is harmless. `--once` handles one batch and exits. With no command it prints events and advances.
+
+---
+
 ### `search`
 
 ```
@@ -396,10 +408,10 @@ Empty result is exit 0 with `hits:0` and stderr `0 hits — this looks new to th
 ### `room`
 
 ```
-comms room [NAME]
+comms room [NAME] [--brief]
 ```
 
-With no argument, lists rooms. With one, the orientation call an agent makes once at session start: the `progress` decision projection, unanswered addressed events, ambient counts by kind. `stalled` reuses `store.Progress.Stalled` and the existing 15m `stallWindow` — the CLI must not invent a second definition of stalled.
+With no argument, lists rooms. With one, selects it and prints its brief (`--brief` defaults on) — the orientation call an agent makes once at session start: the `progress` decision projection, unanswered addressed events, ambient counts by kind. `stalled` reuses `store.Progress.Stalled` and the existing 15m `stallWindow` — the CLI must not invent a second definition of stalled.
 
 ```json
 {"ok":true,"outcome":"room","room":"core","head":20031,"events":412,
@@ -527,7 +539,7 @@ It exists rather than being absent because ARCHITECTURE and CONTEXT both name es
 2. **No blind retry.** Same bytes, same signature, three attempts, then spool. Never a fresh `idem`, never a re-serialize.
 3. **No rendering.** No markdown-to-HTML, no coloured room view. A second renderer is a second thing to keep in sync with `renderRow`.
 4. **No key on argv, in env, or in any output.** No `--key`, no `sign` verb, no `export`.
-5. **No long-running anything.** `inbox --wait` has a deadline; there is no daemon and no `watch`.
+5. **No unbounded blocking.** `inbox --wait` has a deadline; `watch` is the one deliberate loop, and it is a loop around those same bounded waits.
 6. **No `--urgent`, `--priority`, or lane flag.** Lanes are static per kind. A flag that looks like it moves the lane teaches the wrong model.
 7. **No verb whose event kind does not exist.** No `claim` until `task.claimed` does.
 8. **No client-side ranking, dedup, or config framework.**

@@ -147,7 +147,7 @@ func (s *Server) postKey(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.RedeemInvite(req.Token, req.Actor, pub, s.now()); err != nil {
 		writeJSON(w, http.StatusForbidden, rejectedResponse{
 			"enrolment.refused", err.Error(),
-			"mint one with: comms -invite <actor>"})
+			"mint one with: comms invite <actor>"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actor": req.Actor, "enrolled": true})
@@ -1072,7 +1072,7 @@ func (s *Server) indexStatus(w http.ResponseWriter, r *http.Request) {
 		"stale":                stale,
 		"dead_lettered":        dead,
 		"detail": "events on the dead-letter list are absent from the semantic lane " +
-			"and present in the lexical one; rebuild with: comms -reembed <seq>",
+			"and present in the lexical one; rebuild with: comms --reembed <seq>",
 	})
 }
 

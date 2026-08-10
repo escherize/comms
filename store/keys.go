@@ -350,8 +350,8 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 		// Almost always the operator minted it against a different database
 		// than the server is running. The token is fine; it is in another file.
 		return errors.New("this token does not exist in the database this server is " +
-			"running. That usually means it was minted with a different -db: the " +
-			"server prints the file it is serving at startup, and -invite prints the " +
+			"running. That usually means it was minted with a different --db: the " +
+			"server prints the file it is serving at startup, and --invite prints the " +
 			"file it minted into. Mint it against the same one, or point the server " +
 			"at the database the token is in")
 	}

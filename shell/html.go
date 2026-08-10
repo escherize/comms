@@ -359,7 +359,7 @@ const settingsModal = `
         <h2>seats</h2>
         <div id="seats-list" class="set-list"></div>
         <p class="set-note">Revoking a key is an incident action, deliberately
-        not a click: on the hub box, comms -h-server lists the operator
+        not a click: on the hub box, comms --h-server lists the operator
         surface.</p>
       </section>
     </div>
@@ -675,7 +675,7 @@ const composeScript = `
       var tf=document.getElementById('enroltoken');
       var token=tf && tf.value.trim();
       if(!token) return Promise.reject(new Error(
-        'first post as '+actor+' needs an enrolment token — run: comms -invite '+actor+
+        'first post as '+actor+' needs an enrolment token — run: comms invite '+actor+
         ' and paste it in the token field'));
       return crypto.subtle.generateKey({name:'Ed25519'}, false, ['sign','verify'])
         .then(function(kp){
