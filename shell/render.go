@@ -16,27 +16,55 @@ import (
 func kindCode(k core.Kind) string {
 	switch k {
 	case core.KindChat:
-		return "CHT"
+		return "💬"
 	case core.KindFinding:
-		return "FND"
+		return "🔍"
 	case core.KindQuestion:
-		return "Q"
+		return "❓"
 	case core.KindAnswer:
-		return "ANS"
+		return "💡"
 	case core.KindTIL:
-		return "TIL"
+		return "🎓"
 	case core.KindHandoff:
-		return "HND"
+		return "🤝"
 	case core.KindStatus:
-		return "STA"
+		return "🛠️"
 	case core.KindPRLink:
-		return "PR"
+		return "🔗"
 	case core.KindDigest:
-		return "DIG"
+		return "📰"
 	case core.KindRedact:
-		return "RDC"
+		return "✂️"
 	}
-	return "—"
+	return "·"
+}
+
+// kindGlyph wraps the symbol so hover answers what it means and a screen
+// reader says the kind, not the codepoint. The column is one glyph wide; the
+// name it stands for is the tooltip.
+func kindGlyph(k core.Kind) string {
+	name := html.EscapeString(string(k))
+	return `<span role="img" aria-label="` + name + `" title="` + name + `">` +
+		kindCode(k) + `</span>`
+}
+
+// agentChip marks agent-authored rows with a drawn glyph rather than a word:
+// the namespace was already stripped from the name for width, and provenance
+// is exactly the thing that must survive the stripping.
+const agentChip = `<svg class="chip" viewBox="0 0 12 12" aria-hidden="true">` +
+	`<rect x="2.5" y="2.5" width="7" height="7" rx="1.2" fill="none" stroke="currentColor"/>` +
+	`<rect x="5" y="5" width="2" height="2" fill="currentColor"/>` +
+	`<path d="M4.5 0v2M7.5 0v2M4.5 10v2M7.5 10v2M0 4.5h2M0 7.5h2M10 4.5h2M10 7.5h2" stroke="currentColor"/></svg>`
+
+// authorCell is the seat, ellipsized to the column, with the full actor
+// string — namespace included — in the tooltip the column has no room for.
+func authorCell(a core.Actor) string {
+	chip := ""
+	if a.IsAgent() {
+		chip = agentChip
+	}
+	return `<span title="` + html.EscapeString(string(a)) + `">` + chip +
+		html.EscapeString(shortActor(a)) + `</span>`
 }
 
 // renderRow is one ledger entry. Addressed rows break the band with an accent
@@ -108,7 +136,7 @@ func renderRow(r store.Record) string {
 			`<div class="body">%s</div>`+
 			`%s</div>`,
 		strings.Join(classes, " "), r.Seq, r.Seq,
-		html.EscapeString(shortActor(r.Author)), kindCode(r.Kind), body.String(), tick)
+		authorCell(r.Author), kindGlyph(r.Kind), body.String(), tick)
 }
 
 func short(h string) string {
@@ -408,7 +436,7 @@ func searchRow(r store.Record) string {
 			`<div class="author">%s</div>`+
 			`<div class="kind">%s</div>`+
 			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
-		r.Seq, r.Rank, html.EscapeString(shortActor(r.Author)), kindCode(r.Kind),
+		r.Seq, r.Rank, authorCell(r.Author), kindGlyph(r.Kind),
 		html.EscapeString(r.Room), r.Seq, html.EscapeString(r.Text()))
 }
 
@@ -462,7 +490,7 @@ func fusedRow(f Fused) string {
 			`<div class="kind">%s</div>`+
 			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
 		r.Seq, lex, vec,
-		html.EscapeString(shortActor(r.Author)), kindCode(r.Kind),
+		authorCell(r.Author), kindGlyph(r.Kind),
 		html.EscapeString(r.Room), r.Seq,
 		html.EscapeString(truncate(r.Text(), 160)))
 }

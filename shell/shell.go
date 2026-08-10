@@ -98,6 +98,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /invite", s.postInvite)
 	mux.HandleFunc("GET /session/challenge", s.getChallenge)
 	mux.HandleFunc("POST /session", s.postSession)
+	mux.HandleFunc("GET /caps", s.getCaps)
+	mux.HandleFunc("POST /rooms", s.postRoom)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
 	if s.ReadAuth {

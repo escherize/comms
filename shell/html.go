@@ -15,7 +15,8 @@ const tokens = `
   --accent:#0078d4; --accent-ink:#4daafc;
   --sev-hi:#f14c4c; --sev-lo:#cca700; --ok:#89d185;
   /* metrics */
-  --row-pad:.28rem .6rem; --col-folio:5.5rem; --col-author:8rem; --col-kind:3.4rem;
+  --scrim: rgba(0,0,0,.55);
+  --row-pad:.28rem .6rem; --col-folio:3.2rem; --col-author:6.5rem; --col-kind:1.6rem;
 }
 :root[data-theme="light"] {
   --ground:#ffffff; --band:#f6f6f6; --panel:#f3f3f3; --raised:#eaeaea;
@@ -100,9 +101,13 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
 .row { border-bottom:1px solid var(--rule); }
 .row:nth-child(even) { background: var(--band); }
 
-.folio { color: var(--ink-faint); text-align:right; font-variant-numeric: tabular-nums; }
-.author { color: var(--ink-mute); overflow:hidden; text-overflow:ellipsis; }
-.kind { color: var(--ink-faint); font-size:.72rem; letter-spacing:.05em; }
+.folio { color: var(--ink-faint); text-align:right; font-variant-numeric: tabular-nums;
+  font-size:.72rem; }
+.author { color: var(--ink-mute); overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; }
+.kind { text-align:center; font-size:.8rem; cursor:default; padding-left:0; padding-right:0; }
+.chip { width:.7rem; height:.7rem; margin-right:.28rem; vertical-align:-1px;
+  color:var(--ink-faint); stroke-width:1; }
 /* A folded body reuses the carried-forward control, so one toggle serves both
    page-break conventions. It sits on its own line because it interrupts the
    text it is folding. */
@@ -184,9 +189,63 @@ body[data-signing="false"] .composer .tok { display:none; }
 .rank.vec { color: var(--ink-faint); opacity:.5; }
 .empty { padding:2rem .7rem; color: var(--ink-faint); }
 
+/* ---- settings dialog: the ledger's back office, same hairlines ---- */
+.gear { display:inline-flex; align-items:center; }
+.gear svg { display:block; }
+.settings {
+  background: var(--panel); color: var(--ink);
+  border:1px solid var(--rule-strong); border-radius:0; padding:0;
+  width:min(36rem, 92vw); font: inherit;
+}
+.settings::backdrop { background: var(--scrim); }
+.set { display:grid; grid-template-columns: 9rem 1fr; min-height:19rem; }
+.set-nav {
+  display:flex; flex-direction:column; align-items:stretch; gap:.1rem;
+  border-right:1px solid var(--rule); padding:.6rem 0;
+  background: var(--band);
+}
+.set-h {
+  color: var(--ink-faint); font-size:.72rem; letter-spacing:.08em;
+  padding:.5rem .8rem .15rem;
+}
+.set-nav button {
+  background:none; border:0; color: var(--ink-mute);
+  text-align:left; padding:.28rem .8rem; cursor:pointer; font:inherit;
+}
+.set-nav button:hover { color: var(--ink-strong); }
+.set-nav button.sel {
+  color: var(--ink-strong); background: var(--panel);
+  border-left:2px solid var(--accent); padding-left:calc(.8rem - 2px);
+}
+.set-spacer { flex:1; }
+.set-close { color: var(--ink-faint); font-size:.78rem; }
+.set-panels { padding:1rem 1.2rem; min-width:0; }
+.set-panels h2 { font-size:.9rem; color: var(--ink-strong); margin:0 0 .6rem; }
+.set-panels p, .set-panels label { color: var(--ink-mute); margin:.3rem 0; }
+.set-panels form { display:flex; gap:.3rem; margin:.6rem 0; }
+.set-panels input, .set-panels select {
+  flex:1; background: var(--raised); color: var(--ink);
+  border:1px solid var(--rule-strong); padding:.3rem .5rem; font:inherit;
+}
+.set-panels button[type=submit] {
+  background: var(--raised); color: var(--ink);
+  border:1px solid var(--rule-strong); padding:.3rem .7rem; cursor:pointer; font:inherit;
+}
+.set-panels button[type=submit]:hover { border-color: var(--accent); }
+.set-note { font-size:.78rem; color: var(--ink-faint); }
+.set-out { display:block; margin-top:.5rem; word-break:break-all; color: var(--ok); }
+.set-out:empty { display:none; }
+.set-list { margin:.4rem 0; padding:0; list-style:none; }
+.set-list li, .set-seat {
+  display:flex; justify-content:space-between; gap:.6rem;
+  padding:.22rem 0; border-bottom:1px solid var(--rule);
+}
+.set-mute { color: var(--ink-faint); }
+@media (max-width: 640px) { .set { grid-template-columns: 1fr; } .set-nav { flex-direction:row; flex-wrap:wrap; border-right:0; border-bottom:1px solid var(--rule); } }
+
 @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 @media (max-width: 640px) {
-  :root { --col-folio:3.6rem; --col-author:5rem; --col-kind:2.6rem; }
+  :root { --col-folio:2.6rem; --col-author:4.5rem; --col-kind:1.4rem; }
   body { font-size:12px; }
 }
 `
@@ -230,6 +289,192 @@ const liveScript = `
     var main = document.querySelector('main.ledger');
     if (main) main.scrollTop = main.scrollHeight;
   });
+})();
+</script>`
+
+// gearGlyph is drawn, not typed: the header's one icon, in the ledger's own
+// hairline weight.
+const gearGlyph = `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.2v2.1M8 12.7v2.1M1.2 8h2.1M12.7 8h2.1M3.2 3.2l1.5 1.5M11.3 11.3l1.5 1.5M12.8 3.2l-1.5 1.5M4.7 11.3l-1.5 1.5"/></svg>`
+
+// settingsModal is the gear's dialog: a left rail of sections, panels on the
+// right. The admin rail entries render hidden and are shown only when GET
+// /caps says the seat holds the invite capability — visibility is convenience;
+// every action re-proves the capability on a signed request server-side.
+const settingsModal = `
+<dialog id="settings" class="settings" aria-label="settings">
+  <div class="set">
+    <nav class="set-nav">
+      <span class="set-h">general</span>
+      <button type="button" data-panel="theme" class="sel">theme</button>
+      <span class="set-h set-admin" hidden>admin</span>
+      <button type="button" data-panel="invite" class="set-admin" hidden>invite</button>
+      <button type="button" data-panel="rooms" class="set-admin" hidden>rooms</button>
+      <button type="button" data-panel="seats" class="set-admin" hidden>seats</button>
+      <span class="set-spacer"></span>
+      <button type="button" id="set-close" class="set-close">close esc</button>
+    </nav>
+    <div class="set-panels">
+      <section data-panel="theme">
+        <h2>theme</h2>
+        <label for="themesel">this browser renders the ledger in</label>
+        <select id="themesel">
+          <option value="dark">dark</option>
+          <option value="light">light</option>
+          <option value="slate">slate</option>
+        </select>
+        <p class="set-note">t cycles themes from the keyboard.</p>
+      </section>
+      <section data-panel="invite" hidden>
+        <h2>invite a seat</h2>
+        <p>Mints a one-use enrolment token, signed by your key. Hand it over
+        out of band; it is the whole credential.</p>
+        <form id="invite-form">
+          <input id="invite-actor" placeholder="human:sarah, or agent:you/name" autocomplete="off">
+          <button type="submit">mint token</button>
+        </form>
+        <output id="invite-out" class="set-out"></output>
+      </section>
+      <section data-panel="rooms" hidden>
+        <h2>rooms</h2>
+        <ul id="rooms-list" class="set-list"></ul>
+        <form id="room-form">
+          <input id="room-name" placeholder="new room: a-z 0-9 - _" autocomplete="off">
+          <button type="submit">create</button>
+        </form>
+        <p class="set-note">Rooms are created, never destroyed — the log is
+        append-only, and a room's history outlives the wish to tidy it.</p>
+        <output id="room-out" class="set-out"></output>
+      </section>
+      <section data-panel="seats" hidden>
+        <h2>seats</h2>
+        <div id="seats-list" class="set-list"></div>
+        <p class="set-note">Revoking a key is an incident action, deliberately
+        not a click: on the hub box, agent_comms -h-server lists the operator
+        surface.</p>
+      </section>
+    </div>
+  </div>
+</dialog>`
+
+// settingsScript wires the dialog. It signs admin actions with the same
+// IndexedDB key the composer enrols — marshal once, sign that string, send
+// that string, the one rule every signer in this system follows.
+const settingsScript = `
+<script>
+(function(){
+  var dlg=document.getElementById('settings'), gear=document.getElementById('gear');
+  if(!dlg||!gear) return;
+
+  var DB='agent_comms.keys', STORE='keys';
+  function idb(){ return new Promise(function(res,rej){
+    var r=indexedDB.open(DB,1);
+    r.onupgradeneeded=function(){ r.result.createObjectStore(STORE); };
+    r.onsuccess=function(){ res(r.result); }; r.onerror=function(){ rej(r.error); };
+  });}
+  function idbGet(k){ return idb().then(function(db){ return new Promise(function(res,rej){
+    var t=db.transaction(STORE,'readonly').objectStore(STORE).get(k);
+    t.onsuccess=function(){ res(t.result); }; t.onerror=function(){ rej(t.error); };
+  });});}
+  function hex(buf){ return Array.prototype.map.call(new Uint8Array(buf),
+    function(b){ return ('0'+b.toString(16)).slice(-2); }).join(''); }
+  function me(){ var a=document.getElementById('actor'); return a?a.value:''; }
+
+  function signedPost(path, obj){
+    var body=JSON.stringify(obj);
+    return idbGet(me()).then(function(pair){
+      if(!pair) throw new Error('no key in this browser for '+me()+' — post once to enrol, then retry');
+      return crypto.subtle.sign({name:'Ed25519'}, pair.privateKey,
+          new TextEncoder().encode(body))
+        .then(function(sig){ return fetch(path,{method:'POST',
+          headers:{'Content-Type':'application/json','X-Signature':hex(sig)},
+          body:body}); });
+    }).then(function(r){ return r.json().then(function(j){
+      if(!r.ok) throw new Error(j.detail||j.invariant||'refused'); return j; }); });
+  }
+
+  function show(name){
+    var els=dlg.querySelectorAll('[data-panel]');
+    for(var i=0;i<els.length;i++){
+      var el=els[i];
+      if(el.tagName==='BUTTON') el.classList.toggle('sel', el.dataset.panel===name);
+      else el.hidden = el.dataset.panel!==name;
+    }
+    if(name==='rooms') loadRooms();
+    if(name==='seats') loadSeats();
+  }
+  dlg.addEventListener('click', function(e){
+    var b=e.target.closest('button[data-panel]');
+    if(b) show(b.dataset.panel);
+  });
+
+  gear.addEventListener('click', function(){
+    dlg.showModal();
+    var sel=document.getElementById('themesel');
+    sel.value=document.documentElement.getAttribute('data-theme')||'dark';
+    fetch('/caps?actor='+encodeURIComponent(me()))
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var admin=(j.capabilities||[]).indexOf('invite')>=0;
+        var els=dlg.querySelectorAll('.set-admin');
+        for(var i=0;i<els.length;i++) els[i].hidden=!admin;
+      }).catch(function(){});
+  });
+  document.getElementById('set-close').addEventListener('click', function(){ dlg.close(); });
+  dlg.addEventListener('click', function(e){ if(e.target===dlg) dlg.close(); });
+
+  document.getElementById('themesel').addEventListener('change', function(e){
+    document.documentElement.setAttribute('data-theme', e.target.value);
+    localStorage.setItem('agent_comms.theme', e.target.value);
+  });
+
+  document.getElementById('invite-form').addEventListener('submit', function(e){
+    e.preventDefault();
+    var out=document.getElementById('invite-out');
+    var target=document.getElementById('invite-actor').value.trim();
+    if(!target){ out.textContent='name the seat to invite'; return; }
+    out.textContent='minting…';
+    signedPost('/invite',{actor:target, as:me()})
+      .then(function(j){ out.textContent='token for '+target+': '+j.token+'  (one use — hand it over out of band)'; })
+      .catch(function(ex){ out.textContent=ex.message; });
+  });
+
+  function loadRooms(){
+    fetch('/rooms',{headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var ul=document.getElementById('rooms-list'); ul.innerHTML='';
+        (j.rooms||[]).forEach(function(room){
+          var li=document.createElement('li'); li.textContent=room; ul.appendChild(li);
+        });
+      }).catch(function(){});
+  }
+  document.getElementById('room-form').addEventListener('submit', function(e){
+    e.preventDefault();
+    var out=document.getElementById('room-out');
+    var name=document.getElementById('room-name').value.trim();
+    if(!name){ out.textContent='name the room'; return; }
+    signedPost('/rooms',{name:name, as:me()})
+      .then(function(j){
+        out.textContent=j.outcome==='exists' ? name+' already exists' : 'created '+name;
+        loadRooms();
+      })
+      .catch(function(ex){ out.textContent=ex.message; });
+  });
+
+  function loadSeats(){
+    fetch('/actors',{headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var div=document.getElementById('seats-list'); div.innerHTML='';
+        (j.actors||[]).forEach(function(a){
+          var row=document.createElement('div'); row.className='set-seat';
+          var name=document.createElement('span'); name.textContent=a.actor||a.name||JSON.stringify(a);
+          var st=document.createElement('span'); st.className='set-mute';
+          st.textContent=a.key_status||a.status||'';
+          row.appendChild(name); row.appendChild(st); div.appendChild(row);
+        });
+      }).catch(function(){});
+  }
 })();
 </script>`
 
@@ -344,12 +589,12 @@ finish review, the verdict, and DESIGN.md.
       <option value="agent:codex-3">codex-3</option>
     </select>
   </span>
-  <button type="button" onclick="cycleTheme()" title="cycle theme (t)">theme</button>
+  <button type="button" id="gear" class="gear" title="settings" aria-haspopup="dialog" aria-controls="settings">` + gearGlyph + `</button>
 </header>
 
 <main class="ledger">
   <div class="head">
-    <div>folio</div><div>author</div><div>kind</div><div>entry</div><div>✓</div>
+    <div>folio</div><div>author</div><div title="kind">·</div><div>entry</div><div>✓</div>
   </div>
   <div id="ledger-body">{{ROWS}}</div>
 </main>
@@ -376,7 +621,7 @@ finish review, the verdict, and DESIGN.md.
     <button type="submit">post</button>
   </form>
 </footer>
-` + liveScript + composeScript + themeScript + `
+` + settingsModal + liveScript + composeScript + themeScript + settingsScript + `
 </body>
 </html>`
 

@@ -483,6 +483,26 @@ func (s *Store) Grant(actor, capability, by string, now time.Time) error {
 	return err
 }
 
+// Capabilities lists what a seat holds, for the settings page to decide which
+// panels to draw. Authorization never reads this: every admin action re-proves
+// the capability server-side on the signed request.
+func (s *Store) Capabilities(actor string) []string {
+	rows, err := s.db.Query(
+		`SELECT capability FROM capability WHERE actor = ? ORDER BY capability`, actor)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var caps []string
+	for rows.Next() {
+		var c string
+		if rows.Scan(&c) == nil {
+			caps = append(caps, c)
+		}
+	}
+	return caps
+}
+
 // HasCapability is the decision projection the core reads.
 func (s *Store) HasCapability(actor, capability string) bool {
 	var n int
