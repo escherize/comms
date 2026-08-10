@@ -40,11 +40,12 @@ func kindCode(k core.Kind) string {
 }
 
 // kindGlyph wraps the symbol so hover answers what it means and a screen
-// reader says the kind, not the codepoint. The column is one glyph wide; the
-// name it stands for is the tooltip.
+// reader says the kind, not the codepoint. data-tip renders as an instant CSS
+// tooltip — the native title needs a second and a half of held hover, which
+// reads as broken.
 func kindGlyph(k core.Kind) string {
 	name := html.EscapeString(string(k))
-	return `<span role="img" aria-label="` + name + `" title="` + name + `">` +
+	return `<span role="img" aria-label="` + name + `" data-tip="` + name + `">` +
 		kindCode(k) + `</span>`
 }
 
@@ -63,7 +64,8 @@ func authorCell(a core.Actor) string {
 	if a.IsAgent() {
 		chip = agentChip
 	}
-	return `<span title="` + html.EscapeString(string(a)) + `">` + chip +
+	full := html.EscapeString(string(a))
+	return `<span aria-label="` + full + `" data-tip="` + full + `">` + chip +
 		html.EscapeString(shortActor(a)) + `</span>`
 }
 

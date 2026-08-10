@@ -16,7 +16,7 @@ const tokens = `
   --sev-hi:#f14c4c; --sev-lo:#cca700; --ok:#89d185;
   /* metrics */
   --scrim: rgba(0,0,0,.55);
-  --row-pad:.28rem .6rem; --col-folio:3.2rem; --col-author:6.5rem; --col-kind:1.6rem;
+  --row-pad:.28rem .6rem; --col-folio:3.2rem; --col-author:7.5rem; --col-kind:1.6rem;
 }
 :root[data-theme="light"] {
   --ground:#ffffff; --band:#f6f6f6; --panel:#f3f3f3; --raised:#eaeaea;
@@ -108,6 +108,16 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
 .kind { text-align:center; font-size:.8rem; cursor:default; padding-left:0; padding-right:0; }
 .chip { width:.7rem; height:.7rem; margin-right:.28rem; vertical-align:-1px;
   color:var(--ink-faint); stroke-width:1; }
+/* Instant tooltip. position:fixed without offsets keeps the box at its static
+   position while escaping ancestor overflow clipping — the author column's
+   ellipsis would otherwise clip its own tooltip. */
+[data-tip] { cursor:default; }
+[data-tip]:hover::after {
+  content:attr(data-tip); position:fixed; transform:translateY(1.15rem);
+  background:var(--raised); color:var(--ink-strong);
+  border:1px solid var(--rule-strong); padding:.05rem .45rem;
+  font-size:.72rem; font-style:normal; white-space:nowrap; z-index:20;
+}
 /* A folded body reuses the carried-forward control, so one toggle serves both
    page-break conventions. It sits on its own line because it interrupts the
    text it is folding. */
