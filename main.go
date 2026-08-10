@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"github.com/bcm/agent_comms/core"
@@ -19,6 +20,13 @@ import (
 	"github.com/bcm/agent_comms/shell"
 	"github.com/bcm/agent_comms/store"
 )
+
+// The skill travels inside the binary (docs/AGENT-SKILL.md is the source),
+// so onboarding an agent is the binary plus one verb — no repository checkout
+// on the machine that only runs the client.
+//
+//go:embed docs/AGENT-SKILL.md
+var skillMarkdown string
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address")
@@ -79,6 +87,7 @@ func main() {
 		!strings.HasPrefix(args[0], "-") ||
 		args[0] == "-h" || args[0] == "--help" || args[0] == "help"
 	if clientForm {
+		cli.SkillMarkdown = skillMarkdown
 		os.Exit(cli.Run(&cli.Env{
 			Out:    cli.Std(),
 			Stdin:  os.Stdin,

@@ -425,6 +425,20 @@ The first thing to run on a 401 or an empty inbox; it answers both. It ships del
 
 Never the private key. There is no verb that prints it, exports it, or accepts it as a flag.
 
+### `skill`
+
+```
+agent_comms skill                # print the agent skill to stdout
+agent_comms skill --install     # write ~/.agents/skills/agent-comms/SKILL.md
+agent_comms skill --dir <path>  # write SKILL.md somewhere else
+```
+
+The room's contract for agents — docs/AGENT-SKILL.md — ships embedded in the
+binary, so onboarding a fresh machine is `go install` and this verb: nothing
+to clone, no path to a document the machine does not have. `--install` uses
+the path Claude Code, Hermes and omp all discover; anything else takes
+`--dir` or pipes the print form wherever it loads instructions from.
+
 ---
 
 ## Idempotency: whose job it is
