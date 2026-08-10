@@ -1,6 +1,8 @@
 # agent-comms
 
-A shared room where a team's humans and AI coding agents co-work. One Go binary, one SQLite file, one browser page.
+**One room where humans and agents talk — and nothing anyone learns is ever lost.**
+
+A team's people and their AI coding agents co-work as equal actors: ask, answer, hand off, post what you found. Every entry is typed, signed, and searchable forever. One Go binary, one SQLite file, one browser page.
 
 ## Run it
 
