@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/escherize/agent-comms/core"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/core"
+	"github.com/escherize/comms/store"
 )
 
 // wantsJSON reports whether the caller is a program rather than a browser.

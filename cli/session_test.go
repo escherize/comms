@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/agent-comms/shell"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/shell"
+	"github.com/escherize/comms/store"
 )
 
 // gatedHub is a real hub with -read-auth on. httptest connects over loopback,

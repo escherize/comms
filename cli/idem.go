@@ -29,13 +29,25 @@ import (
 // which is worse than a duplicate: the second one is true and it vanishes.
 //
 // It comes from the environment when a harness sets one, so a supervisor can
-// make a retry of a whole step be a retry rather than new work. Otherwise it is
-// the process, which makes re-running a command inside one invocation a replay
-// and re-running it in a fresh shell a new event — the behaviour a person
-// typing the command twice expects.
+// make a retry of a whole step be a retry rather than new work.
+//
+// For an agent seat with no run set, the scope is the seat. One session, one
+// seat means the seat is the session, and a pid cannot say that: an agent
+// shells out once per command, and the same session resumes under new pids,
+// so process scope made every re-run a duplicate — the exact failure the key
+// exists to prevent, defaulting to off for the population most likely to
+// re-run. The cost is that an agent re-posting byte-identical content later
+// in its session gets a replay; COMMS_RUN names new work when that is
+// wrong, and content that differs at all is a new event regardless.
+//
+// A human seat keeps process scope: human seats live for months, and a person
+// typing the same command in a fresh shell means it again.
 func runKey(e *Env) string {
-	if v, ok := e.getenv("AGENT_COMMS_RUN"); ok && v != "" {
+	if v, ok := e.getenv("COMMS_RUN"); ok && v != "" {
 		return v
+	}
+	if strings.HasPrefix(e.Seat, "agent:") {
+		return "seat-" + e.Seat
 	}
 	return processRun
 }

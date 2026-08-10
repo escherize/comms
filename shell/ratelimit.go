@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 )
 
 // An unattended agent can fill the log at wire speed: 700 signed posts landed

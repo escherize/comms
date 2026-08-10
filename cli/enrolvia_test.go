@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/agent-comms/shell"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/shell"
+	"github.com/escherize/comms/store"
 )
 
 // remoteHub is a real hub seen from a non-loopback address, which is what

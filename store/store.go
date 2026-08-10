@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 	_ "modernc.org/sqlite"
 )
 

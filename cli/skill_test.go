@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 	"regexp"
 	"strings"
 	"testing"
@@ -59,7 +59,7 @@ func skillCommands(t *testing.T, doc string) []skillCommand {
 		// A pipe feeds the client; what is on the left is the agent's own work
 		// and not ours to run.
 		stdin := ""
-		if idx := strings.Index(full, "| agent-comms"); idx != -1 {
+		if idx := strings.Index(full, "| comms"); idx != -1 {
 			stdin = "=== RUN TestAuth\n--- FAIL: TestAuth (0.02s)\n    auth_test.go:88: cold cache\n"
 			full = strings.TrimSpace(full[idx+1:])
 		}
@@ -76,7 +76,7 @@ func skillCommands(t *testing.T, doc string) []skillCommand {
 			full = strings.TrimSpace(full[:strings.Index(full, "<<")])
 		}
 
-		if !strings.HasPrefix(full, "agent-comms") {
+		if !strings.HasPrefix(full, "comms") {
 			continue
 		}
 		// A trailing comment is prose, not an argument.
@@ -232,7 +232,7 @@ func TestEverySkillCommandRuns(t *testing.T) {
 		claimed = stdinClaim{}
 
 		if code != ExitOK {
-			t.Errorf("SKILL.md line %d: `agent-comms %s` exited %d\n%s",
+			t.Errorf("SKILL.md line %d: `comms %s` exited %d\n%s",
 				c.line, strings.Join(args, " "), code, cap.out.String())
 			continue
 		}
@@ -476,12 +476,12 @@ func TestTheThreeSurfaceDocsAgreeOnTheVerbs(t *testing.T) {
 			t.Error("the README still offers -genkey in a runnable block")
 		}
 	}
-	if !strings.Contains(string(readme), "agent-comms enrol --as") {
+	if !strings.Contains(string(readme), "comms enrol --as") {
 		t.Error("the README's agent onboarding must be enrol")
 	}
 
 	// The skill teaches a subset, and every verb it teaches must exist.
-	for _, m := range regexp.MustCompile(`agent-comms ([a-z]+)`).FindAllStringSubmatch(skill, -1) {
+	for _, m := range regexp.MustCompile(`comms ([a-z]+)`).FindAllStringSubmatch(skill, -1) {
 		verb := m[1]
 		var known bool
 		for _, v := range Verbs {
@@ -490,7 +490,7 @@ func TestTheThreeSurfaceDocsAgreeOnTheVerbs(t *testing.T) {
 			}
 		}
 		if !known {
-			t.Errorf("SKILL.md teaches `agent-comms %s` and there is no such verb", verb)
+			t.Errorf("SKILL.md teaches `comms %s` and there is no such verb", verb)
 		}
 	}
 }
@@ -598,16 +598,16 @@ func TestTheREADMEStartsTheHubWithACommandThatExists(t *testing.T) {
 	for _, block := range fencedBlocks(readme) {
 		for _, line := range strings.Split(block, "\n") {
 			line = strings.TrimSpace(line)
-			if !strings.Contains(line, "agent-comms") {
+			if !strings.Contains(line, "comms") {
 				continue
 			}
 			// Any line that means "run the hub" must say serve, or pass an
 			// operator flag. A bare invocation prints the verb list.
-			if strings.HasSuffix(line, "agent-comms") ||
-				strings.HasPrefix(line, "./agent-comms  ") {
+			if strings.HasSuffix(line, "comms") ||
+				strings.HasPrefix(line, "./comms  ") {
 				t.Errorf("README runs the bare binary as though it serves: %q", line)
 			}
-			if strings.Contains(line, "agent-comms serve") {
+			if strings.Contains(line, "comms serve") {
 				starts = true
 			}
 		}
@@ -653,7 +653,7 @@ func TestTheKindsVerbMatchesTheCore(t *testing.T) {
 	for _, k := range core.AllKinds {
 		lane, ok := printed[string(k)]
 		if !ok {
-			t.Errorf("kind %q exists and `agent-comms kinds` does not print it", k)
+			t.Errorf("kind %q exists and `comms kinds` does not print it", k)
 			continue
 		}
 		want := "ambient"

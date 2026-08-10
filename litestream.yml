@@ -1,7 +1,7 @@
 # Continuous replication for the event log.
 #
 # The log is the only authoritative state in this system — every projection is
-# a fold over it, and `agent-comms -rebuild` proves that by recomputing them.
+# a fold over it, and `comms -rebuild` proves that by recomputing them.
 # So the backup story is one file, and the restore story is: fetch the file,
 # start the binary. Nothing else needs to survive.
 #
@@ -22,7 +22,7 @@ dbs:
       # the filesystem filling, and a bad migration. It does not survive the
       # machine, which is what the object-store replica below is for.
       - type: file
-        path: /var/backups/agent-comms
+        path: /var/backups/comms
         retention: 720h          # 30 days
         snapshot-interval: 1h
 
@@ -30,7 +30,7 @@ dbs:
       # credentials from the environment; do not put them in this file, which
       # is in the repository.
       # - type: s3
-      #   bucket: agent-comms-backups
+      #   bucket: comms-backups
       #   path: comms
       #   region: us-east-1
       #   retention: 720h

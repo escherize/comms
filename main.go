@@ -1,4 +1,4 @@
-// Command agent-comms serves the coordination hub: one binary, one SQLite file,
+// Command comms serves the coordination hub: one binary, one SQLite file,
 // one browser page.
 package main
 
@@ -7,7 +7,7 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 	"log"
 	"net"
 	"net/http"
@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/escherize/agent-comms/cli"
-	"github.com/escherize/agent-comms/shell"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/cli"
+	"github.com/escherize/comms/shell"
+	"github.com/escherize/comms/store"
 )
 
 // The skills travel inside the binary (docs/*-SKILL.md are the sources), so
@@ -34,12 +34,12 @@ var hubSkill string
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address")
-	// AGENT_COMMS_DB is the default when set, so a shell that exports it once
+	// COMMS_DB is the default when set, so a shell that exports it once
 	// stops every "wrong database" mistake at the source. The flag still wins:
 	// an explicit -db is a deliberate act and must not be overridden by an
 	// environment variable somebody forgot they set.
-	db := flag.String("db", envOr("AGENT_COMMS_DB", "comms.db"),
-		"path to the event log (default $AGENT_COMMS_DB, else ./comms.db)")
+	db := flag.String("db", envOr("COMMS_DB", "comms.db"),
+		"path to the event log (default $COMMS_DB, else ./comms.db)")
 	rooms := flag.String("rooms", "core", "comma-separated rooms to ensure at startup")
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
@@ -57,11 +57,11 @@ func main() {
 	rebuild := flag.Bool("rebuild", false, "recompute every log-derived projection from the log, then exit")
 	verify := flag.Bool("verify", false, "check the log chain end to end, then exit")
 	seqReport := flag.Bool("seq-report", false, "print the head and the next seq, then exit")
-	// Verb form: agent-comms <verb> ... is the agent client (ADR-0012). Flag
+	// Verb form: comms <verb> ... is the agent client (ADR-0012). Flag
 	// form is the operator surface. A verb is never also a flag.
 	//
 	// This runs before flag.Parse because the client owns its own flags: parsing
-	// the operator set first makes `agent-comms post --text x` die on an unknown
+	// the operator set first makes `comms post --text x` die on an unknown
 	// flag instead of reaching the client.
 	args := os.Args[1:]
 	// `serve` is a verb because starting the hub is the first thing anyone does,
@@ -95,7 +95,7 @@ func main() {
 		os.Exit(cli.Run(&cli.Env{
 			Out:    cli.Std(),
 			Stdin:  os.Stdin,
-			Server: envOr("AGENT_COMMS_SERVER", "http://127.0.0.1:7777"),
+			Server: envOr("COMMS_SERVER", "http://127.0.0.1:7777"),
 			Host:   hostname(),
 		}, args))
 	}
@@ -122,7 +122,7 @@ func main() {
 				"A running hub prints the file it serves at startup. Pass that path "+
 				"with -db.\n\n"+
 				"If you really are setting up a new hub, start it once first:\n"+
-				"  agent-comms serve -db %s -rooms core", abs, *db)
+				"  comms serve -db %s -rooms core", abs, *db)
 		}
 	}
 
@@ -291,7 +291,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot listen on %s: %v", *addr, err)
 	}
-	log.Printf("agent-comms listening on http://%s", ln.Addr())
+	log.Printf("comms listening on http://%s", ln.Addr())
 	if err := http.Serve(ln, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}
@@ -300,6 +300,11 @@ func main() {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	if s, ok := strings.CutPrefix(key, "COMMS_"); ok {
+		if v := os.Getenv("AGENT_COMMS_" + s); v != "" { // the pre-rename spelling
+			return v
+		}
 	}
 	return fallback
 }

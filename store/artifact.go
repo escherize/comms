@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 
 	"errors"
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 	"regexp"
 	"time"
 )

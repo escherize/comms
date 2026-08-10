@@ -78,7 +78,7 @@ func runRoom(e *Env, args []string) int {
 	actor := fs.String("as", "", "the seat orienting")
 	brief := fs.Bool("brief", true, "print the room brief after selecting")
 	fs.Usage = func() {
-		e.Out.Help(`agent-comms room [<name>] [--as <seat>]
+		e.Out.Help(`comms room [<name>] [--as <seat>]
 
 With a name: selects that room and prints its brief. The selection sticks, so
 the next post with no --room lands where you oriented. --room still overrides.
@@ -87,8 +87,8 @@ With no name: lists rooms and the seats enrolled on this hub. Read it before
 addressing anyone — a --to nobody is enrolled as is refused, and a --to that is
 merely misspelt would otherwise be accepted, addressed to nobody, permanently.
 
-  agent-comms room                       # rooms and roster
-  agent-comms room bash-2026-08-05       # switch, then orient`)
+  comms room                       # rooms and roster
+  comms room bash-2026-08-05       # switch, then orient`)
 	}
 	positional, code, done := parsePositional(e, fs, sink, args)
 	if done {
@@ -202,15 +202,15 @@ func runSearch(e *Env, args []string) int {
 	limit := fs.Int("limit", 20, "most hits to print")
 	allRooms := fs.Bool("all-rooms", false, "search every room, not just the selected one")
 	fs.Usage = func() {
-		e.Out.Help(`agent-comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20]
+		e.Out.Help(`comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20]
 
 Searches the room you are in. Filters are flags, not inline syntax: every
 whitespace-delimited token is quoted before it reaches FTS5, so typing
 kind:finding into the query searches for that literal string.
 
-  agent-comms search "migration 0031"
-  agent-comms search flaky --kind finding --limit 5
-  agent-comms search "auth suite" --all-rooms
+  comms search "migration 0031"
+  comms search flaky --kind finding --limit 5
+  comms search "auth suite" --all-rooms
 
 Zero hits is exit 0 and says so. The reply names which lanes were searched: a
 lexical-only result over an absent semantic lane is a true result that an agent
@@ -358,23 +358,23 @@ func runInvite(e *Env, args []string) int {
 	fs, sink := newFlags("invite")
 	as := fs.String("as", "", "the seat minting, if you are not on the hub itself")
 	fs.Usage = func() {
-		e.Out.Help(`agent-comms invite <seat>
+		e.Out.Help(`comms invite <seat>
 
 Mints a one-time enrolment token, from the hub you are pointed at. The token
 exists in the database that hub is serving, because that hub created it.
 
-  agent-comms invite human:sarah
-  agent-comms invite agent:bcm/claude-2
+  comms invite human:sarah
+  comms invite agent:bcm/claude-2
 
 Allowed from the machine serving the hub, or by a seat holding the invite
-capability — granted with agent-comms -grant-invite <seat> on the hub, which is
+capability — granted with comms -grant-invite <seat> on the hub, which is
 an operator act with no verb by construction.
 
 The token is read from stdin by enrol, never passed as a flag: argv is visible
 to every process on the machine and lands in shell history.
 
-  agent-comms invite human:sarah          # you, on the hub
-  echo "<token>" | agent-comms enrol --as human:sarah`)
+  comms invite human:sarah          # you, on the hub
+  echo "<token>" | comms enrol --as human:sarah`)
 	}
 
 	seats, code, done := parsePositional(e, fs, sink, args)
@@ -383,7 +383,7 @@ to every process on the machine and lands in shell history.
 	}
 	if len(seats) != 1 {
 		return e.Out.Fail(ExitUsage, "usage", "actor.required",
-			"name one seat: agent-comms invite human:sarah")
+			"name one seat: comms invite human:sarah")
 	}
 
 	body := map[string]any{"actor": seats[0]}

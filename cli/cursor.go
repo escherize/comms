@@ -30,7 +30,7 @@ func cursorPath(actor string) string {
 }
 
 func stateDir() string {
-	if d := os.Getenv("AGENT_COMMS_HOME"); d != "" {
+	if d := os.Getenv("COMMS_HOME"); d != "" {
 		return filepath.Join(d, "state")
 	}
 	home, _ := os.UserHomeDir()

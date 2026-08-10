@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 )
 
 // projectionState is everything the log determines, in a form two runs can be

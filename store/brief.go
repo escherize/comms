@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 )
 
 // Brief is what an agent reads before it decides anything: what is in flight,

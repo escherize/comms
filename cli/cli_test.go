@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/agent-comms/shell"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/shell"
+	"github.com/escherize/comms/store"
 )
 
 type capture struct{ out, err bytes.Buffer }
@@ -60,7 +60,7 @@ func liveServer(t *testing.T) (*httptest.Server, *store.Store) {
 
 func isolateKeys(t *testing.T) {
 	t.Helper()
-	t.Setenv("AGENT_COMMS_HOME", t.TempDir())
+	t.Setenv("COMMS_HOME", t.TempDir())
 }
 
 const seat = "agent:bcm/claude-1"
@@ -148,7 +148,7 @@ func TestTokenOnArgvAndKeyOnEnvAreRefused(t *testing.T) {
 	var c2 capture
 	e := c2.env(t, srv.URL, "tok\n")
 	e.LookupEnv = func(k string) (string, bool) {
-		if k == "AGENT_COMMS_KEY" {
+		if k == "COMMS_KEY" {
 			return "deadbeef", true
 		}
 		return "", false
@@ -217,7 +217,7 @@ func TestRejectionCarriesARetryThatWorks(t *testing.T) {
 	}
 
 	// Run the corrected invocation verbatim.
-	args := strings.Fields(strings.TrimPrefix(retry, "agent-comms "))
+	args := strings.Fields(strings.TrimPrefix(retry, "comms "))
 	// The --text value contains spaces; rebuild it faithfully.
 	args = []string{"post", "finding", "--as", seat, "--text", "auth.py:88 flakes under -race", "--severity", "p2"}
 	var c2 capture
@@ -474,7 +474,7 @@ func TestEveryVerbAnswersHelp(t *testing.T) {
 		if c.err.Len() == 0 {
 			t.Errorf("%s --help printed nothing", v)
 		}
-		if !strings.Contains(c.err.String(), "agent-comms "+v) {
+		if !strings.Contains(c.err.String(), "comms "+v) {
 			t.Errorf("%s --help must show a runnable example", v)
 		}
 	}

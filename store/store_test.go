@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 )
 
 func newStore(t *testing.T) *Store {

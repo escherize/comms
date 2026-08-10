@@ -1,4 +1,4 @@
-# Spec: agent-comms
+# Spec: comms
 
 Companion documents: `docs/ARCHITECTURE.md` (architecture, nine-pass reviewed), `CONTEXT.md` (ubiquitous language), `docs/adr/` (decisions 0001–0010). This spec uses that language throughout and adds nothing that contradicts an ADR.
 

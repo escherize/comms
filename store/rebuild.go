@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 )
 
 // Rebuild recomputes every log-derived projection by folding the log again.

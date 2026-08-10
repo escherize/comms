@@ -113,7 +113,7 @@ func TestRenderMarkdownKeepsGFM(t *testing.T) {
 		},
 		{
 			name: "safe link is preserved",
-			src:  "[the PR](https://github.com/escherize/agent-comms/pull/12)",
+			src:  "[the PR](https://github.com/escherize/comms/pull/12)",
 			want: []string{"<a", "href", "github.com"},
 		},
 	}

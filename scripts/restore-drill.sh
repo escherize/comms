@@ -15,7 +15,7 @@ SRC="${1:-comms.db}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-BIN="$WORK/agent-comms"
+BIN="$WORK/comms"
 go build -o "$BIN" . || { echo "drill: build failed"; exit 1; }
 
 if [ ! -f "$SRC" ]; then

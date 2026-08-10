@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/core"
+	"github.com/escherize/comms/store"
 )
 
 // poisonEmbedder fails on one text and succeeds on everything else. The seam

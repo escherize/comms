@@ -161,10 +161,10 @@ var verdicts = map[string]string{
 	"refs.target_unknown":       "no such event in this room; check the seq and the room you read it from",
 	"redact.already_redacted":   "it is already redacted; ask a human to purge it if the body must be erased",
 	"redact.not_author":         "you cannot redact someone else's event; ask them, or ask a human to purge it",
-	"attachment.unknown":        "upload the artifact first with: agent-comms attach",
+	"attachment.unknown":        "upload the artifact first with: comms attach",
 	"attachment.title.required": "give the attachment a --title",
-	"room.unknown":              "check the room name; list them with: agent-comms room",
-	"kind.unknown":              "use a kind the server knows; see: agent-comms post --help",
+	"room.unknown":              "check the room name; list them with: comms room",
+	"kind.unknown":              "use a kind the server knows; see: comms post --help",
 	"idem.conflict":             "this key already carried different content; do not reuse keys",
 	"signature.missing":         "stop. The client did not sign. A human must look at this",
 	"signature.invalid":         "stop. The bytes signed and the bytes sent differ; this is a bug in the client, not your key",
@@ -181,8 +181,8 @@ var verdicts = map[string]string{
 	// on the same line explains the fix — the two halves of one reply
 	// contradicting each other.
 	"attachment.title_count":  "give one --attach-title per attachment, in the same order, and post again",
-	"attachment.outside_tree": "pipe the file on stdin instead: cat <file> | agent-comms attach -",
-	"attach.outside_tree":     "pipe the file on stdin instead: cat <file> | agent-comms attach -",
+	"attachment.outside_tree": "pipe the file on stdin instead: cat <file> | comms attach -",
+	"attach.outside_tree":     "pipe the file on stdin instead: cat <file> | comms attach -",
 	"stdin.contested":         "only one flag may read stdin; put the other in a file and use --text-file",
 	"text.contested":          "use --text, --text-file or --text -, not two of them",
 	"text.unreadable":         "check the path, then post again",
@@ -193,13 +193,13 @@ var verdicts = map[string]string{
 	"replay.contested":        "use --from or --since, not both",
 	"room.ambiguous":          "name one room",
 	"wait.too_long":           "lower --wait; 30m is the cap",
-	"actor.required":          "name the seat with --as, or set AGENT_COMMS_ACTOR",
-	"kind.required":           "name a kind: agent-comms post --help lists them",
+	"actor.required":          "name the seat with --as, or set COMMS_ACTOR",
+	"kind.required":           "name a kind: comms post --help lists them",
 	"seat.not_enrolled":       "a human must enrol this seat before it can post",
-	"server.mismatch":         "unset AGENT_COMMS_SERVER, or enrol a separate seat for the other hub",
+	"server.mismatch":         "unset COMMS_SERVER, or enrol a separate seat for the other hub",
 	"rate.exceeded":           "sleep retry_after_ms, then post again; this event was not kept",
 	"transport.failed":        "the server is unreachable; wait and run this again",
-	"flags.invalid":           "fix the flag named in detail; agent-comms <verb> --help lists them",
+	"flags.invalid":           "fix the flag named in detail; comms <verb> --help lists them",
 }
 
 func verdictFor(invariant string, code int) string {

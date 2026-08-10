@@ -6,7 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
-	"github.com/escherize/agent-comms/core"
+	"github.com/escherize/comms/core"
 	"net/http"
 	"strings"
 	"testing"
@@ -297,7 +297,7 @@ func TestTheThirdIdenticalRejectionSaysAskAPerson(t *testing.T) {
 	if out["exit"].(float64) != 4 {
 		t.Errorf("escalation must be exit 4, not exit 3: %v", out["exit"])
 	}
-	if !strings.Contains(fmt.Sprint(out["next"]), "agent-comms ask") {
+	if !strings.Contains(fmt.Sprint(out["next"]), "comms ask") {
 		t.Errorf("the escalation must name the command that asks a human: %v", out["next"])
 	}
 	if out["invariant"] != "body.severity.invalid" {
@@ -1043,7 +1043,7 @@ func TestTheComposerShowsWhyItRefused(t *testing.T) {
 		t.Fatal("the page must check for Web Crypto before trying to sign")
 	}
 	msg := page[i : i+700]
-	for _, want := range []string{"HTTPS", "localhost", "agent-comms CLI"} {
+	for _, want := range []string{"HTTPS", "localhost", "comms CLI"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the unsigned-origin message must mention %q so a reader can act on it", want)
 		}

@@ -100,7 +100,7 @@ func TestTheRunKeySeparatesAttempts(t *testing.T) {
 	withRun := func(run string) *Env {
 		e := c.env(t, "http://x", "")
 		e.LookupEnv = func(k string) (string, bool) {
-			if k == "AGENT_COMMS_RUN" {
+			if k == "COMMS_RUN" {
 				return run, true
 			}
 			return "", false
@@ -125,7 +125,7 @@ func TestTheKeyIsStableAcrossMapOrdering(t *testing.T) {
 	var c capture
 	e := c.env(t, "http://x", "")
 	e.LookupEnv = func(k string) (string, bool) {
-		if k == "AGENT_COMMS_RUN" {
+		if k == "COMMS_RUN" {
 			return "fixed", true
 		}
 		return "", false
@@ -180,4 +180,32 @@ func TestAnExplicitKeyWins(t *testing.T) {
 		t.Errorf("it must name the flag that caused it: %q", detail)
 	}
 	_ = st
+}
+
+// One session, one seat makes the seat the session — so an agent seat scopes
+// replays to itself, which survives what a pid cannot: shelling out once per
+// command, and the session resuming under a new process.
+func TestAnAgentSeatScopesTheRunToItself(t *testing.T) {
+	agent := &Env{Seat: "agent:bcm/claude-s7",
+		LookupEnv: func(string) (string, bool) { return "", false }}
+	if got := runKey(agent); got != "seat-agent:bcm/claude-s7" {
+		t.Errorf("an agent seat with no run should scope to the seat, got %q", got)
+	}
+
+	human := &Env{Seat: "human:bcm",
+		LookupEnv: func(string) (string, bool) { return "", false }}
+	if got := runKey(human); got != processRun {
+		t.Errorf("a human seat keeps process scope: typing it again means it again, got %q", got)
+	}
+
+	overridden := &Env{Seat: "agent:bcm/claude-s7",
+		LookupEnv: func(k string) (string, bool) {
+			if k == "COMMS_RUN" {
+				return "LIN-214-attempt-2", true
+			}
+			return "", false
+		}}
+	if got := runKey(overridden); got != "LIN-214-attempt-2" {
+		t.Errorf("an explicit run always wins, got %q", got)
+	}
 }

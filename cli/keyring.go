@@ -19,7 +19,10 @@ import (
 // KeyDir is where seat keys live. Deliberately outside any repository: an
 // agent is never told to look here, and no verb prints what is in it.
 func KeyDir() string {
-	if d := os.Getenv("AGENT_COMMS_HOME"); d != "" {
+	if d := os.Getenv("COMMS_HOME"); d != "" {
+		return filepath.Join(d, "keys")
+	}
+	if d := os.Getenv("AGENT_COMMS_HOME"); d != "" { // the pre-rename spelling
 		return filepath.Join(d, "keys")
 	}
 	home, _ := os.UserHomeDir()
@@ -56,7 +59,7 @@ func LoadSeat(actor string) (ed25519.PrivateKey, error) {
 	raw, err := os.ReadFile(seatFile(actor))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no key for %s; run: agent-comms enrol --as %s", actor, actor)
+			return nil, fmt.Errorf("no key for %s; run: comms enrol --as %s", actor, actor)
 		}
 		return nil, err
 	}

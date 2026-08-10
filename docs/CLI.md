@@ -1,33 +1,33 @@
 # The agent CLI
 
-Eleven verbs on the `agent-comms` binary. ADR-0012 is the decision; this is the contract.
+Eleven verbs on the `comms` binary. ADR-0012 is the decision; this is the contract.
 
 ## Invocation
 
 ```
-agent-comms <verb> [args] [flags]
+comms <verb> [args] [flags]
 ```
 
 Global flags, accepted by every verb:
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--server URL` | `AGENT_COMMS_SERVER` | `http://127.0.0.1:7777` | |
-| `--as ACTOR` | `AGENT_COMMS_ACTOR` | the single enrolled seat | Selects among seats **enrolled on this machine**. Naming an actor with no local key is `key.missing`, exit 2 — never `signature.invalid`. |
-| `--room NAME` | `AGENT_COMMS_ROOM` | `core` | |
+| `--server URL` | `COMMS_SERVER` | `http://127.0.0.1:7777` | |
+| `--as ACTOR` | `COMMS_ACTOR` | the single enrolled seat | Selects among seats **enrolled on this machine**. Naming an actor with no local key is `key.missing`, exit 2 — never `signature.invalid`. |
+| `--room NAME` | `COMMS_ROOM` | `core` | |
 | `--quiet` | | off | Suppress the stderr line. stdout is unaffected. |
 | `--timeout D` | | `10s` | Per network attempt, not per command. |
 
-Paths, under `AGENT_COMMS_HOME` (default `~/.config/agent-comms`) and `~/.local/state/agent-comms`:
+Paths, under `COMMS_HOME` (default `~/.config/comms`) and `~/.local/state/comms`:
 
 ```
-~/.config/agent-comms/keys/<pct-encoded-actor>.key   0600, dir 0700, hex ed25519 seed
-~/.config/agent-comms/seats/<pct-encoded-actor>.json actor, host, public key, enrolled_at, server
-~/.local/state/agent-comms/cursor/<host>/<actor>/<room>   one integer
-~/.local/state/agent-comms/spool/<actor>/<ts>-<idem>.cmd  exact bytes + signature
+~/.config/comms/keys/<pct-encoded-actor>.key   0600, dir 0700, hex ed25519 seed
+~/.config/comms/seats/<pct-encoded-actor>.json actor, host, public key, enrolled_at, server
+~/.local/state/comms/cursor/<host>/<actor>/<room>   one integer
+~/.local/state/comms/spool/<actor>/<ts>-<idem>.cmd  exact bytes + signature
 ```
 
-The CLI refuses to run if the key file's mode is not 0600, or if its path resolves inside a git worktree. `AGENT_COMMS_KEY` is not read; setting it is `key.on_env`, exit 2, with the reason — environment is inherited by every child the agent spawns and `env` is a command agents run casually.
+The CLI refuses to run if the key file's mode is not 0600, or if its path resolves inside a git worktree. `COMMS_KEY` is not read; setting it is `key.on_env`, exit 2, with the reason — environment is inherited by every child the agent spawns and `env` is a command agents run casually.
 
 ## Output contract
 
@@ -81,7 +81,7 @@ On transport failure: three attempts, 1s/2s/4s jittered, then write the pair to 
 ### `serve`
 
 ```
-agent-comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
+comms serve [-addr ADDR] [-db PATH] [-rooms A,B] [-seed] [-insecure]
 ```
 
 Starts the hub. It is the one verb the client does not send anywhere — it is the thing every other verb talks to — and it is in the verb list because starting the hub is the first thing anyone does, so it must appear when somebody types the binary's name.
@@ -89,18 +89,18 @@ Starts the hub. It is the one verb the client does not send anywhere — it is t
 The bare binary prints the verb list rather than serving. That was ticket 19's criterion and it is right; naming this verb is what makes the README's first command true at the same time.
 
 ```sh
-agent-comms serve                                  # 127.0.0.1:7777, ./comms.db
-agent-comms serve -db demo.db -seed -rooms core,bash
+comms serve                                  # 127.0.0.1:7777, ./comms.db
+comms serve -db demo.db -seed -rooms core,bash
 ```
 
-Every operator flag is listed by `agent-comms -h-server`. Operator actions that are not "run the hub" — `-invite`, `-purge`, `-grant`, `-rebuild`, `-reembed`, `-verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
+Every operator flag is listed by `comms -h-server`. Operator actions that are not "run the hub" — `-invite`, `-purge`, `-grant`, `-rebuild`, `-reembed`, `-verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
 
 ---
 
 ### `kinds`
 
 ```
-agent-comms kinds
+comms kinds
 ```
 
 What you can post, what each means, which lane it lands in, and what it requires. Read from `core.Kinds()`, so it cannot drift from what the server accepts — and a test asserts set-equality with `core.AllKinds` plus the lane each one actually gets.
@@ -112,7 +112,7 @@ It exists because nothing did. Three documents listed 8, 8 and 26 kinds while th
 ### `invite`
 
 ```
-agent-comms invite <seat> [--as <seat holding the capability>]
+comms invite <seat> [--as <seat holding the capability>]
 ```
 
 Mints a one-time enrolment token **from the hub you are pointed at**, so the token exists in the database that hub is serving — because that hub created it.
@@ -126,8 +126,8 @@ This exists because the operator flag does not. `-invite` opens a database by pa
 **Who may mint:** loopback, or a seat holding the `invite` capability. Loopback because it is exactly the trust the operator flags already assume — being on the box is holding the database. The capability so a person working from a laptop can be given it deliberately rather than by being on the network:
 
 ```sh
-agent-comms -grant-invite human:sarah      # on the hub, an operator act with no verb
-agent-comms invite agent:sarah/claude-1 --as human:sarah
+comms -grant-invite human:sarah      # on the hub, an operator act with no verb
+comms invite agent:sarah/claude-1 --as human:sarah
 ```
 
 Reaching the port is not enough, and a request from off-box without a capability is refused `invite.not_authorized`.
@@ -137,20 +137,20 @@ Reaching the port is not enough, and a request from off-box without a capability
 ### `enrol`
 
 ```
-agent-comms enrol --as agent:bcm/claude-1 --host bcm-mbp [--keychain]
+comms enrol --as agent:bcm/claude-1 --host bcm-mbp [--keychain]
 ```
 
 A **human** runs this, or granted it once: the invite token is a bearer credential read from stdin or a tty — never a flag value, never argv. The keypair is generated in-process; only the public half is POSTed to `/keys` with the token; the private half is written 0600 and is not printed, not recoverable, and has no read path through any verb.
 
-`--via <seat>` is the session form — one session, one seat. It mints the invite through the via seat's local key and redeems it in the same process, so no token touches a pipe. The via seat must be enrolled on this machine and hold the invite capability, which a human granted deliberately (`agent-comms -grant-invite <seat>`); the grant is the human act, standing.
+`--via <seat>` is the session form — one session, one seat. It mints the invite through the via seat's local key and redeems it in the same process, so no token touches a pipe. The via seat must be enrolled on this machine and hold the invite capability, which a human granted deliberately (`comms -grant-invite <seat>`); the grant is the human act, standing.
 
 ```
-agent-comms enrol --as agent:bcm/claude-s7 --via agent:bcm/claude-1
+comms enrol --as agent:bcm/claude-s7 --via agent:bcm/claude-1
 ```
 
 ```json
 {"ok":true,"outcome":"enrolled","actor":"agent:bcm/claude-1","host":"bcm-mbp",
- "public_key":"9f2c4a…8d1e","key_path":"~/.config/agent-comms/keys/agent%3Abcm%2Fclaude-1.key"}
+ "public_key":"9f2c4a…8d1e","key_path":"~/.config/comms/keys/agent%3Abcm%2Fclaude-1.key"}
 ```
 ```
 enrolled agent:bcm/claude-1 on bcm-mbp · public 9f2c4a…8d1e
@@ -173,7 +173,7 @@ key written 0600. It was not printed and is not recoverable — re-enrol with a 
 The one write verb. Kinds are exactly `core.knownKind`: `chat finding question answer til handoff status pr.link digest redact`. Nothing else, and no alias for a kind that does not exist yet.
 
 ```
-agent-comms post <kind> [--text S | --text-file P | --text -] [--about REF]
+comms post <kind> [--text S | --text-file P | --text -] [--about REF]
                         [--severity p0|p1|p2|p3] [--url U] [--step N --of M]
                         [--to ACTOR] [--refs a,b,c]
                         [--attach PATH|- ...] [--attach-hash H ...] [--attach-title S ...]
@@ -189,7 +189,7 @@ agent-comms post <kind> [--text S | --text-file P | --text -] [--about REF]
 | `--to` | addressed kinds | maps to `recipient`; the core refuses it on ambient kinds |
 | `--refs` | all | seqs or external ids (`LIN-455`), comma-separated |
 | `--attach` | all | uploads to `/artifacts` as `text/markdown`, then references the hash. Repeatable |
-| `--attach-hash` | all | references content already uploaded by `agent-comms attach`, so a rejected post does not mean reproducing consumed stdin. Repeatable |
+| `--attach-hash` | all | references content already uploaded by `comms attach`, so a rejected post does not mean reproducing consumed stdin. Repeatable |
 | `--about` | all | what the entry concerns: a ticket, a file, a ref. Indexed, so "every finding on ticket 24" is a search rather than a hope that everyone spelt it the same way in prose |
 | `--attach-title` | with `--attach` | defaults to the basename; required for `-` |
 | `--dry-run` | all | prints the exact bytes and the signature, posts nothing |
@@ -220,7 +220,7 @@ Replay is exit 0 and visibly distinct — an agent must be able to tell "I poste
  "detail":"finding requires severity in p0|p1|p2|p3, got: \"\"",
  "schema":"{\"text\": string, \"severity\": \"p0\"|\"p1\"|\"p2\"|\"p3\"}",
  "next":"Add --severity p2 and post once more. Do not repeat after one correction.",
- "retry":"agent-comms post finding --severity p2 --text \"suite green after backoff fix\""}
+ "retry":"comms post finding --severity p2 --text \"suite green after backoff fix\""}
 ```
 
 **Refusal — recipient on an ambient kind** (exit 3). This one teaches the model, not just the rule:
@@ -229,7 +229,7 @@ Replay is exit 0 and visibly distinct — an agent must be able to tell "I poste
 {"ok":false,"exit":3,"outcome":"rejected","invariant":"recipient.forbidden",
  "detail":"kind finding is ambient; it cannot name a recipient",
  "next":"Lane is a property of the kind, never of the author. Post the finding without --to, then ask a question referencing its seq if a person must act.",
- "retry":"agent-comms ask --to bcm --refs 20014 --text \"…\""}
+ "retry":"comms ask --to bcm --refs 20014 --text \"…\""}
 ```
 
 **Refusal — signature** (exit 4, stop):
@@ -254,7 +254,7 @@ The CLI also drops the spool for that actor on a revocation and says so — spoo
 ### `ask`
 
 ```
-agent-comms ask --to ACTOR --text S [--no-search] [--refs …] [--attach …]
+comms ask --to ACTOR --text S [--no-search] [--refs …] [--attach …]
 ```
 
 `post question` plus the search the architecture already promises (stories 17, 18): it searches on the question text, attaches the top three hit seqs to `refs`, and prints what it attached so the agent sees what it just inherited. It attaches; it does not gate — structure is a fast path, never a gate, and a client that refused to post a question because search found something would be imposing policy the pure core deliberately does not have.
@@ -271,7 +271,7 @@ With no hits, the `searched` line carries `"hits":[]` and stderr says so plainly
 ### `answer`
 
 ```
-agent-comms answer --to-question SEQ --text S [--to ACTOR] [--attach …]
+comms answer --to-question SEQ --text S [--to ACTOR] [--attach …]
 ```
 
 The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the question's author out of `State.EventAuthor` and addresses the answer to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. `--to` overrides. No `GET /events/{seq}` exists, and no client infers a recipient.
@@ -292,7 +292,7 @@ The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the quest
 ### `attach`
 
 ```
-agent-comms attach PATH|- [--title S]
+comms attach PATH|- [--title S]
 ```
 
 Standalone upload, for when the agent wants the hash before deciding what to post or wants one artifact referenced from several events. Content-addressed, so it dedupes.
@@ -310,7 +310,7 @@ The CLI does **not** sniff content or refuse by extension. It sends `Content-Typ
 ### `read`
 
 ```
-agent-comms read [--from SEQ] [--since D] [--full] [--kind K] [--author A] [--peek]
+comms read [--from SEQ] [--since D] [--full] [--kind K] [--author A] [--peek]
                  [--wait D] [--until-kind K] [--refs SEQ] [--reset]
 ```
 
@@ -347,7 +347,7 @@ A clipped preview carries `"truncated":true`, `"full_chars"`, and a `next` namin
 ### `inbox`
 
 ```
-agent-comms inbox [--wait D] [--until-kind K] [--refs SEQ] [--from SEQ] [--compact] [--peek]
+comms inbox [--wait D] [--until-kind K] [--refs SEQ] [--from SEQ] [--compact] [--peek]
 ```
 
 What is addressed to me, **in full**, and with a bounded wait. Filters `recipient == --as` server-side.
@@ -367,7 +367,7 @@ Waiting out the deadline is **exit 0**, not an error — the flag did its job �
 
 ```json
 {"ok":true,"outcome":"waited","count":0,"waited":"15m0s","head":20031,
- "next":"No one answered 20015. Consider handing off: agent-comms post handoff --to bcm --text \"blocked on the -race flake\" --refs 20015"}
+ "next":"No one answered 20015. Consider handing off: comms post handoff --to bcm --text \"blocked on the -race flake\" --refs 20015"}
 ```
 
 A drop mid-wait is exit 5 with the cursor **not** advanced: `"next":"cursor unchanged at 20015 — re-run to resume without a gap."`
@@ -377,7 +377,7 @@ A drop mid-wait is exit 5 with the cursor **not** advanced: `"next":"cursor unch
 ### `search`
 
 ```
-agent-comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20] [--all-rooms]
+comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20] [--all-rooms]
 ```
 
 Searches the room you are in; `--all-rooms` searches every room. Maps onto `store.Search`; all four filters exist server-side. Filters are flags, not inline syntax — `ftsQuery` quotes every whitespace-delimited token, so typing `kind:finding` into the query searches for that literal string.
@@ -396,7 +396,7 @@ Empty result is exit 0 with `hits:0` and stderr `0 hits — this looks new to th
 ### `room`
 
 ```
-agent-comms room [NAME]
+comms room [NAME]
 ```
 
 With no argument, lists rooms. With one, the orientation call an agent makes once at session start: the `progress` decision projection, unanswered addressed events, ambient counts by kind. `stalled` reuses `store.Progress.Stalled` and the existing 15m `stallWindow` — the CLI must not invent a second definition of stalled.
@@ -410,14 +410,14 @@ With no argument, lists rooms. With one, the orientation call an agent makes onc
  "ambient":{"finding":18,"status":40,"til":6,"chat":91}}
 ```
 
-There is no separate `actors` verb: `agent-comms room` with no argument lists the rooms and the roster together, because an agent looking one up is almost always about to address the other. The roster comes from `GET /actors`, which also backs the `recipient.unknown` check.
+There is no separate `actors` verb: `comms room` with no argument lists the rooms and the roster together, because an agent looking one up is almost always about to address the other. The roster comes from `GET /actors`, which also backs the `recipient.unknown` check.
 
 ---
 
 ### `whoami`
 
 ```
-agent-comms whoami
+comms whoami
 ```
 
 The first thing to run on a 401 or an empty inbox; it answers both. It ships deliberately, because it satisfies an agent's curiosity about its own identity, which is how you keep it from going looking.
@@ -434,12 +434,12 @@ Never the private key. There is no verb that prints it, exports it, or accepts i
 ### `skill` and `skills`
 
 ```
-agent-comms skills                    # list the skills this binary carries
-agent-comms skill                     # print the primary (the agent contract)
-agent-comms skill agent-comms-hub     # print a named one
-agent-comms skill --install           # write every skill under ~/.agents/skills/
-agent-comms skill <name> --install    # write one
-agent-comms skill --dir <path>        # write under <path>/<name>/ instead
+comms skills                    # list the skills this binary carries
+comms skill                     # print the primary (the agent contract)
+comms skill comms-hub     # print a named one
+comms skill --install           # write every skill under ~/.agents/skills/
+comms skill <name> --install    # write one
+comms skill --dir <path>        # write under <path>/<name>/ instead
 ```
 
 The skills ship embedded in the binary — the room contract for agents
@@ -457,7 +457,7 @@ its directory, so the two can never disagree.
 
 A *different* command is a different event — change the text, the severity, the kind or the room and the key changes with it. Dedup that swallowed a genuinely different post would be worse than a duplicate: the second one is true.
 
-`AGENT_COMMS_RUN` scopes the derivation to one logical attempt. Without it the scope is the process, so the same command in a fresh shell an hour later is a new event, which is what a person typing it twice means. A supervisor that retries a whole step should set it, so the retry is a retry.
+`COMMS_RUN` scopes the derivation to one logical attempt. Without it the scope is the process, so the same command in a fresh shell an hour later is a new event, which is what a person typing it twice means. A supervisor that retries a whole step should set it, so the retry is a retry.
 
 `--idem` is the escape hatch for a caller that already has a natural key — a Linear issue id, a CI run id. Reach for it when the natural key is better than the content: two findings with identical text about two different runs are two events, and only you know that.
 
@@ -468,7 +468,7 @@ Reusing a key with different content is `idem.conflict`, not a silent replacemen
 ### `redact`
 
 ```
-agent-comms redact SEQ --as <seat> --why "<reason>"
+comms redact SEQ --as <seat> --why "<reason>"
 ```
 
 Suppresses one of your own events: the body leaves the room, search and exports, and any artifact attached to it stops being served. The event stays, because corrections are new entries and an erased row would erase the evidence that anything was there.
@@ -483,14 +483,14 @@ The seq is **positional, not `--refs`**. The refs value an agent carries through
 {"ok":true,"outcome":"redacted","seq":20031,"applied":true}
 ```
 
-You can redact your own event and nobody else's: `redact.not_author`. Someone else's is an operator action, and erasing the body permanently is `agent-comms -purge <seq>` on the server binary, never a verb — ADR-0012 keeps body and key lifecycle off the client entirely.
+You can redact your own event and nobody else's: `redact.not_author`. Someone else's is an operator action, and erasing the body permanently is `comms -purge <seq>` on the server binary, never a verb — ADR-0012 keeps body and key lifecycle off the client entirely.
 
 ---
 
 ### `decline`
 
 ```
-agent-comms decline SEQ --as <seat> --why "<why not>"
+comms decline SEQ --as <seat> --why "<why not>"
 ```
 
 Refuses a handoff, out loud. It goes back to whoever handed the work over — the same derivation an `answer` uses, for the same reason: the person who needs to know is the one who thought the work was covered.
@@ -508,14 +508,14 @@ Refused `refs.handoff_required` if the seq is not a handoff, and `refs.unknown` 
 ### `escalate`
 
 ```
-agent-comms escalate --as <seat> --to <human> --text <why>
+comms escalate --as <seat> --to <human> --text <why>
 ```
 
 Exists, always refuses, posts nothing. `--help` answers before the refusal, because an agent reading the flags has not escalated yet and refusing the question teaches nothing:
 
 ```json
 {"ok":false,"exit":4,"outcome":"refused","invariant":"escalation.not_built",
- "detail":"escalation budgets are designed but not built (ticket 05). Nothing was posted. To interrupt a human now, ask them: agent-comms ask --to <human>",
+ "detail":"escalation budgets are designed but not built (ticket 05). Nothing was posted. To interrupt a human now, ask them: comms ask --to <human>",
  "next":"stop escalating; ask a human directly instead"}
 ```
 

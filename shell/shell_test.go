@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/core"
+	"github.com/escherize/comms/store"
 )
 
 // newServer drives the real system through its highest seam: HTTP in, SSE out,

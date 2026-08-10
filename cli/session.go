@@ -145,11 +145,11 @@ func doRead(e *Env, hc *http.Client, build func() (*http.Request, error)) (*http
 	// which is a locked door reported as an empty one.
 	if e.Seat == "" {
 		return nil, fmt.Errorf(
-			"this hub requires a read session; name the seat with --as or AGENT_COMMS_ACTOR")
+			"this hub requires a read session; name the seat with --as or COMMS_ACTOR")
 	}
 	if !HasSeat(e.Seat) {
 		return nil, fmt.Errorf(
-			"this hub requires a read session and %s holds no key here; run: agent-comms enrol --as %s",
+			"this hub requires a read session and %s holds no key here; run: comms enrol --as %s",
 			e.Seat, e.Seat)
 	}
 

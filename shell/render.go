@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/escherize/agent-comms/core"
-	"github.com/escherize/agent-comms/store"
+	"github.com/escherize/comms/core"
+	"github.com/escherize/comms/store"
 )
 
 // kindCode is the ledger's posting reference: a short fixed-width code, the way
