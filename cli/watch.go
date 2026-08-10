@@ -58,7 +58,7 @@ useful for watching what a seat is being sent.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if isHelp(err) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}

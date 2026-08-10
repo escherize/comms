@@ -335,7 +335,7 @@ func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []str
 	for {
 		if err := fs.Parse(args); err != nil {
 			if isHelp(err) {
-				return nil, e.Out.Succeed(Result{Outcome: "usage"}), true
+				return nil, usageOK(e), true
 			}
 			return nil, e.Out.Fail(ExitUsage, "usage", "flags.invalid",
 				strings.TrimSpace(sink.String())), true

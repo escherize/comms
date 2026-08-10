@@ -145,7 +145,13 @@ skills
 
 'comms <verb> --help' explains any verb; start with enrol.
 'comms --h-server' lists the operator flags (verify, rebuild, grants).`)
-	// The terminal object is for programs; Help already answered the person.
+	return usageOK(e)
+}
+
+// usageOK ends a help request. The terminal object is for programs; Help
+// already answered the person, and a JSON line after the prose on a terminal
+// reads as a bug.
+func usageOK(e *Env) int {
 	if e.Out.Quiet {
 		e.Out.Line(Result{OK: true, Outcome: "usage"})
 	}
@@ -191,7 +197,7 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
@@ -342,7 +348,7 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
 			fs.Usage()
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "kind.required",
 			"name the kind first: comms post <"+strings.Join(knownKindNames(), "|")+">")
@@ -627,7 +633,7 @@ event; someone else's is an operator action.`)
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
 			fs.Usage()
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "seq.required",
 			"name the event to redact: comms redact <seq> --as <seat> --why \"...\"")
@@ -713,7 +719,7 @@ question can tell in a glance whether it is new.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
@@ -800,7 +806,7 @@ always reaches whoever asked.
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
@@ -865,7 +871,7 @@ paste into the post is printed for you rather than reassembled by hand.`)
 			return e.Out.Fail(ExitUsage, "usage", "path.required",
 				"name a file to upload, or - to read stdin")
 		}
-		return e.Out.Succeed(Result{Outcome: "usage"})
+		return usageOK(e)
 	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
@@ -939,7 +945,7 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
@@ -1013,7 +1019,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
@@ -1074,7 +1080,7 @@ key, and no verb, flag or environment variable does.
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", err.Error())
 	}
@@ -1317,7 +1323,7 @@ embedder that fills the semantic lane.
 
 This is the one verb the client does not send anywhere: it is the thing the
 other verbs talk to. Every operator flag is listed by comms --h-server.`)
-	return e.Out.Succeed(Result{Outcome: "usage"})
+	return usageOK(e)
 }
 
 // ---------------------------------------------------------------- kinds
@@ -1338,7 +1344,7 @@ renders inline in front of that person.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if isHelp(err) {
-			return e.Out.Succeed(Result{Outcome: "usage"})
+			return usageOK(e)
 		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
