@@ -90,6 +90,23 @@ func TestSkillsVerbListsWhatTheBinaryCarries(t *testing.T) {
 	}
 }
 
+// The usage page is grouped by task rather than generated from the list, so
+// this is what stops a new verb from being invisible on it.
+func TestTheUsagePageNamesEveryVerb(t *testing.T) {
+	var c capture
+	env := c.env(t, "http://unused", "")
+	env.Out.Quiet = true
+	if code := Run(env, nil); code != ExitOK {
+		t.Fatalf("bare invocation should print usage, got %d", code)
+	}
+	page := c.out.String()
+	for _, v := range Verbs {
+		if !strings.Contains(page, v) {
+			t.Errorf("the usage page does not name the %q verb", v)
+		}
+	}
+}
+
 // A build that somehow lacks the embeds must say so rather than install an
 // empty contract an agent would then follow.
 func TestSkillVerbRefusesAnEmptyEmbed(t *testing.T) {

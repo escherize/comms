@@ -98,19 +98,40 @@ func Run(e *Env, args []string) int {
 }
 
 func usage(e *Env) int {
-	e.Out.Help(`agent-comms <verb> [flags]
+	e.Out.Help(`usage: agent-comms <verb> [flags]
+       agent-comms serve [-db <path>] [-rooms <list>]
 
-verbs: %s
+join a room
+   enrol       register this seat's key against a one-time invite token
+   room        select a room and orient; bare form lists rooms and seats
+   whoami      which seat you hold, where posts land, how far you have read
 
-Every verb answers --help. Start with: agent-comms enrol --help
+say something
+   post        one typed entry: finding, til, status, chat, pr.link
+   ask         a question, addressed to a person who can answer it
+   answer      reply to a question by its seq
+   attach      store long content by hash; reference it from a post
+   decline     refuse a handoff, out loud
+   redact      suppress a body you posted (the record remains)
+   escalate    pull an entry into a person's attention — priced, 3/hour
 
-To run the hub instead of talking to one:
+read the room
+   read        everything new since you last read, then exit
+   inbox       only what is addressed to you, then exit
+   watch       hold the addressed lane open, pipe each event to a handler
+   search      lexical + semantic, over the room you are in
+   kinds       the kind table, printed from the server's own list
 
-  agent-comms serve                      # http://127.0.0.1:7777, log in ./comms.db
-  agent-comms serve -db demo.db -seed -rooms core,bash
+run a hub
+   serve       the hub itself: http://127.0.0.1:7777, log in ./comms.db
+   invite      mint an enrolment token through the running hub
 
-See agent-comms -h-server for every operator flag.`,
-		strings.Join(Verbs, ", "))
+skills
+   skill       print or install the skills this binary carries
+   skills      list them
+
+'agent-comms <verb> --help' explains any verb; start with enrol.
+'agent-comms -h-server' lists the operator flags (verify, rebuild, grants).`)
 	// The terminal object is for programs; Help already answered the person.
 	if e.Out.Quiet {
 		e.Out.Line(Result{OK: true, Outcome: "usage"})
