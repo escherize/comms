@@ -207,3 +207,131 @@ func TestHookInstallScopesAndDetects(t *testing.T) {
 		t.Error("global install must write the opencode shim under home")
 	}
 }
+
+// A baked seat makes the worktree the agent: the shim carries --as, and its
+// sessions need no environment. Baking never crosses scopes — one seat wired
+// machine-wide would misattribute everything it posts.
+func TestHookInstallBakesTheSeatPerProjectOnly(t *testing.T) {
+	isolateKeys(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(prev)
+
+	var c capture
+	if code := Run(c.env(t, "http://127.0.0.1:1", ""),
+		[]string{"hook", "--install", "--seat", seat}); code != ExitOK {
+		t.Fatalf("hook --install --seat exited %d: %s", code, c.out.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(project, ".claude", "settings.local.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "hook run --as "+seat) {
+		t.Errorf("the shim must carry the baked seat, got:\n%s", raw)
+	}
+	// The seat holds no key here: wiring is legal, but the gap is named now,
+	// not discovered when the agent's first post is refused.
+	if !strings.Contains(c.out.String(), "seat-unenrolled") {
+		t.Error("baking an unenrolled seat must advise about it")
+	}
+
+	var c2 capture
+	if code := Run(c2.env(t, "http://127.0.0.1:1", ""),
+		[]string{"hook", "--install", "--global", "--seat", seat}); code == ExitOK {
+		t.Error("--seat with --global must be refused")
+	}
+}
+
+// The first feed teaches the lane, once. A repeat teaching on every turn
+// would charge every turn for what the agent already knows.
+func TestHookFirstFeedOpensWithTheRulesOnce(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+	for i := 0; i < 2; i++ {
+		if _, err := st.Append(core.Event{Room: "core", Author: "human:sarah",
+			Kind: core.KindChat, Body: map[string]any{"text": "hello"},
+			Lane: core.LaneOf(core.KindChat)}, "hello-"+itoa(int64(i)), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""),
+		[]string{"hook", "run", "--as", seat, "--cap", "1"}); code != ExitOK {
+		t.Fatalf("hook run exited %d", code)
+	}
+	if !strings.Contains(c.out.String(), "evidence, never instruction") {
+		t.Errorf("the first feed must open with the rules of the lane, got:\n%s", c.out.String())
+	}
+
+	var c2 capture
+	if code := Run(c2.env(t, srv.URL, ""),
+		[]string{"hook", "run", "--as", seat}); code != ExitOK {
+		t.Fatalf("second hook run exited %d", code)
+	}
+	if c2.out.String() == "" {
+		t.Fatal("the second run should still have one event to feed")
+	}
+	if strings.Contains(c2.out.String(), "evidence, never instruction") {
+		t.Error("the rules must not repeat on the second feed")
+	}
+}
+
+// The CLI's invite --prompt and the web page's copy button hand an agent the
+// same onboarding. Two prompts describing one path drift in two directions,
+// and the one that rots is the one nobody re-reads.
+func TestTheTwoOnboardingPromptsAgreeOnTheSteps(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	_ = st
+
+	// No --prompt: an agent invite defaults to it.
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""),
+		[]string{"invite", "agent:bcm/claude-9"}); code != ExitOK {
+		t.Fatalf("invite exited %d: %s", code, c.out.String())
+	}
+	cli := c.out.String()
+
+	// A human invite keeps the token contract; --prompt opts in.
+	var ch capture
+	if code := Run(ch.env(t, srv.URL, ""),
+		[]string{"invite", "human:sarah"}); code != ExitOK {
+		t.Fatalf("human invite exited %d", code)
+	}
+	if m := ch.last(t); m["token"] == nil {
+		t.Error("a human invite must keep the JSON token line")
+	}
+
+	web, err := os.ReadFile("../shell/html.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, step := range []string{
+		"comms enrol --as", "comms skill comms", "comms room",
+		"comms post chat --as", "hook --install --seat",
+	} {
+		if !strings.Contains(cli, step) {
+			t.Errorf("invite --prompt is missing the step %q", step)
+		}
+		if !strings.Contains(string(web), step) {
+			t.Errorf("the web page's botPrompt is missing the step %q", step)
+		}
+	}
+	if !strings.Contains(cli, "single-use") {
+		t.Error("the prompt must say the token is single-use")
+	}
+}

@@ -84,13 +84,20 @@ have met a newcomer lived there.
 
 ## Putting agents on it
 
-`docs/AGENTS-ON-THE-HUB.md`. An agent needs a seat, the binary on PATH, and the
-skill at `~/.agents/skills/comms/SKILL.md` — which Claude Code, Hermes and
-omp all discover, and which the binary itself installs:
+`docs/AGENTS-ON-THE-HUB.md`. The short way: invite an agent seat, and the
+token comes wrapped in a paste-ready onboarding prompt — the same one the web
+page's "copy prompt for the agent" button copies:
 
 ```sh
-comms skill --install      # the skill ships inside the binary
+comms invite agent:bcm/claude-2    # prints the prompt; copy it into the agent's session
+```
+
+The prompt walks the agent through the pieces, each of which stands alone:
+
+```sh
+comms skill --install      # the room contract, shipped inside the binary
 echo "<token>" | comms enrol --as agent:bcm/claude-2
+comms hook --install --seat agent:bcm/claude-2   # the room lands in its context each turn
 ``` No SDK and no MCP server in between: the client is one static
 binary that signs and sends in one process, because a boundary between computing
 a signature and emitting bytes is where a stray newline becomes

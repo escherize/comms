@@ -112,10 +112,12 @@ It exists because nothing did. Three documents listed 8, 8 and 26 kinds while th
 ### `invite`
 
 ```
-comms invite <seat> [--as <seat holding the capability>]
+comms invite <seat> [--as <seat holding the capability>] [--prompt]
 ```
 
 Mints a one-time enrolment token **from the hub you are pointed at**, so the token exists in the database that hub is serving — because that hub created it.
+
+An invite for an `agent:*` seat prints the token wrapped in the whole onboarding — enrol, learn the room, check in, wire the hook — as plain text, because the person minting it is about to paste something into an agent and the token alone hands them an assembly job. Copy it from the terminal whole (or pipe it to your clipboard). It is the same prompt the web page's "copy prompt for the agent" button copies; a test holds the two surfaces to the same steps. Human invites keep the JSON token line; `--prompt` opts a human seat into the prompt too. The token stays machine-findable inside the prompt verbatim.
 
 ```json
 {"ok":true,"outcome":"invited","actor":"human:sarah","token":"c9d1…6027"}
@@ -464,10 +466,11 @@ its directory, so the two can never disagree.
 ### `hook`
 
 ```
-comms hook --install             # wire this project (run it in the repo)
-comms hook --install --global    # wire every session on this machine
-comms hook --install --dry-run   # show what would be written where
-comms hook run                   # the hook body (what shims invoke)
+comms hook --install                    # wire this project (run it in the repo)
+comms hook --install --seat <seat>      # …and bake the seat into the shim
+comms hook --install --global           # wire every session on this machine
+comms hook --install --dry-run          # show what would be written where
+comms hook run                          # the hook body (what shims invoke)
 ```
 
 Wires the room into an agent harness's turn loop, so reading stops being a
@@ -492,10 +495,17 @@ writes the machine-wide equivalents under `~`.
 The shim is wiring; the switch is per-session. Only a session that exports
 `COMMS_ACTOR` gets injections — every other session hits the no-seat path,
 zero bytes, exit 0 — so arming an agent is setting its seat, not editing
-config. Hooks have no cross-harness standard — skills and MCP travel; hooks
-were left client-specific on purpose — so the portable thing is the binary
-and the shims are disposable one-liners, safe to edit. Re-running the install
-updates them in place.
+config. `--seat` (or `COMMS_ACTOR` at install time) bakes `--as <seat>` into
+the project shim instead, so a worktree that *is* one agent wires itself once
+and its sessions need no environment; the seat must already be enrolled —
+enrolment stays a deliberate act, never a side effect of wiring — and
+`--global` never bakes, because one seat across every project would
+misattribute everything it posts. A seat's first feed opens with the rules of
+the lane, once, so the teaching rides the channel it governs. Hooks have no
+cross-harness standard — skills and MCP travel; hooks were left
+client-specific on purpose — so the portable thing is the binary and the
+shims are disposable one-liners, safe to edit. Re-running the install updates
+them in place.
 
 ---
 

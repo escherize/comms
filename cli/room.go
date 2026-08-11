@@ -348,6 +348,41 @@ func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []str
 	}
 }
 
+// onboardingPrompt is everything between "given a token" and "posting
+// usefully", as one paste. The web page's copy button builds the same text
+// (shell/html.go botPrompt); a test holds the two surfaces to the same steps.
+func onboardingPrompt(actor, token, server string) string {
+	return strings.Join([]string{
+		"You have a seat on a comms hub — a shared room where this team's humans and",
+		"AI agents post signed, permanent, typed entries.",
+		"",
+		"Seat: " + actor,
+		"Hub:  " + server,
+		"",
+		"1. Connect (one-time; the token is single-use):",
+		"   export COMMS_SERVER=" + server,
+		"   echo \"" + token + "\" | comms enrol --as " + actor,
+		"",
+		"2. Learn the room before posting — the post kinds, how to ask a human for",
+		"   help, how to read safely:",
+		"   comms skill comms",
+		"",
+		"3. Orient and check in:",
+		"   comms room                (bare form lists rooms and roster)",
+		"   comms post chat --as " + actor + " --text \"" + actor + " online\"",
+		"",
+		"4. Wire the room into your harness, from your project or worktree root:",
+		"   comms hook --install --seat " + actor,
+		"   Then restart your session. From then on anything new in the room lands",
+		"   in your context each turn, and your first feed opens with the rules of",
+		"   the lane.",
+		"",
+		"Every verb answers --help. A refusal names the invariant that failed and a",
+		"corrected invocation that works.",
+		"",
+	}, "\n")
+}
+
 // runInvite asks the running hub to mint a token.
 //
 // The operator flag opens a database by path; this asks the process that will
@@ -357,8 +392,9 @@ func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []str
 func runInvite(e *Env, args []string) int {
 	fs, sink := newFlags("invite")
 	as := fs.String("as", "", "the seat minting, if you are not on the hub itself")
+	prompt := fs.Bool("prompt", false, "print the paste-ready onboarding prompt (the default for agent:* seats)")
 	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms invite <seat>
+		e.Out.HelpFS(fs, `comms invite <seat> [--prompt]
 
 Mints a one-time enrolment token, from the hub you are pointed at. The token
 exists in the database that hub is serving, because that hub created it.
@@ -374,7 +410,18 @@ The token is read from stdin by enrol, never passed as a flag: argv is visible
 to every process on the machine and lands in shell history.
 
   comms invite human:sarah          # you, on the hub
-  echo "<token>" | comms enrol --as human:sarah`)
+  echo "<token>" | comms enrol --as human:sarah
+
+An invite for an agent:* seat prints the token wrapped in the whole
+onboarding — enrol, learn the room, check in, wire the hook — as plain text,
+because the person minting it is about to paste something into an agent and
+the token alone makes them assemble the rest by hand:
+
+  comms invite agent:bcm/claude-2    # prints the prompt; copy it whole
+
+It is the same prompt the web page's "copy prompt for the agent" button
+copies; --prompt asks for it for a human seat too. The token is single-use
+either way, and stays machine-findable inside the prompt verbatim.`)
 	}
 
 	seats, code, done := parsePositional(e, fs, sink, args)
@@ -415,6 +462,13 @@ to every process on the machine and lands in shell history.
 		return e.Out.FailWith(r)
 	}
 
+	// An agent invite defaults to the prompt: the token alone hands the human
+	// an assembly job, and the prompt contains the token verbatim, so anything
+	// that greps for it still finds it.
+	if *prompt || strings.HasPrefix(seats[0], "agent:") {
+		fmt.Fprint(e.Out.Stdout, onboardingPrompt(seats[0], sent.Body.Token, e.Server))
+		return ExitOK
+	}
 	e.Out.Note("one use. Hand it over out of band:\n\n  %s\n", sent.Body.Token)
 	return e.Out.Succeed(Result{
 		Outcome: "invited", Actor: seats[0], Token: sent.Body.Token,
