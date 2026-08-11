@@ -50,7 +50,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "skill", "skills"}
+var Verbs = []string{"serve", "kinds", "invite", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -100,6 +100,8 @@ func Run(e *Env, args []string) int {
 		return runSkillVerb(e, args[1:])
 	case "skills":
 		return runSkillsList(e, args[1:])
+	case "hook":
+		return runHook(e, args[1:])
 	case "-h", "--help", "help":
 		return usage(e)
 	}
@@ -142,6 +144,7 @@ run a hub
 skills
    skill       print or install the skills this binary carries
    skills      list them
+   hook        wire the room into an agent harness's turn loop (--install)
 
 'comms <verb> --help' explains any verb; start with enrol.
 'comms --h-server' lists the operator flags (verify, rebuild, grants).`)

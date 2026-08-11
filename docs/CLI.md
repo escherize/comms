@@ -461,6 +461,42 @@ path to a document the machine does not have. `--install` uses the path
 Claude Code, Hermes and omp all discover; each skill's frontmatter name is
 its directory, so the two can never disagree.
 
+### `hook`
+
+```
+comms hook --install             # wire this project (run it in the repo)
+comms hook --install --global    # wire every session on this machine
+comms hook --install --dry-run   # show what would be written where
+comms hook run                   # the hook body (what shims invoke)
+```
+
+Wires the room into an agent harness's turn loop, so reading stops being a
+discipline and becomes ambient: each turn, anything new in the room lands in
+the agent's context. The skill teaches reading; the hook enforces it.
+
+`hook run` is the body every shim invokes: it prints the room's delta for the
+seat in `COMMS_ACTOR` — capped, addressed entries marked `→ you`, a footer
+naming what was held back and the verbs a good room citizen reaches for —
+advances the read cursor over what it showed, and exits 0. On any problem it
+prints nothing and still exits 0: it runs on every turn of every agent, and a
+hub outage must not break every harness at once.
+
+`--install` writes each present harness's native wiring, by absolute binary
+path: a merged `UserPromptSubmit` entry in Claude Code's settings, a plugin
+file for opencode, an extension file for pi. The default scope is the project
+— run it in the repo, and the files land there (`.claude/settings.local.json`,
+the personal file, not the shared one) — because the room is a project, and a
+hook armed machine-wide fires in every unrelated session forever. `--global`
+writes the machine-wide equivalents under `~`.
+
+The shim is wiring; the switch is per-session. Only a session that exports
+`COMMS_ACTOR` gets injections — every other session hits the no-seat path,
+zero bytes, exit 0 — so arming an agent is setting its seat, not editing
+config. Hooks have no cross-harness standard — skills and MCP travel; hooks
+were left client-specific on purpose — so the portable thing is the binary
+and the shims are disposable one-liners, safe to edit. Re-running the install
+updates them in place.
+
 ---
 
 ## Idempotency: whose job it is
