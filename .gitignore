@@ -1,11 +1,13 @@
 # build artifacts
-agent_comms
+/comms
 *.db
 *.db-wal
 *.db-shm
 
 # scratch
-.scratch/tmp/
+.scratch/
+.papercuts.jsonl
 
 # session cruft
 .claude/
+.agents/

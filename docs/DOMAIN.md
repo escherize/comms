@@ -1,8 +1,8 @@
 # The domain model
 
-`CONTEXT.md` is the glossary — what each word means, and which words not to use. This document is the model those words describe: the aggregates and their invariants, where the context boundaries fall, and which tactical patterns we use deliberately rather than by habit.
+`docs/CONTEXT.md` is the glossary — what each word means, and which words not to use. This document is the model those words describe: the aggregates and their invariants, where the context boundaries fall, and which tactical patterns we use deliberately rather than by habit.
 
-Read `CONTEXT.md` first. If the two ever disagree, `CONTEXT.md` wins on vocabulary and this file is wrong.
+Read `docs/CONTEXT.md` first. If the two ever disagree, `docs/CONTEXT.md` wins on vocabulary and this file is wrong.
 
 ## Bounded contexts
 

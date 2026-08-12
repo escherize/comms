@@ -270,7 +270,7 @@ func TestSearchJSONLane(t *testing.T) {
 		t.Fatalf("the first line must be an event: %v", err)
 	}
 	if first["type"] != "event" {
-		t.Errorf("the wire noun is event, not %v (CONTEXT.md)", first["type"])
+		t.Errorf("the wire noun is event, not %v (docs/CONTEXT.md)", first["type"])
 	}
 	if first["rank"] == nil {
 		t.Error("each hit must carry its rank")

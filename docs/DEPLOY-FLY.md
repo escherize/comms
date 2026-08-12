@@ -37,7 +37,7 @@ a persistent volume.
 ## 2. Create the app without deploying
 
 ```sh
-cd ~/dv/agent_comms
+cd ~/dv/comms
 fly launch --no-deploy
 ```
 
@@ -59,7 +59,7 @@ If Fly assigns a different app name, change `app = ` in `fly.toml` to match.
 ## 3. Create the volume first
 
 ```sh
-fly volumes create agent_comms_data --size 1 --region iad
+fly volumes create comms_data --size 1 --region iad
 ```
 
 The name must match `[mounts] source` in `fly.toml`, and the region must match

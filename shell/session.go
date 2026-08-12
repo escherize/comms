@@ -24,7 +24,7 @@ const (
 	// SessionHeader carries the token for programs; the cookie carries it for
 	// browsers. Same token, two transports.
 	SessionHeader = "X-Session"
-	SessionCookie = "agent_comms_session"
+	SessionCookie = "comms_session"
 
 	// challengeTTL is how long a caller has between fetching a nonce and
 	// posting the signature over it — network time, not thinking time.
@@ -273,7 +273,7 @@ half never leaves this browser.</p>
 </form>
 <script>
 (function(){
-  var DB='agent_comms.keys', STORE='keys', AK='agent_comms.actor';
+  var DB='comms.keys', STORE='keys', AK='comms.actor';
   function idb(){ return new Promise(function(res,rej){
     var r=indexedDB.open(DB,1);
     r.onupgradeneeded=function(){ r.result.createObjectStore(STORE); };
@@ -335,8 +335,8 @@ half never leaves this browser.</p>
 
   // A seat that has been here before unlocks silently — but only once per
   // load, so a failure lands on this form instead of a reload loop.
-  if(saved && !sessionStorage.getItem('agent_comms.unlock_tried')){
-    sessionStorage.setItem('agent_comms.unlock_tried','1');
+  if(saved && !sessionStorage.getItem('comms.unlock_tried')){
+    sessionStorage.setItem('comms.unlock_tried','1');
     idbGet(saved).then(function(pair){
       if(pair) return establish(saved, pair);
     }).catch(function(e){ err.textContent=e.message; });
@@ -347,7 +347,7 @@ half never leaves this browser.</p>
     err.textContent='';
     var actor=actorField.value.trim(), token=document.getElementById('token').value.trim();
     if(!actor){ err.textContent='name your seat'; return; }
-    sessionStorage.removeItem('agent_comms.unlock_tried');
+    sessionStorage.removeItem('comms.unlock_tried');
     idbGet(actor).then(function(pair){
       if(pair) return establish(actor, pair);
       if(!token) throw new Error('no key in this browser for '+actor+

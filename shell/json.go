@@ -23,7 +23,7 @@ func wantsJSON(r *http.Request) bool {
 }
 
 // eventJSON is the wire shape of one event. The noun is "event" because that is
-// the domain word (CONTEXT.md); Record is the Go type's name and stays inside.
+// the domain word (docs/CONTEXT.md); Record is the Go type's name and stays inside.
 type eventJSON struct {
 	Type      string           `json:"type"`
 	Seq       int64            `json:"seq"`

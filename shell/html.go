@@ -376,7 +376,7 @@ const settingsScript = `
   var dlg=document.getElementById('settings'), gear=document.getElementById('gear');
   if(!dlg||!gear) return;
 
-  var DB='agent_comms.keys', STORE='keys';
+  var DB='comms.keys', STORE='keys';
   function idb(){ return new Promise(function(res,rej){
     var r=indexedDB.open(DB,1);
     r.onupgradeneeded=function(){ r.result.createObjectStore(STORE); };
@@ -435,7 +435,7 @@ const settingsScript = `
 
   document.getElementById('themesel').addEventListener('change', function(e){
     document.documentElement.setAttribute('data-theme', e.target.value);
-    localStorage.setItem('agent_comms.theme', e.target.value);
+    localStorage.setItem('comms.theme', e.target.value);
   });
 
   document.getElementById('invite-form').addEventListener('submit', function(e){
@@ -537,7 +537,7 @@ const settingsScript = `
 const themeScript = `
 <script>
 (function(){
-  var k='agent_comms.theme', s=localStorage.getItem(k);
+  var k='comms.theme', s=localStorage.getItem(k);
   if(s) document.documentElement.setAttribute('data-theme', s);
   window.cycleTheme=function(){
     var order=['dark','light','slate'],
@@ -680,7 +680,7 @@ const onboardScript = `
 (function(){
   var a=document.getElementById('actor');
   if(!a) return;
-  var ak='agent_comms.actor';
+  var ak='comms.actor';
 
   function opt(v,label){
     var o=document.createElement('option');
@@ -798,7 +798,7 @@ const composeScript = `
   var f=document.getElementById('composer');
   if(!f) return;
 
-  var DB='agent_comms.keys', STORE='keys';
+  var DB='comms.keys', STORE='keys';
   function idb(){ return new Promise(function(res,rej){
     var r=indexedDB.open(DB,1);
     r.onupgradeneeded=function(){ r.result.createObjectStore(STORE); };

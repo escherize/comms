@@ -175,6 +175,20 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// oneLine flattens any control character to a space, so one untrusted field
+// becomes exactly one line. It is the boundary between the tool's own framing
+// and a post's content: without it a body carrying a newline could open a
+// second line wearing the "→ you" marker or the "[comms]" prefix the feed's
+// preamble tells the agent to act on.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
 // hookRender is the injected text: terse, one line per event, and a coaching
 // footer that names the verbs a good room citizen reaches for. The footer
 // rides only on turns that already inject events, so quiet turns stay free.
@@ -184,17 +198,22 @@ func hookRender(seat, room string, events, shown []frame) string {
 	for _, f := range shown {
 		author, _ := f.Data["author"].(string)
 		kind, _ := f.Data["kind"].(string)
-		line := fmt.Sprintf("  %d %s %s", f.Seq, kind, author)
+		line := fmt.Sprintf("  %d %s %s", f.Seq, oneLine(kind), oneLine(author))
+		// "→ you" is computed here from the signed recipient — the one place
+		// the marker is authored. Every untrusted field on the line is first
+		// flattened to a single line, so a post's own text can never inject a
+		// newline and forge that marker (or the [comms] framing) on a line the
+		// agent's harness would read as this tool's own words.
 		if rec, _ := f.Data["recipient"].(string); rec == seat {
 			line += " → you"
 		}
 		if body, ok := f.Data["body"].(map[string]any); ok {
 			if sev, ok := body["severity"].(string); ok && sev != "" {
-				line += " " + sev
+				line += " " + oneLine(sev)
 			}
 			if txt, ok := body["text"].(string); ok {
 				preview, clipped := truncateText(txt, 100)
-				line += ": " + preview
+				line += ": " + oneLine(preview)
 				if clipped {
 					line += fmt.Sprintf(" (full: comms read --from %d --full --as %s)", f.Seq, seat)
 				}

@@ -317,7 +317,7 @@ func TestWireNounIsEvent(t *testing.T) {
 	for _, f := range fs {
 		raw, _ := json.Marshal(f)
 		if strings.Contains(strings.ToLower(string(raw)), `"record"`) {
-			t.Errorf("CONTEXT.md forbids record as the wire noun for an event: %s", raw)
+			t.Errorf("docs/CONTEXT.md forbids record as the wire noun for an event: %s", raw)
 		}
 	}
 }

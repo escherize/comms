@@ -33,8 +33,7 @@ func stateDir() string {
 	if d := os.Getenv("COMMS_HOME"); d != "" {
 		return filepath.Join(d, "state")
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "agent_comms", "state")
+	return filepath.Join(configDir(), "state")
 }
 
 func cursorKey(room string, lane Lane) string { return room + "\x00" + string(lane) }

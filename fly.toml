@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for agent-comms-thrumming-tree-1758 on 2026-08-09T08:17:04-06:00
+# fly.toml app configuration for comms. Set app to the name fly launch gives you.
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'agent-comms-thrumming-tree-1758'
+app = 'comms' # placeholder: your fly app name
 primary_region = 'iad'
 
 [build]
@@ -18,7 +18,7 @@ primary_region = 'iad'
   app = '-db /data/comms.db -addr 0.0.0.0:7777 -rooms core -read-auth'
 
 [[mounts]]
-  source = 'agent_comms_data'
+  source = 'comms_data'
   destination = '/data'
 
 [http_service]

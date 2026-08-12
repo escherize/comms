@@ -347,11 +347,6 @@ func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	if s, ok := strings.CutPrefix(key, "COMMS_"); ok {
-		if v := os.Getenv("AGENT_COMMS_" + s); v != "" { // the pre-rename spelling
-			return v
-		}
-	}
 	return fallback
 }
 

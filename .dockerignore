@@ -1,6 +1,6 @@
 # flyctl launch added from .gitignore
 # build artifacts
-**/agent_comms
+**/comms
 **/*.db
 **/*.db-wal
 **/*.db-shm

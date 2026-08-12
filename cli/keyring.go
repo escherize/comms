@@ -22,11 +22,23 @@ func KeyDir() string {
 	if d := os.Getenv("COMMS_HOME"); d != "" {
 		return filepath.Join(d, "keys")
 	}
-	if d := os.Getenv("AGENT_COMMS_HOME"); d != "" { // the pre-rename spelling
-		return filepath.Join(d, "keys")
-	}
+	return filepath.Join(configDir(), "keys")
+}
+
+// configDir is ~/.config/comms, migrating the pre-rename directory whole on
+// first touch. One rename, once: keys, cursors, and spool all move together,
+// so a machine enrolled under the old name keeps every seat without anyone
+// re-enrolling.
+func configDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "agent_comms", "keys")
+	dir := filepath.Join(home, ".config", "comms")
+	old := filepath.Join(home, ".config", "agent_comms")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if _, err := os.Stat(old); err == nil {
+			_ = os.Rename(old, dir)
+		}
+	}
+	return dir
 }
 
 // seatFile maps an actor to its key path. Slashes in a seat name would

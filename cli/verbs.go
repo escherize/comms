@@ -37,16 +37,7 @@ func (e *Env) getenv(k string) (string, bool) {
 	if e.LookupEnv != nil {
 		look = e.LookupEnv
 	}
-	if v, ok := look(k); ok {
-		return v, true
-	}
-	// COMMS_* took over from AGENT_COMMS_* when the binary became comms. The
-	// old spelling keeps working so a client configured last week is not
-	// silently unconfigured this week.
-	if s, ok := strings.CutPrefix(k, "COMMS_"); ok {
-		return look("AGENT_COMMS_" + s)
-	}
-	return "", false
+	return look(k)
 }
 
 // Verbs the binary answers, in help order.

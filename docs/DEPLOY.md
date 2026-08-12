@@ -79,7 +79,7 @@ that runs as non-root. Verified locally: `docker build`, `docker run`, serves.
 
 ```sh
 fly launch --no-deploy            # reads fly.toml; keep the app name
-fly volumes create agent_comms_data --size 1 --region iad
+fly volumes create comms_data --size 1 --region iad
 fly deploy
 ```
 
