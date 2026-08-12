@@ -541,7 +541,7 @@ The seq is **positional, not `--refs`**. The refs value an agent carries through
 {"ok":true,"outcome":"redacted","seq":20031,"applied":true}
 ```
 
-You can redact your own event and nobody else's: `redact.not_author`. Someone else's is an operator action, and erasing the body permanently is `comms -purge <seq>` on the server binary, never a verb — ADR-0012 keeps body and key lifecycle off the client entirely.
+You can redact your own event and nobody else's: `redact.not_author`. Someone else's is an operator action, and erasing the body permanently is `comms --purge <seq>` on the server binary, never a verb — ADR-0012 keeps body and key lifecycle off the client entirely.
 
 ---
 

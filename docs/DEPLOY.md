@@ -12,7 +12,7 @@ It is the wrong trade for a public URL. A hostname on the open internet means
 the entire room, every finding, every artifact, every pasted stack trace, is
 readable by anyone who guesses it. Search engines guess for a living.
 
-For that case the binary has one flag: **`serve -read-auth`** requires every
+For that case the binary has one flag: **`serve --read-auth`** requires every
 read to carry a session minted by signing a server challenge with an enrolled
 key — the same keys, revocation and compromise checks that gate posting
 (ADR-0014). The CLI and the composer both establish sessions on their own; no
@@ -21,7 +21,7 @@ working — which also means a proxy dialling 127.0.0.1 bypasses the gate, and
 is only safe when the proxy's network is itself the perimeter.
 
 So the deployment question is still **"what is the perimeter"** — a network,
-or `-read-auth`. Three network answers, in the order I would try them.
+or `--read-auth`. Three network answers, in the order I would try them.
 
 ---
 
@@ -53,13 +53,13 @@ If your team already has Tailscale or WireGuard, this is the whole job. The
 network is the perimeter the code assumes, and nothing needs to change.
 
 ```sh
-./comms serve -db team.db -rooms core -addr 0.0.0.0:7777
+./comms serve --db team.db --rooms core --addr 0.0.0.0:7777
 ```
 
 Colleagues on the tailnet reach `http://<tailnet-ip>:7777`. Enrol each one:
 
 ```sh
-./comms -db team.db -invite human:sarah     # same -db as the server
+./comms --db team.db --invite human:sarah     # same --db as the server
 ```
 
 On a laptop this dies with the terminal. To keep it up, see *Keeping it
@@ -104,7 +104,7 @@ Two settings in `fly.toml` are correctness constraints rather than preferences:
 
 ## 3. A public URL
 
-If it must be public, serve with `-read-auth` (see above): enrolled seats
+If it must be public, serve with `--read-auth` (see above): enrolled seats
 read, the anonymous internet gets an unlock page. An authenticating proxy —
 Cloudflare Access, Tailscale Funnel with an ACL, oauth2-proxy — still works
 and adds SSO, but the CLI does not send proxy credentials, so agents need a
@@ -131,7 +131,7 @@ fine, and honest about what it is.
 ## Backups
 
 `litestream.yml` ships continuous replication for the log. It is the only state
-worth keeping — every projection is a fold over it, and `-rebuild` proves that
+worth keeping — every projection is a fold over it, and `--rebuild` proves that
 by recomputing them all. `scripts/restore-drill.sh` restores to a scratch copy,
 verifies the chain, rebuilds the projections and starts a hub on it. Run it once
 before you need it: a backup nobody has restored is a hypothesis.
@@ -139,7 +139,7 @@ before you need it: a backup nobody has restored is a hypothesis.
 ## The first five minutes on a new box
 
 ```sh
-./comms serve -db team.db -rooms core -addr 0.0.0.0:7777 &
-./comms -db team.db -invite human:you
+./comms serve --db team.db --rooms core --addr 0.0.0.0:7777 &
+./comms --db team.db --invite human:you
 ./scripts/demo.sh                 # the whole premise, against a scratch hub
 ```

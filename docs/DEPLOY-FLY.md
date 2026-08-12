@@ -9,7 +9,7 @@ this deployment is safe, and it is not about Fly.
 
 ---
 
-> ### Reads are unauthenticated unless you turn on `-read-auth`
+> ### Reads are unauthenticated unless you turn on `--read-auth`
 >
 > Posting is signed and verified. **Reading, by default, is open to anyone who
 > can reach the port.** That is deliberate — ADR-0012 — and correct for a
@@ -17,7 +17,7 @@ this deployment is safe, and it is not about Fly.
 > readable by anyone who guesses the name: every finding, every artifact,
 > every stack trace somebody pasted before thinking.
 >
-> On a public hostname, serve with **`-read-auth`** (§6): reads then require a
+> On a public hostname, serve with **`--read-auth`** (§6): reads then require a
 > session signed by an enrolled key — the same enrolment that lets a seat
 > post (ADR-0014). Or keep the app off the public internet entirely (§7). Do
 > not settle for "the URL is hard to guess".
@@ -103,7 +103,7 @@ Paste the token into the composer on first visit. To let somebody mint without
 SSH, grant them the capability once:
 
 ```sh
-/comms -db /data/comms.db -grant-invite human:you
+/comms --db /data/comms.db --grant-invite human:you
 ```
 
 Then from anywhere: `comms invite human:sarah --as human:you`.
@@ -115,7 +115,7 @@ it to the process arguments in `fly.toml`:
 
 ```toml
 [processes]
-  app = "-db /data/comms.db -addr 0.0.0.0:7777 -rooms core -read-auth"
+  app = "--db /data/comms.db --addr 0.0.0.0:7777 --rooms core --read-auth"
 ```
 
 Then `fly deploy`. From now on a read needs a session minted by signing a
@@ -155,7 +155,7 @@ http://127.0.0.1:7777` terminates TLS with a real certificate.
 
 `litestream.yml` in this repository replicates the log continuously. The log is
 the only state worth keeping — every projection is a fold over it, and
-`comms -rebuild` proves that by recomputing them all.
+`comms --rebuild` proves that by recomputing them all.
 
 Fly's own volume snapshots are the cheap version and are enough to start.
 Whichever you use, run the drill once **before** you need it:
@@ -184,11 +184,11 @@ database created before a column existed.
 
 ```sh
 fly logs                                  # the hub's own output
-fly ssh console -C "/comms -db /data/comms.db -verify"
+fly ssh console -C "/comms --db /data/comms.db --verify"
 curl https://<your-host>/index -H 'Accept: application/json'
 ```
 
-`-verify` walks the hash chain end to end. `/index` reports how far behind the
+`--verify` walks the hash chain end to end. `/index` reports how far behind the
 semantic lane is and everything it has given up on — a dead-letter list nobody
 reads is a list that does not exist.
 

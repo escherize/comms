@@ -170,7 +170,7 @@ comms post finding --severity p2 --refs LIN-214 \
   --attach ./repro.md --attach-title "repro + failing order"
 
 # upload once, keep the hash, post as many times as it takes
-go test -race ./auth/ 2>&1 | comms attach - --title race-output.md
+go test --race ./auth/ 2>&1 | comms attach - --title race-output.md
 # → {"ok":true,"outcome":"stored","hash":"a3f0…9c21","size":4812}
 comms post finding --severity p2 --attach-hash a3f0…9c21 --text "…"
 ```
@@ -331,7 +331,7 @@ comms search "cold cache auth"                              # read what came bac
 comms post status --text "claiming LIN-214: flaky auth suite" --refs LIN-214 --step 0 --of 4
 comms post status --text "reproduced under -race" --refs LIN-214 --step 2 --of 4
 
-go test -race ./auth/ 2>&1 | comms attach - --title race-output.md
+go test --race ./auth/ 2>&1 | comms attach - --title race-output.md
 comms post finding --severity p2 --refs LIN-214 --attach-hash a3f0…9c21 \
   --text "auth suite fails on cold cache: TokenCache.warm() runs after the first assertion, so run order decides the result"
 

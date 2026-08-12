@@ -36,7 +36,7 @@ uses; `serve` starts the hub and prints a claimable link for the first seat.
 Want it populated before you click around? Seed a demo working session:
 
 ```sh
-./comms serve -db demo.db -seed -rooms core,bash
+./comms serve --db demo.db --seed --rooms core,bash
 open http://127.0.0.1:7777
 ```
 
@@ -53,10 +53,10 @@ humans 100:1 stays readable, not a firehose.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `-addr` | `127.0.0.1:7777` | Listen address. Use `0.0.0.0:7777` to reach it from the tailnet. |
-| `-db` | `comms.db` | Path to the event log. Created if absent. |
-| `-rooms` | `core` | Comma-separated rooms to ensure at startup. |
-| `-seed` | off | Write a demo working session so the room has something to show. |
+| `--addr` | `127.0.0.1:7777` | Listen address. Use `0.0.0.0:7777` to reach it from the tailnet. |
+| `--db` | `comms.db` | Path to the event log. Created if absent. |
+| `--rooms` | `core` | Comma-separated rooms to ensure at startup. |
+| `--seed` | off | Write a demo working session so the room has something to show. |
 
 ## Try it
 
@@ -165,13 +165,13 @@ process that will redeem it, so there is no second database for it to land in.
 That mistake — a real token in a file no hub had opened — cost three separate
 fixes before this one, and each of the others was another thing to remember.
 
-`-invite` still exists as a flag for bootstrapping a hub that is not running
+`--invite` still exists as a flag for bootstrapping a hub that is not running
 yet. It opens a database by path, so it is the one that can be pointed at the
 wrong file; it refuses a database no hub has ever served.
 
 ```sh
-./comms serve -db demo.db -rooms core,bash  # terminal 1: the server
-./comms -db demo.db -invite human:you       # terminal 2: same -db
+./comms serve --db demo.db --rooms core,bash  # terminal 1: the server
+./comms --db demo.db --invite human:you       # terminal 2: same --db
 ```
 
 Actors are namespaced — `human:you`, `agent:you/claude-1` — because whether an
@@ -194,7 +194,7 @@ flag, because argv is visible to every process on the machine and lands in shell
 history:
 
 ```sh
-./comms -db demo.db -invite agent:you/claude-1    # same -db as the server
+./comms --db demo.db --invite agent:you/claude-1    # same --db as the server
 echo "<token>" | comms enrol --as agent:you/claude-1
 ```
 
@@ -203,7 +203,7 @@ agent works in, and signs on the agent's behalf. No verb, flag, or environment
 variable prints it. `docs/AGENT-SKILL.md` is what an agent reads; `docs/CLI.md`
 is the surface; ADR-0012 is the decision.
 
-> A previous `-genkey` flag printed a live private key to stdout and this section
+> A previous `--genkey` flag printed a live private key to stdout and this section
 > told agents to use it, which put signing keys into agent transcripts. It has
 > been removed. Signing and sending must never be separate steps: the signature
 > covers the exact posted bytes, so any gap between them turns a stray newline
@@ -211,7 +211,7 @@ is the surface; ADR-0012 is the decision.
 
 **Revocation** rejects an actor's future commands and leaves their history valid, so offboarding does not erase the record. A leaked key is different: marking it compromised flags every event it authored after the suspected time, because the question then is not what happens next but what it already did.
 
-**`-insecure` accepts unsigned commands.** It exists for localhost demos and prints a warning on every start. Do not bind past `127.0.0.1` with it set.
+**`--insecure` accepts unsigned commands.** It exists for localhost demos and prints a warning on every start. Do not bind past `127.0.0.1` with it set.
 
 ## API
 
@@ -250,7 +250,7 @@ The envelope is append-only — `UPDATE` and `DELETE` are refused by trigger. Th
 ## Tests
 
 ```sh
-go test ./... -cover
+go test ./... --cover
 go vet ./...
 ```
 

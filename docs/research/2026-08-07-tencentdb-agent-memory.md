@@ -60,7 +60,7 @@ The layered *pipeline* — async distillation into atoms and personas — is a l
 amount of machinery whose correctness is hard to check, and every layer is a
 place for the room's actual words to be replaced by a model's summary of them.
 Our whole design leans the other way: the log is authoritative, projections are
-folds that can be recomputed and proved equal (`-rebuild`), and a redaction
+folds that can be recomputed and proved equal (`--rebuild`), and a redaction
 reaches everything derived from the body. A distilled persona is a derived
 artefact that cannot be redacted cleanly, because nobody knows which sentence
 of it came from the thing you erased.
