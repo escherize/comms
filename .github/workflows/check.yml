@@ -1,0 +1,19 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      # ./check is the same gate a commit runs locally: gofmt, vet,
+      # staticcheck, test. CI runs the identical script so green here means
+      # green there, with nothing to keep in sync.
+      - run: ./check

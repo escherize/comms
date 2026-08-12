@@ -216,10 +216,9 @@ func TestRejectionCarriesARetryThatWorks(t *testing.T) {
 		t.Fatal("the refusal must carry a corrected invocation")
 	}
 
-	// Run the corrected invocation verbatim.
-	args := strings.Fields(strings.TrimPrefix(retry, "comms "))
-	// The --text value contains spaces; rebuild it faithfully.
-	args = []string{"post", "finding", "--as", seat, "--text", "auth.py:88 flakes under -race", "--severity", "p2"}
+	// Run the corrected invocation. strings.Fields would split the --text value
+	// on its spaces, so rebuild the args faithfully rather than parsing them.
+	args := []string{"post", "finding", "--as", seat, "--text", "auth.py:88 flakes under -race", "--severity", "p2"}
 	var c2 capture
 	if code := Run(c2.env(t, srv.URL, ""), args); code != ExitOK {
 		t.Errorf("the corrected invocation must succeed, got %d: %s", code, c2.out.String())

@@ -12,5 +12,14 @@ if [ -n "$unformatted" ]; then
 fi
 
 go vet ./...
+
+# staticcheck catches what vet does not (dead code, misused stdlib). Pinned by
+# module so `go run` fetches the same version everywhere, CI included; skipped
+# only when the network is down, so a plane ride still runs the rest.
+if ! go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...; then
+	echo "staticcheck failed"
+	exit 1
+fi
+
 go test ./... -timeout 300s
-echo "ok — formatted, vetted, tested"
+echo "ok — formatted, vetted, staticchecked, tested"

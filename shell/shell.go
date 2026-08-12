@@ -32,11 +32,10 @@ type Clock func() time.Time
 
 // Server is the command surface and the room renderer.
 type Server struct {
-	st    *store.Store
-	now   Clock
-	mu    sync.Mutex
-	subs  map[chan store.Record]string // subscriber -> room
-	rooms []string
+	st   *store.Store
+	now  Clock
+	mu   sync.Mutex
+	subs map[chan store.Record]string // subscriber -> room
 
 	// RequireSignature makes authentication mandatory. It defaults to on; the
 	// only way to turn it off is an explicit flag, so an unauthenticated
@@ -988,7 +987,7 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 	// interrupt has happened. Charging only on a real append is what keeps a
 	// replay free: escalating the same entry with the same words twice is one
 	// act, and the second one interrupts nobody.
-	remaining, retryAfter, ok := s.escalate.canSpend(author)
+	_, retryAfter, ok := s.escalate.canSpend(author)
 	if !ok {
 		ms := retryAfter.Milliseconds()
 		if ms < 1 {
@@ -1054,7 +1053,7 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// It landed, so it is charged.
-	remaining, _, _ = s.escalate.spend(author)
+	remaining, _, _ := s.escalate.spend(author)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "outcome": "escalated", "seq": seq, "applied": true,

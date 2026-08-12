@@ -91,10 +91,6 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 		hardStop = time.Now().Add(o.Wait)
 	}
 
-	type parsed struct {
-		f  frame
-		ok bool
-	}
 	lines := make(chan string, 64)
 	go func() {
 		sc := bufio.NewScanner(resp.Body)
