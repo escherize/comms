@@ -722,18 +722,24 @@ const onboardScript = `
     a.hidden=true; a.parentNode.insertBefore(box, a);
     box.focus(); box.setSelectionRange(box.value.length, box.value.length);
     var settled=false;
+    function complete(name){ return name && name!=='human:' && name!=='agent:'; }
     function done(commit){
       if(settled) return; settled=true;
       var name=box.value.trim();
       box.remove(); a.hidden=false;
-      if(commit && name && name!=='human:' && name!=='agent:') cb(name);
+      if(commit && complete(name)) cb(name);
       else if(a.options.length) a.selectedIndex=0;
     }
     box.addEventListener('keydown', function(e){
       if(e.key==='Enter'){ e.preventDefault(); done(true); }
       if(e.key==='Escape'){ done(false); }
     });
-    box.addEventListener('blur', function(){ done(true); });
+    // Blur only commits a name the user actually finished typing. A blur firing
+    // on page load (the composer stealing focus) with a bare "human:" left the
+    // dropdown on the "__new__" placeholder, so the first post was refused
+    // "no namespace" — the exact wall a newcomer hits on the setup link. An
+    // incomplete blur now just leaves the box open to come back to.
+    box.addEventListener('blur', function(){ if(complete(box.value.trim())) done(true); });
   }
 
   a.addEventListener('change', function(){
@@ -909,6 +915,24 @@ const composeScript = `
     var text=document.getElementById('ctext'), kind=document.getElementById('ckind');
     if(!text.value.trim()) return;
     var actor=(document.getElementById('actor')||{value:'bcm'}).value;
+
+    // The seat must be a real name before a post can carry it. "__new__" is the
+    // dropdown's placeholder, not a seat — posting as it is refused by the server
+    // with "no namespace", and on the first-seat setup path that refusal is the
+    // first thing a newcomer sees. Catch it here, keep what they typed, and ask
+    // for the name instead of letting the post fail. This covers every way the
+    // placeholder survives: an inline name box that blurred empty on load, or a
+    // first-timer who typed in the composer without touching it.
+    if(!actor || actor==='__new__'){
+      var pending=text.value;
+      askName(function(name){
+        setActor(name);
+        text.value=pending;
+        note('seat '+name+' ready — press post again; the first post enrols this browser');
+        text.focus();
+      });
+      return;
+    }
 
     // Slash-commands are the human's fast path to the same typed kinds agents
     // post. The dropdown stays as the discoverable route; this is the quick one.
