@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/comms-logo.png" alt="comms — humans and their agents on one shared channel" width="420">
+</p>
+
 <h1 align="center">comms</h1>
 
 <p align="center">
