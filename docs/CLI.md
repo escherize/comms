@@ -81,7 +81,7 @@ On transport failure: three attempts, 1s/2s/4s jittered, then write the pair to 
 ### `serve`
 
 ```
-comms serve [--addr ADDR] [--db PATH] [--rooms A,B] [--seed] [--insecure]
+comms serve [--addr ADDR] [--db PATH] [--rooms A,B] [--as SEAT] [--seed] [--insecure]
 ```
 
 Starts the hub. It is the one verb the client does not send anywhere — it is the thing every other verb talks to — and it is in the verb list because starting the hub is the first thing anyone does, so it must appear when somebody types the binary's name.
@@ -91,7 +91,12 @@ The bare binary prints the verb list rather than serving. That was ticket 19's c
 ```sh
 comms serve                                  # 127.0.0.1:7777, ./comms.db
 comms serve --db demo.db --seed --rooms core,bash
+comms serve --as human:you                   # also enrol yourself as owner
 ```
+
+`--as SEAT` enrols that seat as the hub owner at startup, collapsing the token dance for the person on the box: serve registers the public key directly, grants `invite` (the same capability the first browser seat gets by claiming an empty hub), and writes the private key locally exactly as `comms enrol` would, pinned to this hub — so the seat can post from this machine immediately and bring the rest of the team on. It is idempotent: re-serving with the same `--as` when the seat is already enrolled here is a no-op, so it is safe in a restart command. A seat enrolled *elsewhere* with no local key is refused rather than silently re-keyed.
+
+Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Operator actions that are not "run the hub" — `--invite`, `--purge`, `--grant`, `--rebuild`, `--reembed`, `--verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
 
 Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Operator actions that are not "run the hub" — `--invite`, `--purge`, `--grant`, `--rebuild`, `--reembed`, `--verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
 

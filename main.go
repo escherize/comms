@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	_ "embed"
 	"flag"
 	"fmt"
@@ -41,6 +43,7 @@ func main() {
 	db := flag.String("db", envOr("COMMS_DB", "comms.db"),
 		"path to the event log (default $COMMS_DB, else ./comms.db)")
 	rooms := flag.String("rooms", "core", "comma-separated rooms to ensure at startup")
+	asSeat := flag.String("as", "", "enrol this seat as the hub owner at startup (grants invite; the key is written locally)")
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
 	readAuth := flag.Bool("read-auth", false,
@@ -330,10 +333,24 @@ Most flags below are operator actions that touch the database and exit
 		}
 	}
 
+	// serve --as enrols the owner in one step: no token to copy out of this
+	// output and paste into a second command. serve runs on the box, so it has
+	// the same standing as any operator flag — it registers the public key
+	// directly and grants invite, and writes the private key locally the same
+	// way `comms enrol` would, so the seat can post from this machine
+	// immediately. Idempotent: re-serving with the same --as when the seat is
+	// already enrolled here is a no-op, so it is safe in a restart command.
+	serverURL := "http://" + ln.Addr().String()
+	if *asSeat != "" {
+		if err := ownerEnrol(st, *asSeat, serverURL, time.Now()); err != nil {
+			log.Fatalf("serve --as %s: %v", *asSeat, err)
+		}
+	}
+
 	// First run gets a claimable token; every run gets the four-line manual.
 	// This output is the onboarding: an agent reading it should need nothing
 	// else to join the room.
-	if st.EnrolledSeats() == 0 {
+	if *asSeat == "" && st.EnrolledSeats() == 0 {
 		if tok, err := st.MintBootstrapInvite(time.Now()); err == nil {
 			fmt.Printf(`
 no seats enrolled yet — claim the first one:
@@ -366,6 +383,51 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// ownerEnrol enrols one seat as the hub owner at startup, for `serve --as`.
+// It is the token dance collapsed: serve is the operator on the box, so it
+// registers the public key directly, grants invite (the same capability the
+// first seat gets by claiming an empty hub), and writes the private key
+// locally exactly as `comms enrol` would, pinned to this hub. Idempotent so it
+// is safe in a restart command: a seat already enrolled here with a local key
+// is left alone; a seat enrolled elsewhere with no local key is refused rather
+// than silently minting a second key that cannot sign for the first.
+func ownerEnrol(st *store.Store, actor, serverURL string, now time.Time) error {
+	if err := store.ValidActor(actor); err != nil {
+		return err
+	}
+	haveKey := cli.HasSeat(actor)
+	enrolled := st.ActorEnrolled(actor)
+	if enrolled && haveKey {
+		return nil // already set up on this machine; nothing to do
+	}
+	if enrolled && !haveKey {
+		return fmt.Errorf("%s is already enrolled on this hub but has no key on this "+
+			"machine; its key lives where it was enrolled — do not re-key it here", actor)
+	}
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	if err := st.RegisterKey(actor, pub, now); err != nil {
+		return err
+	}
+	if err := st.Grant(actor, "invite", "serve", now); err != nil {
+		return err
+	}
+	// Local key last: if this failed after the store writes, a re-serve with
+	// the same --as would find the seat enrolled-without-a-local-key and refuse
+	// clearly, rather than leaving a half state that signs for nothing.
+	if err := cli.SaveSeat(actor, priv); err != nil {
+		return err
+	}
+	if err := cli.PinServer(actor, serverURL); err != nil {
+		return err
+	}
+	log.Printf("enrolled %s as owner (invite granted); key written locally", actor)
+	return nil
 }
 
 func hostname() string {
