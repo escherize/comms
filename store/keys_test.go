@@ -412,6 +412,11 @@ func TestBootstrapInviteEnrolsTheFirstSeatOnly(t *testing.T) {
 	if s.EnrolledSeats() != 1 {
 		t.Errorf("want one enrolled seat, got %d", s.EnrolledSeats())
 	}
+	// The first seat owns the hub, so it can invite the rest of the team from
+	// the browser without an operator command on the box.
+	if !s.HasCapability("human:ada", "invite") {
+		t.Error("the first seat must be granted the invite capability on enrolment")
+	}
 
 	// A second bootstrap token is refused once anyone holds a key, even
 	// though the token itself is unspent.
@@ -426,6 +431,30 @@ func TestBootstrapInviteEnrolsTheFirstSeatOnly(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "already enrolled") {
 		t.Errorf("the refusal must say someone is already enrolled, got %v", err)
+	}
+}
+
+// The auto-grant is the first seat's alone. A seat enrolled through an ordinary
+// (non-bootstrap) invite gets no capability — the owner grants it deliberately,
+// or it stays a plain member.
+func TestOrdinaryEnrolmentGrantsNoCapability(t *testing.T) {
+	s, _, pub := keyStore(t)
+
+	boot, _ := s.MintBootstrapInvite(kt0)
+	if err := s.RedeemInvite(boot, "human:owner", pub, kt0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	// A normal invite, minted for a named seat, then redeemed.
+	tok, err := s.MintInvite("agent:worker", kt0.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub2, _, _ := ed25519.GenerateKey(nil)
+	if err := s.RedeemInvite(tok, "agent:worker", pub2, kt0.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if s.HasCapability("agent:worker", "invite") {
+		t.Error("a seat enrolled through an ordinary invite must not get the invite capability")
 	}
 }
 

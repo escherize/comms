@@ -424,6 +424,7 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 	if usedAt != "" {
 		return errors.New("enrolment token already used")
 	}
+	bootstrap := false
 	if forActor == "*" {
 		// A bootstrap token names its seat at redemption — but only onto an
 		// empty hub. Once anyone is enrolled, real invites exist, and a
@@ -436,6 +437,7 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 			return errors.New("this first-seat token only works on a hub with no seats, " +
 				"and someone is already enrolled — ask them (or the operator) for an invite")
 		}
+		bootstrap = true
 	} else if forActor != actor {
 		return fmt.Errorf("enrolment token was minted for %s and cannot enrol %s — "+
 			"enrol with --as %s, or mint a token for %s", forActor, actor, forActor, actor)
@@ -489,6 +491,21 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 		   revoked_at = '', compromised = ''`,
 		actor, hex.EncodeToString(pub), ts); err != nil {
 		return err
+	}
+	// The first seat claims the hub, so it owns the hub: grant it the invite
+	// capability in the same transaction that enrols it, so it can bring the
+	// rest of the team on from the browser (gear -> invite) without anyone
+	// running an operator command on the box. Granted by "bootstrap" to mark
+	// that no human deliberately conferred it — it came with claiming an empty
+	// hub. Later seats get no capability by default; the owner grants them.
+	if bootstrap {
+		if _, err := tx.Exec(
+			`INSERT INTO capability(actor, capability, granted_at, granted_by)
+			 VALUES(?, 'invite', ?, 'bootstrap')
+			 ON CONFLICT(actor, capability) DO NOTHING`,
+			actor, ts); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

@@ -312,6 +312,24 @@ Most flags below are operator actions that touch the database and exit
 	}
 	log.Printf("comms listening on http://%s", ln.Addr())
 
+	// The printed commands must work as pasted against THIS hub, not a default
+	// one. A hub served on a non-default --addr would otherwise print
+	// `comms enrol ...` that quietly targets 127.0.0.1:7777, so the token minted
+	// here is redeemed nowhere and the only symptom is a much later "unknown
+	// token" pointing at the innocent token. These are all client verbs that
+	// reach the hub over HTTP, so they carry --server; the hint is empty on a
+	// default-address serve, so the common case stays clean.
+	srvHint := ""
+	if h, p, err := net.SplitHostPort(ln.Addr().String()); err == nil {
+		host := h
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			host = "127.0.0.1"
+		}
+		if !(host == "127.0.0.1" && p == "7777") {
+			srvHint = " --server http://" + net.JoinHostPort(host, p)
+		}
+	}
+
 	// First run gets a claimable token; every run gets the four-line manual.
 	// This output is the onboarding: an agent reading it should need nothing
 	// else to join the room.
@@ -323,21 +341,21 @@ no seats enrolled yet — claim the first one:
   browser   open http://%s/#setup=%s
             the page asks you to name your seat and enrols this browser
 
-  terminal  echo "%s" | comms enrol --as human:<you>
+  terminal  echo "%s" | comms enrol --as human:<you>%s
 
 One use, expires in 24h, works only while the hub has no seats.
-`, ln.Addr(), tok, tok)
+`, ln.Addr(), tok, tok, srvHint)
 		}
 	}
 	fmt.Printf(`
 how to use it:
-  comms invite human:<name>|agent:<name>      mint a one-use token (run on this box)
-  echo "<token>" | comms enrol --as <seat>    redeem it; the private key never leaves the machine
-  comms post chat --as <seat> --text "hi"     say something
+  comms invite human:<name>|agent:<name>%s   mint a one-use token (run on this box)
+  echo "<token>" | comms enrol --as <seat>%s   redeem it; the private key never leaves the machine
+  comms post chat --as <seat> --text "hi"%s   say something
   comms skill comms                           the full guide, for humans and agents
   browser: gear -> invite mints a token with a copy-paste prompt for an agent
 
-`)
+`, srvHint, srvHint, srvHint)
 	if err := http.Serve(ln, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}

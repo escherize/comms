@@ -533,3 +533,32 @@ func itoa(n int64) string {
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
+
+// --server points a client verb at a non-default hub, overriding the Env's
+// default (which comes from COMMS_SERVER). A hub on a non-default --addr needs
+// this, and the setup banner now prints it. Both spellings and the =form work,
+// and a bare --server with no value is a usage error, not a silent no-op.
+func TestServerFlagOverridesTheDefault(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+	seedActor(t, st, "human:sarah")
+
+	// Point the Env at a dead hub; --server must redirect the post to the live
+	// one. If the flag were ignored, the post would fail transport, not accept.
+	for _, form := range [][]string{
+		{"post", "chat", "--as", seat, "--text", "via space form", "--server", srv.URL},
+		{"post", "chat", "--as", seat, "--text", "via equals form", "--server=" + srv.URL},
+	} {
+		var c capture
+		if code := Run(c.env(t, "http://127.0.0.1:1", ""), form); code != ExitOK {
+			t.Errorf("%v exited %d: %s", form, code, c.out.String())
+		}
+	}
+
+	// A bare --server with nothing after it is a usage error.
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""), []string{"post", "chat", "--server"}); code != ExitUsage {
+		t.Errorf("bare --server must be a usage error, got exit %d", code)
+	}
+}

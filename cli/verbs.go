@@ -49,6 +49,39 @@ func Run(e *Env, args []string) int {
 	if len(args) == 0 {
 		return usage(e)
 	}
+	// --server points a client verb at a non-default hub. It is pulled out here,
+	// before the verb dispatch, so every verb honours it without each declaring
+	// its own flag — and so `comms invite --server http://host:port` works, which
+	// is what a hub served on a non-default --addr needs. COMMS_SERVER still sets
+	// the default; the flag wins when both are present. A bare --server with no
+	// value is a usage error, not a silent no-op.
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if v, ok := strings.CutPrefix(a, "--server="); ok {
+			e.Server = v
+			continue
+		}
+		if v, ok := strings.CutPrefix(a, "-server="); ok {
+			e.Server = v
+			continue
+		}
+		if a == "--server" || a == "-server" {
+			if i+1 >= len(args) {
+				return e.Out.Fail(ExitUsage, "usage", "server.required",
+					"--server needs a URL, e.g. --server http://127.0.0.1:7878")
+			}
+			e.Server = args[i+1]
+			i++
+			continue
+		}
+		rest = append(rest, a)
+	}
+	args = rest
+	if len(args) == 0 {
+		return usage(e)
+	}
+
 	switch args[0] {
 	case "enrol":
 		return runEnrol(e, args[1:])

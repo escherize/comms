@@ -132,6 +132,8 @@ comms --grant-invite human:sarah     # on the hub, an operator act with no verb
 comms invite agent:sarah/claude-1 --as human:sarah
 ```
 
+**The first seat is granted `invite` automatically.** Whoever claims an empty hub — through the `#setup=` link or a bootstrap token — owns it, so the grant rides the same transaction that enrols them (recorded as `granted_by: bootstrap`, to mark that no human conferred it deliberately). This is what lets the owner bring the rest of the team on from the browser (gear → invite) without running an operator command on the box. Later seats get no capability by default; the owner grants them.
+
 Reaching the port is not enough, and a request from off-box without a capability is refused `invite.not_authorized`.
 
 ---
