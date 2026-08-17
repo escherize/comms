@@ -738,6 +738,19 @@ func (s *Store) IsMember(actor, room string) bool {
 	return n > 0
 }
 
+// AnyMembership reports whether any membership row exists at all. A hub with
+// none has never placed a seat in a room — room scoping is not in force — so
+// the decider treats every author as a member until the first membership is
+// written. Any enrolled hub has rows (grandfather + redeem write them), so
+// this only stays true for a fresh or unsigned hub that never enrolled anyone.
+func (s *Store) AnyMembership() bool {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM membership LIMIT 1`).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
+}
+
 // AnyScopedMember reports whether any seat holds a non-wildcard membership —
 // i.e. someone is scoped to specific rooms rather than all. The read gate
 // uses it to decide whether reads must be authenticated hub-wide: a scoped

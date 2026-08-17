@@ -135,6 +135,17 @@ type State struct {
 	// event to a seat that does not exist is worse than a rejection: it is
 	// accepted, addressed to nobody, permanently, and its author waits.
 	ActorEnrolled func(a Actor) bool
+	// IsMember reports whether a seat may act in a room. It is the room-scope
+	// decision projection, the same shape as HasCapability: authorization
+	// inside the decider, not a privileged path around it. A '*'-scoped seat is
+	// a member of every room. When nil (a hub with no scoping wired), every
+	// author is treated as a member — backward compatible with a hub that
+	// predates room scoping.
+	IsMember func(a Actor, room string) bool
+	// MemberRooms lists the rooms a seat holds, for the room.not_a_member
+	// refusal to name — the seat's OWN rooms only, so the error helps the
+	// author without confirming whether the room they were refused from exists.
+	MemberRooms func(a Actor) []string
 }
 
 // Decide is the whole domain. state × command → events | rejection.
@@ -146,11 +157,22 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 	if c.Room == "" {
 		return nil, &Rejection{"room.required", "every command names a room"}
 	}
-	if s.RoomExists != nil && !s.RoomExists(c.Room) {
-		return nil, &Rejection{"room.unknown", "no such room: " + c.Room}
-	}
 	if c.Author == "" {
 		return nil, &Rejection{"author.required", "every command names an author"}
+	}
+	// Membership is checked before room existence, and this order is a security
+	// property, not a preference. room.unknown reveals that a room does not
+	// exist; a seat scoped away from a room must not be able to probe for it, so
+	// a non-member is refused room.not_a_member — which names only the seat's
+	// own rooms and says nothing about the target — before RoomExists could
+	// leak. A '*' member is a member of every room and falls through to the
+	// existence check, where room.unknown is not a leak because they can see
+	// every room anyway.
+	if s.IsMember != nil && !s.IsMember(c.Author, c.Room) {
+		return nil, &Rejection{"room.not_a_member", notAMemberDetail(s, c.Author)}
+	}
+	if s.RoomExists != nil && !s.RoomExists(c.Room) {
+		return nil, &Rejection{"room.unknown", "no such room: " + c.Room}
 	}
 	if c.Idem == "" {
 		return nil, &Rejection{"idem.required", "every command carries an idempotency key"}
@@ -261,6 +283,30 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		Lane:        lane,
 		Attachments: c.Attachments,
 	}}, nil
+}
+
+// notAMemberDetail is the room.not_a_member message. It names the author's own
+// rooms and nothing else — never the room they were refused from, never
+// whether that room exists — so the refusal helps a legitimate author who
+// mistyped a room they hold, and tells a prober nothing. A seat with no rooms
+// at all is told exactly that, which is also existence-independent.
+func notAMemberDetail(s State, author Actor) string {
+	var mine []string
+	if s.MemberRooms != nil {
+		for _, r := range s.MemberRooms(author) {
+			if r == "*" {
+				// A '*' member never reaches this refusal, but if wiring ever
+				// let one through, do not print the wildcard as a room name.
+				continue
+			}
+			mine = append(mine, r)
+		}
+	}
+	if len(mine) == 0 {
+		return "you are not a member of that room, and hold no rooms to post in; " +
+			"ask whoever runs the hub for an invite scoped to it"
+	}
+	return "you are not a member of that room; you can post in: " + strings.Join(mine, ", ")
 }
 
 // checkRedaction is the authorization the log's irreversibility demands. A

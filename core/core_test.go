@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // okRoom accepts any room; tests that care about unknown rooms supply their own.
 func okRoom(string) bool { return true }
@@ -225,6 +228,88 @@ func TestUnknownRoomIsRejected(t *testing.T) {
 		Body: chat("x"), Idem: "i2"})
 	if rej != nil {
 		t.Fatalf("known room must be accepted, got %v", rej)
+	}
+}
+
+// A non-member is refused before room existence is checked, and the refusal
+// leaks nothing: it names only the author's own rooms, never the room they
+// were refused from and never whether it exists. This ordering is the whole
+// no-leak property — a seat scoped away from a room must not be able to probe
+// for it.
+func TestNonMemberIsRefusedWithoutLeakingRoomExistence(t *testing.T) {
+	// sarah is a member of comms and ops only. Every room "exists" in this
+	// state, so if the refusal were room.unknown-shaped it would still be a
+	// leak — the point is she is told nothing about the target at all.
+	state := State{
+		RoomExists:  func(string) bool { return true },
+		IsMember:    func(a Actor, room string) bool { return room == "comms" || room == "ops" },
+		MemberRooms: func(Actor) []string { return []string{"comms", "ops"} },
+	}
+
+	// A member posts fine.
+	if _, rej := Decide(state, Command{Room: "comms", Author: "human:sarah",
+		Kind: KindChat, Body: chat("hi"), Idem: "i1"}); rej != nil {
+		t.Fatalf("a member must be able to post, got %v", rej)
+	}
+
+	// A non-member room is refused room.not_a_member — not room.unknown — and
+	// the detail names sarah's own rooms, never "secret".
+	_, rej := Decide(state, Command{Room: "secret", Author: "human:sarah",
+		Kind: KindChat, Body: chat("probe"), Idem: "i2"})
+	if rej == nil || rej.Invariant != "room.not_a_member" {
+		t.Fatalf("a non-member must get room.not_a_member, got %v", rej)
+	}
+	if strings.Contains(rej.Detail, "secret") {
+		t.Errorf("the refusal must not name the room it refused: %q", rej.Detail)
+	}
+	if !strings.Contains(rej.Detail, "comms") || !strings.Contains(rej.Detail, "ops") {
+		t.Errorf("the refusal must name the author's own rooms: %q", rej.Detail)
+	}
+
+	// The membership check runs BEFORE RoomExists: a non-member naming a room
+	// that does not exist still gets room.not_a_member, so existence never
+	// leaks through room.unknown.
+	strict := State{
+		RoomExists:  func(r string) bool { return r == "comms" || r == "ops" },
+		IsMember:    func(a Actor, room string) bool { return room == "comms" },
+		MemberRooms: func(Actor) []string { return []string{"comms"} },
+	}
+	_, rej = Decide(strict, Command{Room: "ghost", Author: "human:sarah",
+		Kind: KindChat, Body: chat("probe"), Idem: "i3"})
+	if rej == nil || rej.Invariant != "room.not_a_member" {
+		t.Fatalf("a non-member naming a nonexistent room must get room.not_a_member, not room.unknown, got %v", rej)
+	}
+
+	// A '*'-scoped seat is a member of everything and falls through to the
+	// existence check — where room.unknown is not a leak, since it sees all
+	// rooms anyway.
+	super := State{
+		RoomExists:  func(r string) bool { return r == "comms" },
+		IsMember:    func(Actor, string) bool { return true },
+		MemberRooms: func(Actor) []string { return []string{"*"} },
+	}
+	_, rej = Decide(super, Command{Room: "ghost", Author: "human:owner",
+		Kind: KindChat, Body: chat("x"), Idem: "i4"})
+	if rej == nil || rej.Invariant != "room.unknown" {
+		t.Fatalf("an all-rooms seat must reach room.unknown for a typo, got %v", rej)
+	}
+}
+
+// A seat with no rooms at all is told exactly that, still without confirming
+// the target room exists.
+func TestMemberlessSeatRefusalIsExistenceIndependent(t *testing.T) {
+	state := State{
+		RoomExists:  func(string) bool { return true },
+		IsMember:    func(Actor, string) bool { return false },
+		MemberRooms: func(Actor) []string { return nil },
+	}
+	_, rej := Decide(state, Command{Room: "anything", Author: "human:nobody",
+		Kind: KindChat, Body: chat("x"), Idem: "i1"})
+	if rej == nil || rej.Invariant != "room.not_a_member" {
+		t.Fatalf("want room.not_a_member, got %v", rej)
+	}
+	if strings.Contains(rej.Detail, "anything") {
+		t.Errorf("must not name the target room: %q", rej.Detail)
 	}
 }
 

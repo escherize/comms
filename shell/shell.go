@@ -914,6 +914,22 @@ func (s *Server) decisionState() core.State {
 		ActorEnrolled: func(a core.Actor) bool {
 			return s.st.ActorEnrolled(string(a))
 		},
+		IsMember: func(a core.Actor, room string) bool {
+			// A hub with no membership rows at all is unscoped — nobody has been
+			// placed in rooms, so room scoping is not in force and every author
+			// is a member. Any real hub has rows (grandfather writes one per
+			// enrolled seat, redeem writes them on the way in), so this opens
+			// only a fresh or -insecure hub that never enrolled anyone, which is
+			// the pre-scoping behaviour. Once a single membership exists the
+			// check is live.
+			if !s.st.AnyMembership() {
+				return true
+			}
+			return s.st.IsMember(string(a), room)
+		},
+		MemberRooms: func(a core.Actor) []string {
+			return s.st.Memberships(string(a))
+		},
 	}
 }
 
