@@ -198,21 +198,28 @@ func (s *Server) postSession(w http.ResponseWriter, r *http.Request) {
 // a perimeter (§7 of the deploy docs).
 func (s *Server) readGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Loopback is operator trust (being on the box is holding the database),
-		// and the self-authenticating routes carry their own credential — both
-		// pass with the full view. Otherwise a live session is required, and its
-		// seat is stashed on the request so the read handlers can filter by that
-		// seat's room membership. A no-session browser read gets the unlock page
-		// rather than content: no token, no read; a #setup= token in the URL is
-		// what lets an unenrolled browser enrol and come back authenticated.
-		if isLoopback(r.RemoteAddr) || selfAuthenticating(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
+		// A session identifies the reader, and identity wins over locality: a
+		// request that names a seat is filtered by that seat's membership even
+		// from loopback, so `comms read --as scoped-agent` on the box is scoped,
+		// not handed the operator's full view. This is the whole point of
+		// scoping distinct local agents from each other.
 		if actor, ok := s.sessionActor(r); ok {
 			next.ServeHTTP(w, withReader(r, actor))
 			return
 		}
+		// No session. Loopback is operator trust (being on the box is holding the
+		// database — you could read the SQLite file directly), and the
+		// self-authenticating routes carry their own credential: both pass with
+		// the full view. A *seatless* loopback read is the operator, not a member
+		// of nothing.
+		if isLoopback(r.RemoteAddr) || selfAuthenticating(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Off-box with no session: a browser read gets the unlock page rather
+		// than content (no token, no read; a #setup= token in the URL lets an
+		// unenrolled browser enrol and come back authenticated), everything else
+		// a session.required 401.
 		if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusUnauthorized)

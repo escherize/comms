@@ -128,7 +128,18 @@ func doRead(e *Env, hc *http.Client, build func() (*http.Request, error)) (*http
 	if err != nil {
 		return nil, err
 	}
-	if tok := loadSession(e.Server, e.Seat); tok != "" {
+	// Attach a session so the read is attributed to this seat and filtered by
+	// its room membership — even against a loopback hub, which would otherwise
+	// serve the full operator view to any local read regardless of --as. If none
+	// is cached and this seat holds a key, establish one up front rather than
+	// waiting for a 401 that loopback never sends.
+	tok := loadSession(e.Server, e.Seat)
+	if tok == "" && e.Seat != "" && HasSeat(e.Seat) {
+		if fresh, err := establishSession(e, e.Seat); err == nil {
+			tok = fresh
+		}
+	}
+	if tok != "" {
 		req.Header.Set(SessionHeader, tok)
 	}
 	resp, err := hc.Do(req)
@@ -153,7 +164,7 @@ func doRead(e *Env, hc *http.Client, build func() (*http.Request, error)) (*http
 			e.Seat, e.Seat)
 	}
 
-	tok, err := establishSession(e, e.Seat)
+	tok, err = establishSession(e, e.Seat)
 	if err != nil {
 		return nil, fmt.Errorf("this hub requires a read session and establishing one as %s failed: %w",
 			e.Seat, err)

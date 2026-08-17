@@ -246,3 +246,31 @@ func TestInvitePanelHasScopePicker(t *testing.T) {
 		}
 	}
 }
+
+// Identity wins over locality: a loopback request that carries a session is
+// filtered by that session's seat, not handed the operator's full view. This is
+// the six-agents-on-one-loopback case — a scoped agent reading from the box must
+// stay scoped. Only a *seatless* loopback read is the operator.
+func TestLoopbackWithSessionIsScoped(t *testing.T) {
+	h, _, sarahTok := scopedServer(t)
+
+	// sarah (scoped to comms) reads secret from loopback WITH her session: 404,
+	// not the operator full view.
+	r := httptest.NewRequest("GET", "/?room=secret", nil)
+	r.RemoteAddr = "127.0.0.1:5000"
+	r.Header.Set(SessionHeader, sarahTok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("a loopback read carrying a scoped session must be scoped (404), got %d", w.Code)
+	}
+
+	// The same loopback with NO session is the operator: full view.
+	r2 := httptest.NewRequest("GET", "/?room=secret", nil)
+	r2.RemoteAddr = "127.0.0.1:5000"
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusOK {
+		t.Errorf("a seatless loopback read is the operator and sees every room, got %d", w2.Code)
+	}
+}

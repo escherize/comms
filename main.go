@@ -419,6 +419,15 @@ func ownerEnrol(st *store.Store, actor, serverURL string, now time.Time) error {
 	if err := st.Grant(actor, "invite", "serve", now); err != nil {
 		return err
 	}
+	// The owner is an all-rooms member: claiming the hub means seeing and
+	// posting in every room. Without this the owner is a member of nothing —
+	// enrolled on a db that already has the membership table, so the one-time
+	// grandfather backfill (which only fires for seats predating scoping) does
+	// not cover it — and every post is refused room.not_a_member. This is the
+	// same '*' the bootstrap browser seat and every grandfathered seat hold.
+	if err := st.AddMembership(actor, "*", "serve", now); err != nil {
+		return err
+	}
 	// Local key last: if this failed after the store writes, a re-serve with
 	// the same --as would find the seat enrolled-without-a-local-key and refuse
 	// clearly, rather than leaving a half state that signs for nothing.

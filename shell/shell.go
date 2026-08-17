@@ -1329,11 +1329,16 @@ func (s *Server) postInvite(w http.ResponseWriter, r *http.Request) {
 // so both return "". A minter granting "all" while itself scoped is refused —
 // it cannot hand out reach it does not hold.
 func (s *Server) scopeExceedsGranter(r *http.Request, as, scope string) string {
-	if isLoopback(r.RemoteAddr) {
-		return "" // the operator on the box grants anything
+	// A bare loopback mint with no named seat is the operator on the box, who
+	// grants anything. But once a seat is named — `--as sarah`, even locally —
+	// identity wins over locality: sarah is bound by her own membership, the
+	// same rule that scopes her reads. Otherwise a scoped seat on the box could
+	// mint itself into any room and enrol as that seat.
+	if as == "" && isLoopback(r.RemoteAddr) {
+		return ""
 	}
 	if as != "" && s.st.IsMember(as, "*") {
-		return "" // an all-rooms admin grants anything
+		return "" // an all-rooms admin grants anything, from anywhere
 	}
 	// A scoped admin granting "all" is exceeding its grant by definition.
 	if scope == store.ScopeAll || scope == "*" {

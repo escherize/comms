@@ -210,3 +210,43 @@ func TestAllRoomsAdminMintsAnyScope(t *testing.T) {
 		t.Errorf("loopback must mint any scope, got %d: %s", lw.Code, lw.Body.String())
 	}
 }
+
+// A scoped admin minting from loopback is still bound by its own rooms: naming
+// a seat (--as) means identity wins over locality. Only a bare loopback mint
+// with no named seat is the operator, who grants anything.
+func TestScopedAdminOnLoopbackStillBounded(t *testing.T) {
+	h, st, priv := adminServer(t)
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	for _, r := range []string{"comms", "secret"} {
+		if err := st.EnsureRoom(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Grant("human:bcm", CapInvite, "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddMembership("human:bcm", "comms", "operator", now); err != nil {
+		t.Fatal(err)
+	}
+
+	// From loopback, but naming itself as a scoped seat: the subset rule holds.
+	body := `{"actor":"human:sarah","as":"human:bcm","rooms":"secret"}`
+	r := httptest.NewRequest("POST", "/invite", strings.NewReader(body))
+	r.RemoteAddr = "127.0.0.1:9"
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Signature", hex.EncodeToString(ed25519.Sign(priv, []byte(body))))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "scope_exceeds_grant") {
+		t.Errorf("a scoped admin on loopback must still be bounded, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// A bare loopback mint (no --as) is the operator: any scope.
+	bare := httptest.NewRequest("POST", "/invite", strings.NewReader(`{"actor":"human:eve","rooms":"secret"}`))
+	bare.RemoteAddr = "127.0.0.1:9"
+	bw := httptest.NewRecorder()
+	h.ServeHTTP(bw, bare)
+	if bw.Code != http.StatusOK {
+		t.Errorf("a bare loopback operator mint must grant any scope, got %d: %s", bw.Code, bw.Body.String())
+	}
+}
