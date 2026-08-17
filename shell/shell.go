@@ -1268,6 +1268,7 @@ func (s *Server) postInvite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Actor string `json:"actor"`
 		As    string `json:"as"`
+		Rooms string `json:"rooms"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, rejectedResponse{"parse.failed", err.Error(), ""})
@@ -1290,17 +1291,65 @@ func (s *Server) postInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.st.MintInvite(req.Actor, store.ScopeAll, s.now())
+	scope := req.Rooms
+	if scope == "" {
+		scope = store.ScopeAll
+	}
+	// A scoped admin may only mint within its own rooms — otherwise it could
+	// grant itself reach it does not have by inviting a seat into a room it
+	// cannot see and enrolling as that seat. Loopback (the operator) and an
+	// all-rooms admin may mint anything; that is what over() below allows.
+	if over := s.scopeExceedsGranter(r, req.As, scope); over != "" {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"ok": false, "outcome": "refused", "exit": 4,
+			"invariant": "invite.scope_exceeds_grant",
+			"detail": "you can only invite into rooms you are a member of; you are not " +
+				"a member of: " + over,
+			"next": "mint within your own rooms, or ask an all-rooms admin",
+		})
+		return
+	}
+
+	token, err := s.st.MintInvite(req.Actor, scope, s.now())
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity,
 			rejectedResponse{"invite.refused", err.Error(), ""})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "outcome": "invited", "actor": req.Actor, "token": token,
+		"ok": true, "outcome": "invited", "actor": req.Actor, "token": token, "scope": scope,
 		"detail": "one use. It exists in the database this hub is serving, which is " +
 			"the point of minting it here",
 	})
+}
+
+// scopeExceedsGranter returns the comma-joined rooms in the requested scope that
+// the minter is not a member of, or "" if the mint is within the minter's
+// grant. Loopback (the operator) and an all-rooms minter may grant any scope,
+// so both return "". A minter granting "all" while itself scoped is refused —
+// it cannot hand out reach it does not hold.
+func (s *Server) scopeExceedsGranter(r *http.Request, as, scope string) string {
+	if isLoopback(r.RemoteAddr) {
+		return "" // the operator on the box grants anything
+	}
+	if as != "" && s.st.IsMember(as, "*") {
+		return "" // an all-rooms admin grants anything
+	}
+	// A scoped admin granting "all" is exceeding its grant by definition.
+	if scope == store.ScopeAll || scope == "*" {
+		return store.ScopeAll
+	}
+	var over []string
+	for _, room := range strings.Split(scope, ",") {
+		room = strings.TrimSpace(room)
+		if room == "" {
+			continue
+		}
+		if !s.st.IsMember(as, room) {
+			over = append(over, room)
+		}
+	}
+	return strings.Join(over, ", ")
 }
 
 // mayInvite is loopback, or a seat holding the capability and proving it.

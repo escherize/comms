@@ -351,13 +351,18 @@ func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []str
 // onboardingPrompt is everything between "given a token" and "posting
 // usefully", as one paste. The web page's copy button builds the same text
 // (shell/html.go botPrompt); a test holds the two surfaces to the same steps.
-func onboardingPrompt(actor, token, server string) string {
+func onboardingPrompt(actor, token, server, scope string) string {
+	rooms := "all rooms"
+	if scope != "" && scope != "all" {
+		rooms = scope
+	}
 	return strings.Join([]string{
 		"You have a seat on a comms hub — a shared room where this team's humans and",
 		"AI agents post signed, permanent, typed entries.",
 		"",
-		"Seat: " + actor,
-		"Hub:  " + server,
+		"Seat:  " + actor,
+		"Rooms: " + rooms,
+		"Hub:   " + server,
 		"",
 		"1. Connect (one-time; the token is single-use):",
 		"   export COMMS_SERVER=" + server,
@@ -393,8 +398,9 @@ func runInvite(e *Env, args []string) int {
 	fs, sink := newFlags("invite")
 	as := fs.String("as", "", "the seat minting, if you are not on the hub itself")
 	prompt := fs.Bool("prompt", false, "print the paste-ready onboarding prompt (the default for agent:* seats)")
+	rooms := fs.String("rooms", "", "rooms the invited seat may see and post in (comma-separated, or 'all'; default all)")
 	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms invite <seat> [--prompt]
+		e.Out.HelpFS(fs, `comms invite <seat> [--rooms a,b | all] [--prompt]
 
 Mints a one-time enrolment token, from the hub you are pointed at. The token
 exists in the database that hub is serving, because that hub created it.
@@ -421,7 +427,13 @@ the token alone makes them assemble the rest by hand:
 
 It is the same prompt the web page's "copy prompt for the agent" button
 copies; --prompt asks for it for a human seat too. The token is single-use
-either way, and stays machine-findable inside the prompt verbatim.`)
+either way, and stays machine-findable inside the prompt verbatim.
+
+--rooms scopes the seat: comms invite human:sarah --rooms comms,ops binds
+sarah to those rooms only — she posts and reads there and nowhere else.
+Unscoped (or --rooms all) is an all-rooms seat, the superuser default. A
+scoped seat that itself holds the invite capability may only mint within its
+own rooms; an all-rooms seat may mint anything.`)
 	}
 
 	seats, code, done := parsePositional(e, fs, sink, args)
@@ -436,6 +448,9 @@ either way, and stays machine-findable inside the prompt verbatim.`)
 	body := map[string]any{"actor": seats[0]}
 	if *as != "" {
 		body["as"] = *as
+	}
+	if *rooms != "" {
+		body["rooms"] = *rooms
 	}
 
 	var sent Sent
@@ -466,7 +481,7 @@ either way, and stays machine-findable inside the prompt verbatim.`)
 	// an assembly job, and the prompt contains the token verbatim, so anything
 	// that greps for it still finds it.
 	if *prompt || strings.HasPrefix(seats[0], "agent:") {
-		fmt.Fprint(e.Out.Stdout, onboardingPrompt(seats[0], sent.Body.Token, e.Server))
+		fmt.Fprint(e.Out.Stdout, onboardingPrompt(seats[0], sent.Body.Token, e.Server, *rooms))
 		return ExitOK
 	}
 	e.Out.Note("one use. Hand it over out of band:\n\n  %s\n", sent.Body.Token)

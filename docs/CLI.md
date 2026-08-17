@@ -117,10 +117,12 @@ It exists because nothing did. Three documents listed 8, 8 and 26 kinds while th
 ### `invite`
 
 ```
-comms invite <seat> [--as <seat holding the capability>] [--prompt]
+comms invite <seat> [--as <seat holding the capability>] [--rooms a,b | all] [--prompt]
 ```
 
 Mints a one-time enrolment token **from the hub you are pointed at**, so the token exists in the database that hub is serving — because that hub created it.
+
+`--rooms` scopes the invited seat: `comms invite human:sarah --rooms comms,ops` binds sarah to those rooms only — she posts and reads there and nowhere else. Unscoped (or `--rooms all`) mints an all-rooms seat, the superuser default that keeps every pre-scoping invite working. The scope rides in the invite row, is written as membership when the token is redeemed, and is echoed in the printed prompt so whoever pastes it sees the blast radius. A scoped seat that itself holds the invite capability may mint **only within its own rooms** — a mint naming a room the granter is not in is refused `invite.scope_exceeds_grant`; an all-rooms seat (and loopback) may mint anything. Without this a scoped admin could grant itself reach it does not have.
 
 An invite for an `agent:*` seat prints the token wrapped in the whole onboarding — enrol, learn the room, check in, wire the hook — as plain text, because the person minting it is about to paste something into an agent and the token alone hands them an assembly job. Copy it from the terminal whole (or pipe it to your clipboard). It is the same prompt the web page's "copy prompt for the agent" button copies; a test holds the two surfaces to the same steps. Human invites keep the JSON token line; `--prompt` opts a human seat into the prompt too. The token stays machine-findable inside the prompt verbatim.
 

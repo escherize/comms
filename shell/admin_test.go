@@ -124,3 +124,89 @@ func TestCapsListsWhatASeatHolds(t *testing.T) {
 		t.Errorf("empty capabilities must serialize as [], got %s", w2.Body.String())
 	}
 }
+
+// postInviteAs signs an /invite body from a non-loopback address, like a
+// remote admin minting through the capability.
+func postInviteAs(h http.Handler, body string, priv ed25519.PrivateKey) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("POST", "/invite", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	if priv != nil {
+		r.Header.Set("X-Signature", hex.EncodeToString(ed25519.Sign(priv, []byte(body))))
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// A scoped admin may only mint invites within its own rooms; an all-rooms
+// admin and loopback may mint anything. Without this, a scoped seat holding the
+// invite capability could grant itself reach it does not have — invite a seat
+// into a room it cannot see, then enrol as that seat.
+func TestScopedAdminMintsOnlyWithinItsRooms(t *testing.T) {
+	h, st, priv := adminServer(t)
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	for _, r := range []string{"comms", "ops", "secret"} {
+		if err := st.EnsureRoom(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// human:bcm holds the invite capability but is scoped to comms + ops only.
+	if err := st.Grant("human:bcm", CapInvite, "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddMembership("human:bcm", "comms", "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddMembership("human:bcm", "ops", "operator", now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Within its rooms: allowed.
+	ok := postInviteAs(h, `{"actor":"human:sarah","as":"human:bcm","rooms":"comms,ops"}`, priv)
+	if ok.Code != http.StatusOK {
+		t.Errorf("a scoped admin must mint within its rooms, got %d: %s", ok.Code, ok.Body.String())
+	}
+
+	// Outside its rooms: refused, naming the room it lacks.
+	no := postInviteAs(h, `{"actor":"human:sarah","as":"human:bcm","rooms":"comms,secret"}`, priv)
+	if no.Code != http.StatusForbidden || !strings.Contains(no.Body.String(), "invite.scope_exceeds_grant") {
+		t.Errorf("minting into a non-member room must be refused, got %d: %s", no.Code, no.Body.String())
+	}
+	if !strings.Contains(no.Body.String(), "secret") {
+		t.Errorf("the refusal should name the room the admin lacks, got %s", no.Body.String())
+	}
+
+	// A scoped admin cannot mint an all-rooms invite — that exceeds its grant.
+	allReq := postInviteAs(h, `{"actor":"human:sarah","as":"human:bcm","rooms":"all"}`, priv)
+	if allReq.Code != http.StatusForbidden {
+		t.Errorf("a scoped admin minting 'all' must be refused, got %d: %s", allReq.Code, allReq.Body.String())
+	}
+}
+
+// An all-rooms admin (and loopback) may mint any scope.
+func TestAllRoomsAdminMintsAnyScope(t *testing.T) {
+	h, st, priv := adminServer(t)
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	if err := st.EnsureRoom("secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Grant("human:bcm", CapInvite, "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddMembership("human:bcm", "*", "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	w := postInviteAs(h, `{"actor":"human:sarah","as":"human:bcm","rooms":"secret"}`, priv)
+	if w.Code != http.StatusOK {
+		t.Errorf("an all-rooms admin must mint any scope, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Loopback mints anything with no capability at all.
+	r := httptest.NewRequest("POST", "/invite", strings.NewReader(`{"actor":"human:eve","rooms":"secret"}`))
+	r.RemoteAddr = "127.0.0.1:9"
+	lw := httptest.NewRecorder()
+	h.ServeHTTP(lw, r)
+	if lw.Code != http.StatusOK {
+		t.Errorf("loopback must mint any scope, got %d: %s", lw.Code, lw.Body.String())
+	}
+}
