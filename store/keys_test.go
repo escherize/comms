@@ -731,3 +731,77 @@ func TestInviteScopeRoundTrips(t *testing.T) {
 		t.Errorf("bootstrap must be * / all, got %s / %s", actor, scope)
 	}
 }
+
+// Redeeming an invite binds the seat's rooms from the invite's scope, in the
+// same transaction that registers the key — so a seat is never enrolled into
+// no room, and its rooms match what the token promised.
+func TestRedeemBindsMembershipFromScope(t *testing.T) {
+	s, _, pub := keyStore(t)
+
+	// A scoped invite → membership in exactly those rooms, nothing else.
+	scoped, _ := s.MintInvite("human:sarah", "comms, ops", kt0)
+	if err := s.RedeemInvite(scoped, "human:sarah", pub, kt0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !s.IsMember("human:sarah", "comms") || !s.IsMember("human:sarah", "ops") {
+		t.Error("a scoped redeem must bind its rooms")
+	}
+	if s.IsMember("human:sarah", "secret") {
+		t.Error("a scoped redeem must not bind rooms outside its scope")
+	}
+	if got := s.Memberships("human:sarah"); len(got) != 2 {
+		t.Errorf("want two rooms, got %v", got)
+	}
+
+	// An all-rooms invite → the '*' wildcard.
+	pub2, _, _ := ed25519.GenerateKey(nil)
+	allTok, _ := s.MintInvite("human:owner", "all", kt0)
+	if err := s.RedeemInvite(allTok, "human:owner", pub2, kt0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Memberships("human:owner"); len(got) != 1 || got[0] != membershipRoomAll {
+		t.Errorf("an all invite must bind exactly '*', got %v", got)
+	}
+	if !s.IsMember("human:owner", "anything") {
+		t.Error("an all-rooms seat must be a member of every room")
+	}
+
+	// The bootstrap token binds all rooms.
+	s2, _, pub3 := keyStore(t)
+	boot, _ := s2.MintBootstrapInvite(kt0)
+	if err := s2.RedeemInvite(boot, "human:first", pub3, kt0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s2.Memberships("human:first"); len(got) != 1 || got[0] != membershipRoomAll {
+		t.Errorf("bootstrap redeem must bind '*', got %v", got)
+	}
+}
+
+// membershipRooms is the scope→rooms parser; its edge cases decide what a seat
+// can touch, so they are pinned.
+func TestMembershipRoomsParsing(t *testing.T) {
+	cases := map[string][]string{
+		"all":           {"*"},
+		"":              {"*"},
+		"*":             {"*"},
+		"comms":         {"comms"},
+		"comms,ops":     {"comms", "ops"},
+		" comms , ops ": {"comms", "ops"},
+		"comms,comms":   {"comms"}, // dedupe
+		",,comms,,":     {"comms"}, // blanks dropped
+		"  ,  ":         {"*"},     // all-blank falls back to '*', never nothing
+	}
+	for scope, want := range cases {
+		got := membershipRooms(scope)
+		if len(got) != len(want) {
+			t.Errorf("membershipRooms(%q) = %v, want %v", scope, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("membershipRooms(%q) = %v, want %v", scope, got, want)
+				break
+			}
+		}
+	}
+}

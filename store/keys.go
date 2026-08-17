@@ -425,10 +425,10 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 	}
 	defer tx.Rollback()
 
-	var forActor, usedAt, expires string
+	var forActor, usedAt, expires, scope string
 	err = tx.QueryRow(
-		`SELECT actor, used_at, COALESCE(expires,'') FROM invite WHERE token = ?`, token).
-		Scan(&forActor, &usedAt, &expires)
+		`SELECT actor, used_at, COALESCE(expires,''), COALESCE(scope,'all') FROM invite WHERE token = ?`, token).
+		Scan(&forActor, &usedAt, &expires, &scope)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Almost always the operator minted it against a different database
 		// than the server is running. The token is fine; it is in another file.
@@ -527,7 +527,51 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 			return err
 		}
 	}
+
+	// Bind the seat's room membership in the same transaction as its key, so a
+	// crash cannot enrol a seat that belongs to no room. The invite's scope is
+	// the source: "all" (and every bootstrap token) writes the '*' wildcard;
+	// otherwise one row per named room. No room-existence check — a scope may
+	// name a room not created yet, and validating here would leak which rooms
+	// exist to whoever holds the token. Rooms are lowercased/comma-split the
+	// same way the invite stored them; blanks are dropped.
+	for _, room := range membershipRooms(scope) {
+		if _, err := tx.Exec(
+			`INSERT INTO membership(actor, room, granted_at, granted_by)
+			 VALUES(?,?,?,'invite')
+			 ON CONFLICT(actor, room) DO NOTHING`,
+			actor, room, ts); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
+}
+
+// membershipRooms turns an invite scope into the membership rows it grants.
+// "all" (or empty) becomes the single '*' wildcard; anything else splits on
+// commas, trims, drops blanks, and dedupes. A scope that is somehow all-blank
+// falls back to '*' rather than enrolling a seat into nothing — an invite that
+// granted no rooms would be a seat that cannot act, which is never what minting
+// one meant.
+func membershipRooms(scope string) []string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" || scope == ScopeAll || scope == membershipRoomAll {
+		return []string{membershipRoomAll}
+	}
+	seen := map[string]bool{}
+	var rooms []string
+	for _, r := range strings.Split(scope, ",") {
+		r = strings.TrimSpace(r)
+		if r == "" || seen[r] {
+			continue
+		}
+		seen[r] = true
+		rooms = append(rooms, r)
+	}
+	if len(rooms) == 0 {
+		return []string{membershipRoomAll}
+	}
+	return rooms
 }
 
 const redactSchema = `
