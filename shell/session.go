@@ -1,9 +1,10 @@
 package shell
 
-// Read sessions ride on enrolment (ADR-0014). A seat proves it holds an
-// enrolled key by signing a server-issued challenge, and gets a bearer token
-// scoped to reading. The token is the perimeter carried in the request, for
-// deployments where the network is not one.
+// Read sessions ride on enrolment (ADR-0014, narrowed by ADR-0015). A seat
+// proves it holds an enrolled key by signing a server-issued challenge, and
+// gets a bearer token scoped to reading. Reads are always authenticated now —
+// there is no open-read mode — and the session's seat is what the read handlers
+// filter room content by.
 //
 // Sessions live in memory on purpose: the log is the only state worth keeping,
 // and a client that outlives a hub restart re-establishes with one signature.

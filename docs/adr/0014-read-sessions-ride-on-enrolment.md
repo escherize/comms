@@ -1,6 +1,6 @@
 # ADR-0014: read sessions ride on enrolment
 
-**Status:** accepted, 2026-08-09. Narrows ADR-0012's "reads are open; the network is the perimeter" and DEPLOY's "the binary will not do it for you".
+**Status:** accepted, 2026-08-09. Narrows ADR-0012's "reads are open; the network is the perimeter" and DEPLOY's "the binary will not do it for you". **Narrowed in turn by ADR-0015:** the opt-in `--read-auth` flag became always-on (there is no open-read mode), and "any enrolled seat reads everything" became "reads the rooms it is a member of".
 
 Reads were open by design: posting carries an ed25519 signature, reading is for whoever can reach the port, and the deployment question was "what is the perimeter", answered with a tailnet or a proxy. The first real deployment answered it differently: `fly launch` hands out a public hostname, the guide's safe options both cost more friction than the unsafe one, and the room was world-readable within the hour. When the safe path is the high-friction path, the perimeter argument is an argument with how people behave, and it loses.
 
