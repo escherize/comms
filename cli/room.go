@@ -484,10 +484,16 @@ own rooms; an all-rooms seat may mint anything.`)
 		fmt.Fprint(e.Out.Stdout, onboardingPrompt(seats[0], sent.Body.Token, e.Server, *rooms))
 		return ExitOK
 	}
-	e.Out.Note("one use. Hand it over out of band:\n\n  %s\n", sent.Body.Token)
+	// A human seat gets a claimable URL, not just a token: opening it names the
+	// seat and enrols the browser in one step, the same #setup= path the first
+	// seat uses. The bare token stays on its own line so a script that greps for
+	// it still works, and both carry the same single-use credential.
+	setupURL := strings.TrimRight(e.Server, "/") + "/#setup=" + sent.Body.Token
+	e.Out.Note("one use. Open in a browser to claim the seat:\n\n  %s\n\nor hand the token over out of band:\n\n  %s\n",
+		setupURL, sent.Body.Token)
 	return e.Out.Succeed(Result{
 		Outcome: "invited", Actor: seats[0], Token: sent.Body.Token,
-		Detail: sent.Body.Detail,
+		Detail: sent.Body.Detail, URL: setupURL,
 	})
 }
 

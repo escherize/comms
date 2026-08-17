@@ -108,6 +108,7 @@ type Result struct {
 	Title        string           `json:"title,omitempty"`
 	Remaining    int              `json:"remaining,omitempty"`
 	Token        string           `json:"token,omitempty"`
+	URL          string           `json:"url,omitempty"`
 	Size         int              `json:"size,omitempty"`
 	Count        int              `json:"count,omitempty"`
 
