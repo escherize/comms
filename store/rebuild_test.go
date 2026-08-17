@@ -157,6 +157,9 @@ func TestRebuildDoesNotTouchWhatTheLogDoesNotDetermine(t *testing.T) {
 	if err := s.Grant("agent:kept", core.CapDigest, "human:bcm", kt0); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.AddMembership("agent:kept", "core", "human:bcm", kt0); err != nil {
+		t.Fatal(err)
+	}
 	token, err := s.MintInvite("agent:pending", kt0)
 	if err != nil {
 		t.Fatal(err)
@@ -175,6 +178,12 @@ func TestRebuildDoesNotTouchWhatTheLogDoesNotDetermine(t *testing.T) {
 	}
 	if err := s.RedeemInvite(token, "agent:pending", pub, kt0.Add(time.Minute)); err != nil {
 		t.Errorf("a rebuild erased an unspent invite: %v", err)
+	}
+	// Membership is a record, not a fold over the log — the same property that
+	// protects keys and capabilities protects it. A rebuild recomputes only
+	// what the log determines, so a seat's rooms survive it.
+	if !s.IsMember("agent:kept", "core") {
+		t.Error("a rebuild erased a membership grant")
 	}
 }
 

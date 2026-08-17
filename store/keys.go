@@ -606,3 +606,85 @@ func (s *Store) HasCapability(actor, capability string) bool {
 	}
 	return n > 0
 }
+
+// membership is a seat's room scope: which rooms it may post into and read.
+// It is a record with a grantor, exactly like capability — the same reason
+// applies, "who let this seat into this room" is an incident question — and
+// deliberately NOT a fold over the log, so -rebuild does not touch it. The
+// row room='*' is the wildcard: an all-rooms seat, which is what an unscoped
+// invite and every grandfathered seat holds. A scoped seat holds one row per
+// room instead.
+const membershipRoomAll = "*"
+
+const membershipSchema = `
+CREATE TABLE IF NOT EXISTS membership (
+  actor      TEXT NOT NULL,
+  room       TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  PRIMARY KEY (actor, room)
+);
+`
+
+// AddMembership puts a seat in a room. '*' means all rooms. Idempotent, like
+// Grant: re-adding a room a seat already holds is a no-op, so redeeming and
+// backfilling can both write without checking first.
+func (s *Store) AddMembership(actor, room, by string, now time.Time) error {
+	if err := ValidActor(actor); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO membership(actor, room, granted_at, granted_by) VALUES(?,?,?,?)
+		 ON CONFLICT(actor, room) DO NOTHING`,
+		actor, room, now.UTC().Format(time.RFC3339Nano), by)
+	return err
+}
+
+// Memberships lists a seat's rooms, for the settings page and for the
+// no-leak error that names a refused poster's own rooms. '*' comes back as
+// itself; the caller renders it as "all rooms". Authorization never reads
+// this — IsMember is the decision projection.
+func (s *Store) Memberships(actor string) []string {
+	rows, err := s.db.Query(
+		`SELECT room FROM membership WHERE actor = ? ORDER BY room`, actor)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var rooms []string
+	for rows.Next() {
+		var r string
+		if rows.Scan(&r) == nil {
+			rooms = append(rooms, r)
+		}
+	}
+	return rooms
+}
+
+// IsMember is the decision projection the core reads: may this seat act in
+// this room. A '*' row answers yes for every room; otherwise the exact room
+// must be present. A seat with no rows at all is a member of nothing.
+func (s *Store) IsMember(actor, room string) bool {
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM membership WHERE actor = ? AND (room = ? OR room = '*')`,
+		actor, room).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
+}
+
+// AnyScopedMember reports whether any seat holds a non-wildcard membership —
+// i.e. someone is scoped to specific rooms rather than all. The read gate
+// uses it to decide whether reads must be authenticated hub-wide: a scoped
+// seat existing is a promise of privacy that open reads would break. Callers
+// cache the result and refresh it when a scoped row is written, rather than
+// asking per request.
+func (s *Store) AnyScopedMember() bool {
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM membership WHERE room != '*' LIMIT 1`).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
+}

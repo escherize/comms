@@ -587,3 +587,111 @@ func TestAStepLessStatusCarriesTheCounterForward(t *testing.T) {
 		t.Errorf("the note must still update, got %q", rows[0].Note)
 	}
 }
+
+// Membership CRUD, the wildcard, and the read-gate signal. Room scoping hangs
+// on these, so the semantics are pinned here before anything reads them.
+func TestMembershipSemantics(t *testing.T) {
+	s, _, pub := keyStore(t)
+
+	// A scoped seat is a member of exactly the rooms it holds, nothing else.
+	if err := s.RegisterKey("human:sarah", pub, kt0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMembership("human:sarah", "comms", "human:owner", kt0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMembership("human:sarah", "ops", "human:owner", kt0); err != nil {
+		t.Fatal(err)
+	}
+	if !s.IsMember("human:sarah", "comms") || !s.IsMember("human:sarah", "ops") {
+		t.Error("a scoped seat must be a member of its granted rooms")
+	}
+	if s.IsMember("human:sarah", "secret") {
+		t.Error("a scoped seat must not be a member of a room it was not granted")
+	}
+	if got := s.Memberships("human:sarah"); len(got) != 2 {
+		t.Errorf("want two rooms, got %v", got)
+	}
+
+	// AddMembership is idempotent, like Grant: re-adding is a no-op.
+	if err := s.AddMembership("human:sarah", "comms", "human:owner", kt0); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Memberships("human:sarah"); len(got) != 2 {
+		t.Errorf("re-adding a held room must not duplicate it, got %v", got)
+	}
+
+	// The wildcard row is a member of every room, including ones not named.
+	pub2, _, _ := ed25519.GenerateKey(nil)
+	if err := s.RegisterKey("human:owner", pub2, kt0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMembership("human:owner", membershipRoomAll, "grandfather", kt0); err != nil {
+		t.Fatal(err)
+	}
+	for _, room := range []string{"comms", "ops", "secret", "anything"} {
+		if !s.IsMember("human:owner", room) {
+			t.Errorf("a '*' member must be a member of %q", room)
+		}
+	}
+
+	// A seat with no rows at all is a member of nothing.
+	if s.IsMember("human:nobody", "comms") {
+		t.Error("a seat with no membership must be a member of nothing")
+	}
+
+	// AnyScopedMember distinguishes a hub with only all-rooms seats from one
+	// where someone is scoped — the signal the read gate turns on.
+	if !s.AnyScopedMember() {
+		t.Error("sarah is scoped, so AnyScopedMember must be true")
+	}
+}
+
+// An all-rooms seat only, no scoped seats: the read gate stays optional.
+func TestAnyScopedMemberFalseWhenOnlyWildcard(t *testing.T) {
+	s, _, pub := keyStore(t)
+	if err := s.RegisterKey("human:owner", pub, kt0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMembership("human:owner", membershipRoomAll, "grandfather", kt0); err != nil {
+		t.Fatal(err)
+	}
+	if s.AnyScopedMember() {
+		t.Error("only a '*' member exists, so AnyScopedMember must be false")
+	}
+}
+
+// Existing seats are grandfathered to all rooms on open, so an upgrade never
+// silently strips access that worked before scoping existed.
+func TestOpenGrandfathersExistingSeatsToAllRooms(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grand.db")
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _, _ := ed25519.GenerateKey(nil)
+	// A seat enrolled the old way, with no membership written for it.
+	if err := s.RegisterKey("agent:legacy", pub, kt0); err != nil {
+		t.Fatal(err)
+	}
+	if s.IsMember("agent:legacy", "core") {
+		t.Fatal("precondition: a freshly registered key holds no membership yet")
+	}
+	s.Close()
+
+	// Reopening runs the one-time backfill: the legacy seat becomes an all-rooms
+	// member, and does not get a second row on a further reopen.
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if !s2.IsMember("agent:legacy", "core") || !s2.IsMember("agent:legacy", "whatever") {
+		t.Error("a grandfathered seat must be a member of every room")
+	}
+	if got := s2.Memberships("agent:legacy"); len(got) != 1 || got[0] != membershipRoomAll {
+		t.Errorf("grandfather must write exactly one '*' row, got %v", got)
+	}
+}

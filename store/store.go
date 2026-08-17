@@ -235,6 +235,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("capability schema: %w", err)
 	}
+	if _, err := db.Exec(membershipSchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("membership schema: %w", err)
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
@@ -246,11 +250,26 @@ func Open(path string) (*Store, error) {
 	for _, alter := range []string{
 		`ALTER TABLE progress ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE invite ADD COLUMN expires TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invite ADD COLUMN scope TEXT NOT NULL DEFAULT 'all'`,
 	} {
 		if _, err := db.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			db.Close()
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
+	}
+
+	// Grandfather every already-enrolled seat to all rooms. Before room scoping
+	// existed, every seat could post and read everywhere; membership must not
+	// silently take that away on upgrade. INSERT OR IGNORE only writes a '*' row
+	// for a seat that holds no membership at all, so this is a one-time backfill
+	// that a later run — or a seat deliberately scoped since — does not disturb.
+	if _, err := db.Exec(
+		`INSERT OR IGNORE INTO membership(actor, room, granted_at, granted_by)
+		 SELECT actor, '*', ?, 'grandfather' FROM actor_key
+		 WHERE actor NOT IN (SELECT actor FROM membership)`,
+		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("grandfather membership: %w", err)
 	}
 
 	s := &Store{db: db}
