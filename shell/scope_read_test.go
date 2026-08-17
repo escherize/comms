@@ -218,3 +218,31 @@ func TestLoopbackReadsAreNotFiltered(t *testing.T) {
 		t.Errorf("a loopback read is the operator view and must see every room, got %s", w.Body.String())
 	}
 }
+
+// The invite panel carries the room-scope picker: the disclosure, the room
+// container the checkboxes populate into, the read-auth note, and the client
+// wiring that reads the selection and echoes the scope. This guards the GUI
+// markup/JS against a refactor silently dropping it (the embedded JS itself is
+// exercised by hand; the /invite API it drives is tested in admin_test.go).
+func TestInvitePanelHasScopePicker(t *testing.T) {
+	for _, want := range []string{
+		`id="invite-scope"`,       // the <details> disclosure
+		`id="invite-rooms"`,       // where member-room checkboxes land
+		"scope to specific rooms", // the summary label, all-rooms default
+		"turns on read sessions",  // the read-auth note
+	} {
+		if !strings.Contains(settingsModal, want) {
+			t.Errorf("the invite panel markup must contain %q", want)
+		}
+	}
+	for _, want := range []string{
+		"loadInviteRooms", // fills the picker from the minter's own /rooms
+		"chosenScope",     // reads the checkboxes, defaults to all
+		"rooms:scope",     // sends the scope to /invite
+		"j.scope",         // echoes the granted scope back
+	} {
+		if !strings.Contains(settingsScript, want) {
+			t.Errorf("the invite panel script must wire %q", want)
+		}
+	}
+}

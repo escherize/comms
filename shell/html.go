@@ -243,6 +243,9 @@ body[data-signing="false"] .composer .tok { display:none; }
 }
 .set-panels button[type=submit]:hover { border-color: var(--accent); }
 .set-note { font-size:.78rem; color: var(--ink-faint); }
+.invite-scope > summary { cursor:pointer; color: var(--ink-mute); font-size:.8rem; margin:.35rem 0; }
+.set-rooms { display:flex; flex-wrap:wrap; gap:.15rem .8rem; margin:.3rem 0; }
+.set-rooms label { display:flex; align-items:center; gap:.3rem; color: var(--ink); font-size:.82rem; cursor:pointer; }
 .set-out { display:block; margin-top:.5rem; word-break:break-all; color: var(--ok); }
 .set-out:empty { display:none; }
 .set-list { margin:.4rem 0; padding:0; list-style:none; }
@@ -340,6 +343,12 @@ const settingsModal = `
         out of band; it is the whole credential.</p>
         <form id="invite-form">
           <input id="invite-actor" placeholder="human:sarah, or agent:you/name" autocomplete="off">
+          <details id="invite-scope" class="invite-scope">
+            <summary>all rooms &middot; scope to specific rooms &rarr;</summary>
+            <div id="invite-rooms" class="set-rooms"></div>
+            <p class="set-note">Scoping to specific rooms turns on read sessions
+            for the whole hub — members sign in to read.</p>
+          </details>
           <button type="submit">mint token</button>
         </form>
         <output id="invite-out" class="set-out"></output>
@@ -412,6 +421,7 @@ const settingsScript = `
     }
     if(name==='rooms') loadRooms();
     if(name==='seats') loadSeats();
+    if(name==='invite') loadInviteRooms();
   }
   dlg.addEventListener('click', function(e){
     var b=e.target.closest('button[data-panel]');
@@ -438,38 +448,75 @@ const settingsScript = `
     localStorage.setItem('comms.theme', e.target.value);
   });
 
+  // The checked rooms, or 'all' when the picker is untouched — the common case
+  // stays one click. A checkbox list confined to the minter's own rooms means
+  // the server-side subset rule can never be tripped from the UI.
+  function chosenScope(){
+    var box=document.getElementById('invite-rooms');
+    var rooms=[];
+    if(box){ box.querySelectorAll('input').forEach(function(b){ if(b.checked) rooms.push(b.value); }); }
+    return rooms.length===0 ? 'all' : rooms.join(',');
+  }
+  function scopeLabel(scope){ return (!scope||scope==='all')?'all rooms':scope; }
+
   document.getElementById('invite-form').addEventListener('submit', function(e){
     e.preventDefault();
     var out=document.getElementById('invite-out');
     var target=document.getElementById('invite-actor').value.trim();
     if(!target){ out.textContent='name the seat to invite'; return; }
+    var scope=chosenScope();
     out.textContent='minting…';
     document.getElementById('invite-copy').hidden=true;
-    signedPost('/invite',{actor:target, as:me()})
+    signedPost('/invite',{actor:target, as:me(), rooms:scope})
       .then(function(j){
-        out.textContent='token for '+target+': '+j.token+'  (one use — hand it over out of band)';
+        var granted=j.scope||scope;
+        out.textContent='token for '+target+' ('+scopeLabel(granted)+'): '+j.token+'  (one use — hand it over out of band)';
         var copy=document.getElementById('invite-copy');
         copy.hidden=false;
         copy.textContent='copy prompt for the agent';
         copy.onclick=function(){
-          navigator.clipboard.writeText(botPrompt(target, j.token)).then(
+          navigator.clipboard.writeText(botPrompt(target, j.token, granted)).then(
             function(){ copy.textContent='copied — paste it into the agent\'s session'; },
-            function(){ out.textContent=botPrompt(target, j.token); });
+            function(){ out.textContent=botPrompt(target, j.token, granted); });
         };
       })
       .catch(function(ex){ out.textContent=ex.message; });
   });
 
+  // The room picker is filled from /rooms — which the server already filters to
+  // the minter's own rooms — so a scoped admin can only offer rooms it holds.
+  function loadInviteRooms(){
+    var box=document.getElementById('invite-rooms');
+    if(!box) return;
+    fetch('/rooms',{headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        box.innerHTML='';
+        (j.rooms||[]).forEach(function(room){
+          var id='ir-'+room;
+          var lbl=document.createElement('label');
+          lbl.htmlFor=id;
+          var cb=document.createElement('input');
+          cb.type='checkbox'; cb.id=id; cb.value=room;
+          lbl.appendChild(cb);
+          lbl.appendChild(document.createTextNode(' '+room));
+          box.appendChild(lbl);
+        });
+      }).catch(function(){});
+  }
+
   // The prompt hands an agent everything between "given a token" and "posting
   // usefully". It deliberately teaches only the connection; the room's rules
   // live in the skill the binary serves, so they cannot drift from the code.
-  function botPrompt(actor, token){
+  function botPrompt(actor, token, scope){
+    var rooms=(!scope||scope==='all')?'all rooms':scope;
     return [
       'You have a seat on a comms hub — a shared room where this team\'s humans and',
       'AI agents post signed, permanent, typed entries.',
       '',
-      'Seat: '+actor,
-      'Hub:  '+location.origin,
+      'Seat:  '+actor,
+      'Rooms: '+rooms,
+      'Hub:   '+location.origin,
       '',
       '1. Connect (one-time; the token is single-use):',
       '   export COMMS_SERVER='+location.origin,
