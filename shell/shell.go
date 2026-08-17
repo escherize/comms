@@ -222,6 +222,14 @@ func (s *Server) postArtifact(w http.ResponseWriter, r *http.Request) {
 // never served raw.
 func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
+	// A raw hash is not a bypass around room scoping: the reader must be a member
+	// of some room that references this artifact. The 404 is the same whether the
+	// artifact is unknown, unreferenced, or simply not the reader's to see — the
+	// hash discloses nothing about content in a room they cannot read.
+	if !s.mayReadArtifact(reader(r), hash) {
+		http.NotFound(w, r)
+		return
+	}
 	content, ok := s.st.GetArtifact(hash)
 	if !ok {
 		http.NotFound(w, r)
@@ -612,6 +620,27 @@ func (s *Server) visibleRooms(reader string, rooms []string) []string {
 		}
 	}
 	return out
+}
+
+// mayReadArtifact reports whether the reading seat may fetch an artifact by
+// hash. The full view (empty reader — loopback / self-auth) may read any
+// referenced artifact. Otherwise the seat must be a member of at least one room
+// that references the hash through a live (non-redacted) event; an artifact no
+// live event references is served to nobody.
+func (s *Server) mayReadArtifact(reader, hash string) bool {
+	rooms := s.st.ArtifactRooms(hash)
+	if len(rooms) == 0 {
+		return false
+	}
+	if reader == "" {
+		return true
+	}
+	for _, room := range rooms {
+		if s.st.IsMember(reader, room) {
+			return true
+		}
+	}
+	return false
 }
 
 // readerRooms is the room allow-list a search must be confined to: the reading

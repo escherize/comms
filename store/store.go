@@ -239,6 +239,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("membership schema: %w", err)
 	}
+	if _, err := db.Exec(artifactRefSchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("artifact_ref schema: %w", err)
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
@@ -270,6 +274,17 @@ func Open(path string) (*Store, error) {
 		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("grandfather membership: %w", err)
+	}
+
+	// Backfill artifact_ref from existing attachments, one time. An index built
+	// only going forward would leave every pre-upgrade artifact reachable by any
+	// authenticated seat via its raw hash — the exact bypass this closes. Empty
+	// on a fresh hub, so it costs nothing there; on an existing one it folds the
+	// attach column into the index once, and the INSERT OR IGNORE makes a repeat
+	// run a no-op.
+	if err := backfillArtifactRefs(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("backfill artifact_ref: %w", err)
 	}
 
 	s := &Store{db: db}
@@ -458,6 +473,11 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 		var blob []byte
 		if err := tx.QueryRow(`SELECT bytes FROM artifact WHERE hash = ?`, a.Hash).Scan(&blob); err == nil {
 			indexed += "\n" + string(blob)
+		}
+		// Index the reference so /a/<hash> access can be decided by membership
+		// in this event's room, without scanning every envelope's attach column.
+		if err := addArtifactRef(tx, a.Hash, next, ev.Room); err != nil {
+			return 0, err
 		}
 	}
 	if _, err := tx.Exec(

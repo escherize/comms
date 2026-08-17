@@ -35,6 +35,102 @@ func (s *Store) PutArtifact(content []byte, now time.Time) (string, error) {
 	return hash, nil
 }
 
+// artifact_ref maps an artifact hash to the events (and their rooms) that
+// reference it. An artifact is content-addressed and cross-room, so who may
+// read /a/<hash> is decided by membership in a room that references it — a raw
+// hash must not be a bypass around room scoping. This index makes that check an
+// indexed lookup rather than a LIKE scan over every envelope's attach column.
+// It is a derived index (a fold over envelope.attach), so -rebuild may drop and
+// refill it, unlike keys/capabilities/membership which are records.
+const artifactRefSchema = `
+CREATE TABLE IF NOT EXISTS artifact_ref (
+  hash TEXT NOT NULL,
+  seq  INTEGER NOT NULL,
+  room TEXT NOT NULL,
+  PRIMARY KEY (hash, seq)
+);
+CREATE INDEX IF NOT EXISTS artifact_ref_hash ON artifact_ref(hash);
+`
+
+// addArtifactRef records that event seq in room references hash. Called inside
+// the Append transaction, once per attachment.
+func addArtifactRef(tx *sql.Tx, hash string, seq int64, room string) error {
+	_, err := tx.Exec(
+		`INSERT INTO artifact_ref(hash, seq, room) VALUES(?,?,?)
+		 ON CONFLICT(hash, seq) DO NOTHING`,
+		hash, seq, room)
+	return err
+}
+
+// backfillArtifactRefs folds existing envelope.attach rows into artifact_ref,
+// once. It runs against the raw *sql.DB at Open, before the Store exists, so it
+// only inserts what is not already indexed — a hub already migrated re-runs it
+// as a no-op. It also feeds -rebuild's index refill.
+func backfillArtifactRefs(db *sql.DB) error {
+	// Only rows the index does not already cover, so a second run does nothing.
+	rows, err := db.Query(
+		`SELECT seq, room, attach FROM envelope
+		 WHERE attach != '[]' AND attach != ''
+		   AND seq NOT IN (SELECT seq FROM artifact_ref)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type ref struct {
+		seq  int64
+		room string
+		hash string
+	}
+	var refs []ref
+	for rows.Next() {
+		var seq int64
+		var room, attach string
+		if err := rows.Scan(&seq, &room, &attach); err != nil {
+			return err
+		}
+		var atts []core.Attachment
+		if json.Unmarshal([]byte(attach), &atts) != nil {
+			continue
+		}
+		for _, a := range atts {
+			refs = append(refs, ref{seq, room, a.Hash})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range refs {
+		if _, err := db.Exec(
+			`INSERT INTO artifact_ref(hash, seq, room) VALUES(?,?,?)
+			 ON CONFLICT(hash, seq) DO NOTHING`, r.hash, r.seq, r.room); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ArtifactRooms returns the rooms of the non-redacted events that reference a
+// hash. A reader may fetch the artifact iff it is a member of one of these; an
+// empty result means no live event references it, so it is served to nobody.
+func (s *Store) ArtifactRooms(hash string) []string {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT room FROM artifact_ref
+		 WHERE hash = ? AND seq NOT IN (SELECT seq FROM redacted)`, hash)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var rooms []string
+	for rows.Next() {
+		var r string
+		if rows.Scan(&r) == nil {
+			rooms = append(rooms, r)
+		}
+	}
+	return rooms
+}
+
 // GetArtifact returns stored content. A missing hash — including one whose
 // blob was dropped by a purge — reports not found.
 func (s *Store) GetArtifact(hash string) ([]byte, bool) {
@@ -173,6 +269,13 @@ func (s *Store) ApplyRedaction(targetSeq, bySeq int64, byActor string, now time.
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM search WHERE seq = ?`, targetSeq); err != nil {
+		return err
+	}
+	// The artifact reference dies with the body too: a redacted event must stop
+	// granting /a/<hash> access. ArtifactRooms already excludes redacted seqs, so
+	// this is belt-and-suspenders — but it also keeps the index from growing
+	// stale rows a purge would otherwise leave behind.
+	if _, err := tx.Exec(`DELETE FROM artifact_ref WHERE seq = ?`, targetSeq); err != nil {
 		return err
 	}
 
