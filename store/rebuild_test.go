@@ -210,13 +210,13 @@ func TestRebuildDoesNotResurrectARedactedBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", "", 10); len(hits) != 0 {
+	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", "", nil, 10); len(hits) != 0 {
 		t.Fatalf("setup: the redaction should have cleared the index, got %d", len(hits))
 	}
 	if err := s.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
-	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", "", 10); len(hits) != 0 {
+	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", "", nil, 10); len(hits) != 0 {
 		t.Errorf("the rebuild put a redacted body back in the index: %d hits", len(hits))
 	}
 }

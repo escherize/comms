@@ -63,7 +63,7 @@ func TestNaturalQueriesFindTheirEvent(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.query, func(t *testing.T) {
-			hits, err := s.Search(c.query, "", "", "", "", 20)
+			hits, err := s.Search(c.query, "", "", "", "", nil, 20)
 			if err != nil {
 				t.Fatalf("search errored: %v", err)
 			}
@@ -97,7 +97,7 @@ func TestAddingTermsNeverRemovesAHit(t *testing.T) {
 	}
 
 	for _, q := range growing {
-		hits, err := s.Search(q, "", "", "", "", 50)
+		hits, err := s.Search(q, "", "", "", "", nil, 50)
 		if err != nil {
 			t.Fatalf("%q errored: %v", q, err)
 		}
@@ -122,7 +122,7 @@ func TestLiteralTokensStillMatch(t *testing.T) {
 		{"sqlite-vec", "vec"},
 		{"auth.py:88", "deref"},
 	} {
-		hits, err := s.Search(c.query, "", "", "", "", 10)
+		hits, err := s.Search(c.query, "", "", "", "", nil, 10)
 		if err != nil {
 			t.Fatalf("%q errored: %v", c.query, err)
 		}
@@ -138,7 +138,7 @@ func TestLiteralTokensStillMatch(t *testing.T) {
 	}
 
 	// The other direction: a token that is genuinely absent finds nothing.
-	if hits, _ := s.Search("kubernetes", "", "", "", "", 10); len(hits) != 0 {
+	if hits, _ := s.Search("kubernetes", "", "", "", "", nil, 10); len(hits) != 0 {
 		t.Errorf("an absent term must return nothing, got %d hits", len(hits))
 	}
 }
@@ -148,7 +148,7 @@ func TestResultsOrderByRankNotSeq(t *testing.T) {
 	s, seqs := seedRoom(t)
 
 	// A query strongly matching a late event must put it first.
-	hits, err := s.Search("cold cache TokenCache", "", "", "", "", 10)
+	hits, err := s.Search("cold cache TokenCache", "", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

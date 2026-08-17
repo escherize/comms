@@ -673,9 +673,19 @@ type LaneStatus struct {
 }
 
 // Search runs the lexical lane. Filters are applied after the FTS match.
-func (s *Store) Search(query, room, kind, author, since string, limit int) ([]Record, error) {
+// Search runs the lexical lane. allow is a room allow-list: nil means every
+// room (the full view or a '*'-scoped seat), a non-nil slice confines the
+// search to exactly those rooms, and an empty slice matches nothing. It is the
+// reading seat's membership, applied at the source so a non-member room's
+// content never enters the result set — scoping the query, not filtering after.
+func (s *Store) Search(query, room, kind, author, since string, allow []string, limit int) ([]Record, error) {
 	q := ftsQuery(query)
 	if q == "" {
+		return nil, nil
+	}
+	// An empty (non-nil) allow-list is a seat that may read no room: no query
+	// can return a hit, so short-circuit rather than build `IN ()`.
+	if allow != nil && len(allow) == 0 {
 		return nil, nil
 	}
 	var (
@@ -686,6 +696,14 @@ func (s *Store) Search(query, room, kind, author, since string, limit int) ([]Re
 	if room != "" {
 		where = append(where, "e.room = ?")
 		args = append(args, room)
+	}
+	if len(allow) > 0 {
+		ph := make([]string, len(allow))
+		for i, rm := range allow {
+			ph[i] = "?"
+			args = append(args, rm)
+		}
+		where = append(where, "e.room IN ("+strings.Join(ph, ",")+")")
 	}
 	if kind != "" {
 		where = append(where, "e.kind = ?")

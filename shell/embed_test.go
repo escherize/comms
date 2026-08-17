@@ -88,7 +88,7 @@ func TestAPoisonEventAdvancesTheWatermarkAndIsDeadLettered(t *testing.T) {
 	}
 
 	// The events either side of it are embedded.
-	hits, err := st.NearestVectors(mustEmbed(t, "the third entry"), "core", 10)
+	hits, err := st.NearestVectors(mustEmbed(t, "the third entry"), "core", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestReembedRebuildsTheLaneAndResetsFailures(t *testing.T) {
 	}
 
 	// And the previously-poisoned event is now in the lane.
-	hits, _ := st.NearestVectors(mustEmbed(t, "POISON entry"), "core", 10)
+	hits, _ := st.NearestVectors(mustEmbed(t, "POISON entry"), "core", nil, 10)
 	var found bool
 	for _, h := range hits {
 		if h.Seq == seqs[1] {
@@ -254,7 +254,7 @@ func TestRedactionDropsTheEmbedding(t *testing.T) {
 	e := sv.embed
 	for e.step(context.Background(), 32) > 0 {
 	}
-	hits, _ := st.NearestVectors(mustEmbed(t, "the password is PLACEHOLDER-NOT-REAL"), "core", 10)
+	hits, _ := st.NearestVectors(mustEmbed(t, "the password is PLACEHOLDER-NOT-REAL"), "core", nil, 10)
 	var before bool
 	for _, h := range hits {
 		if h.Seq == target {
@@ -272,7 +272,7 @@ func TestRedactionDropsTheEmbedding(t *testing.T) {
 		t.Fatalf("redact should be accepted: %v", out)
 	}
 
-	hits, _ = st.NearestVectors(mustEmbed(t, "the password is PLACEHOLDER-NOT-REAL"), "core", 10)
+	hits, _ = st.NearestVectors(mustEmbed(t, "the password is PLACEHOLDER-NOT-REAL"), "core", nil, 10)
 	for _, h := range hits {
 		if h.Seq == target {
 			t.Error("the embedding outlived the redaction; it is the secret in a form " +
@@ -302,7 +302,7 @@ func TestAnUnrelatedEventIsNotASemanticHit(t *testing.T) {
 	for sv.embed.step(context.Background(), 32) > 0 {
 	}
 
-	hits, err := st.NearestVectors(mustEmbed(t, "cold cache"), "core", 10)
+	hits, err := st.NearestVectors(mustEmbed(t, "cold cache"), "core", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestPurgeLeavesNoEmbeddingAndARebuildDoesNotResurrectOne(t *testing.T) {
 
 	for sv.embed.step(context.Background(), 32) > 0 {
 	}
-	if hits, _ := st.NearestVectors(mustEmbed(t, secret), "core", 10); len(hits) == 0 {
+	if hits, _ := st.NearestVectors(mustEmbed(t, secret), "core", nil, 10); len(hits) == 0 {
 		t.Fatal("setup: the event should be in the semantic lane before the purge")
 	}
 
@@ -350,14 +350,14 @@ func TestPurgeLeavesNoEmbeddingAndARebuildDoesNotResurrectOne(t *testing.T) {
 	}
 
 	// Gone from the semantic lane.
-	hits, _ := st.NearestVectors(mustEmbed(t, secret), "core", 10)
+	hits, _ := st.NearestVectors(mustEmbed(t, secret), "core", nil, 10)
 	for _, h := range hits {
 		if h.Seq == target {
 			t.Error("the embedding outlived the purge")
 		}
 	}
 	// And from the lexical one.
-	if lex, _ := st.Search("PLACEHOLDER", "core", "", "", "", 10); len(lex) != 0 {
+	if lex, _ := st.Search("PLACEHOLDER", "core", "", "", "", nil, 10); len(lex) != 0 {
 		t.Errorf("the purged body is still in the lexical index: %d hits", len(lex))
 	}
 
@@ -367,7 +367,7 @@ func TestPurgeLeavesNoEmbeddingAndARebuildDoesNotResurrectOne(t *testing.T) {
 	if _, err := sv.embed.Reembed(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
-	hits, _ = st.NearestVectors(mustEmbed(t, secret), "core", 10)
+	hits, _ = st.NearestVectors(mustEmbed(t, secret), "core", nil, 10)
 	for _, h := range hits {
 		if h.Seq == target {
 			t.Error("a rebuild resurrected the embedding of a purged body")
@@ -378,7 +378,7 @@ func TestPurgeLeavesNoEmbeddingAndARebuildDoesNotResurrectOne(t *testing.T) {
 	if err := st.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
-	if lex, _ := st.Search("PLACEHOLDER", "core", "", "", "", 10); len(lex) != 0 {
+	if lex, _ := st.Search("PLACEHOLDER", "core", "", "", "", nil, 10); len(lex) != 0 {
 		t.Errorf("a projection rebuild resurrected a purged body: %d hits", len(lex))
 	}
 }
@@ -410,7 +410,7 @@ func TestAPurgedBodyIsNotAPendingEmbed(t *testing.T) {
 	}
 	// The surviving event is embedded, so the skip is targeted rather than
 	// a blanket refusal to work.
-	if hits, _ := st.NearestVectors(mustEmbed(t, "something to keep"), "core", 10); len(hits) == 0 {
+	if hits, _ := st.NearestVectors(mustEmbed(t, "something to keep"), "core", nil, 10); len(hits) == 0 {
 		t.Error("the rebuild skipped events it should have embedded")
 	}
 }

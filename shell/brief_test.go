@@ -747,7 +747,7 @@ func TestTheStreamFiltersByQuery(t *testing.T) {
 	}
 
 	// And it agrees with what Search itself would return.
-	hits, err := st.Search("flake", "core", "", "", "", 10)
+	hits, err := st.Search("flake", "core", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

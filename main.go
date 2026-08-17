@@ -47,7 +47,7 @@ func main() {
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
 	readAuth := flag.Bool("read-auth", false,
-		"require a read session signed by an enrolled key (for hubs without a network perimeter)")
+		"deprecated no-op: reads are always authenticated now")
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
 	purge := flag.Int64("purge", 0, "erase one event's body and attachments permanently, then exit")
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
@@ -275,9 +275,11 @@ Most flags below are operator actions that touch the database and exit
 			"who can reach this port can post as anyone. Localhost demos only.")
 	}
 	if *readAuth {
-		srv.ReadAuth = true
-		log.Printf("read auth is on: reads require a session signed by an enrolled key " +
-			"(loopback is exempt)")
+		// Reads are always authenticated now — there is no open-read mode to
+		// turn on. The flag is kept as a no-op so an existing fly.toml or start
+		// script that passes it does not fail; it just no longer does anything.
+		log.Printf("note: --read-auth is deprecated and now a no-op — reads are always " +
+			"authenticated. You can drop the flag.")
 	}
 	// The semantic lane fills in the background. It is eventually consistent by
 	// design; /index and the search foot both publish how far behind it is.

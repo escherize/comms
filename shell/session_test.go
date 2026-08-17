@@ -32,7 +32,6 @@ func gatedServer(t *testing.T) (http.Handler, *store.Store, ed25519.PrivateKey, 
 		t.Fatal(err)
 	}
 	sv := New(st, func() time.Time { return now })
-	sv.ReadAuth = true
 	return sv.Routes(), st, priv, &now
 }
 
@@ -77,7 +76,9 @@ func mintSession(t *testing.T, h http.Handler, actor string, priv ed25519.Privat
 	return resp.Code, out, resp
 }
 
-func TestReadsStayOpenWithoutReadAuth(t *testing.T) {
+// Reads are never open. A hub built with no flags still refuses an
+// anonymous read — there is no mode that serves the log unauthenticated.
+func TestReadsAreNeverOpen(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "open.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -87,8 +88,8 @@ func TestReadsStayOpenWithoutReadAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := New(st, nil).Routes()
-	if w := gated(h, "GET", "/index", nil, ""); w.Code != http.StatusOK {
-		t.Errorf("with read auth off, an anonymous read must work, got %d", w.Code)
+	if w := gated(h, "GET", "/index", nil, ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("an anonymous read must be refused with no open-read mode, got %d", w.Code)
 	}
 }
 

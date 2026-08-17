@@ -28,7 +28,8 @@ func gatedHub(t *testing.T) (*httptest.Server, *store.Store) {
 		t.Fatal(err)
 	}
 	sv := shell.New(st, time.Now)
-	sv.ReadAuth = true
+	// Reads are always authenticated now; the gate needs no flag. Requests are
+	// wrapped with a non-loopback RemoteAddr below so they must carry a session.
 	h := sv.Routes()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.RemoteAddr = "203.0.113.9:50000"

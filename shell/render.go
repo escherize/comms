@@ -163,7 +163,9 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 	if room == "" {
 		room = "core"
 	}
-	if !s.st.RoomExists(room) {
+	// A non-member and a nonexistent room both 404: content and existence hidden
+	// alike, so a seat cannot probe for a room it was scoped away from.
+	if !s.canRead(reader(r), room) || !s.st.RoomExists(room) {
 		http.NotFound(w, r)
 		return
 	}
@@ -173,7 +175,10 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	rooms, _ := s.st.Rooms()
+	// The nav lists only the reader's own rooms, so it never advertises a room
+	// the seat cannot open.
+	allRooms, _ := s.st.Rooms()
+	rooms := s.visibleRooms(reader(r), allRooms)
 
 	var rows strings.Builder
 	// Consecutive ambient rows collapse into a carried-forward line — the
@@ -347,7 +352,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	if wantsJSON(r) {
 		fused, lanes, err := s.searchBoth(r.Context(), q, r.URL.Query().Get("room"),
 			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
-			r.URL.Query().Get("since"), 100)
+			r.URL.Query().Get("since"), s.readerRooms(reader(r)), 100)
 		if err != nil {
 			writeJSONL(w, http.StatusInternalServerError, nil, map[string]any{
 				"ok": false, "outcome": "internal", "exit": 1,
@@ -389,7 +394,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	if q != "" {
 		fused, laneStatus, err := s.searchBoth(r.Context(), q, r.URL.Query().Get("room"),
 			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
-			r.URL.Query().Get("since"), 100)
+			r.URL.Query().Get("since"), s.readerRooms(reader(r)), 100)
 		lanes = laneStatus
 		if err != nil {
 			rows.WriteString(`<div class="row"><div class="folio">!</div>` +

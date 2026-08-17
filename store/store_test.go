@@ -192,7 +192,7 @@ func TestPurgeRemovesFromSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hits, err := s.Search("hunter2", "", "", "", "", 10)
+	hits, err := s.Search("hunter2", "", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestPurgeRemovesFromSearch(t *testing.T) {
 	if err := s.Purge(seq); err != nil {
 		t.Fatal(err)
 	}
-	hits, err = s.Search("hunter2", "", "", "", "", 10)
+	hits, err = s.Search("hunter2", "", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestEventIsSearchableImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hits, err := s.Search("deref", "", "", "", "", 10)
+	hits, err := s.Search("deref", "", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,22 +243,22 @@ func TestSearchFilters(t *testing.T) {
 	mustAppend(t, s, core.Event{Room: "bash", Author: "agent:claude-1", Kind: core.KindFinding,
 		Body: map[string]any{"text": "migration order", "severity": "p1"}}, "i2")
 
-	all, _ := s.Search("migration", "", "", "", "", 10)
+	all, _ := s.Search("migration", "", "", "", "", nil, 10)
 	if len(all) != 2 {
 		t.Fatalf("unfiltered: expected 2, got %d", len(all))
 	}
 
-	byRoom, _ := s.Search("migration", "bash", "", "", "", 10)
+	byRoom, _ := s.Search("migration", "bash", "", "", "", nil, 10)
 	if len(byRoom) != 1 || byRoom[0].Room != "bash" {
 		t.Errorf("room filter failed: %+v", byRoom)
 	}
 
-	byKind, _ := s.Search("migration", "", "finding", "", "", 10)
+	byKind, _ := s.Search("migration", "", "finding", "", "", nil, 10)
 	if len(byKind) != 1 || byKind[0].Kind != core.KindFinding {
 		t.Errorf("kind filter failed: %+v", byKind)
 	}
 
-	byAuthor, _ := s.Search("migration", "", "", "human:bcm", "", 10)
+	byAuthor, _ := s.Search("migration", "", "", "human:bcm", "", nil, 10)
 	if len(byAuthor) != 1 || byAuthor[0].Author != "human:bcm" {
 		t.Errorf("author filter failed: %+v", byAuthor)
 	}
@@ -414,12 +414,12 @@ func TestSearchSinceFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, _ := s.Search("migration", "", "", "", "", 10)
+	all, _ := s.Search("migration", "", "", "", "", nil, 10)
 	if len(all) != 2 {
 		t.Fatalf("unfiltered: want 2, got %d", len(all))
 	}
 
-	sinceRecent, _ := s.Search("migration", "", "", "", "2026-08-05", 10)
+	sinceRecent, _ := s.Search("migration", "", "", "", "2026-08-05", nil, 10)
 	if len(sinceRecent) != 1 {
 		t.Fatalf("since: want 1 hit after 2026-08-05, got %d", len(sinceRecent))
 	}
@@ -428,7 +428,7 @@ func TestSearchSinceFilter(t *testing.T) {
 	}
 
 	// A full timestamp works too, and composes with the other filters.
-	composed, _ := s.Search("migration", "core", "finding", "human:bcm", "2026-08-05T00:00:00Z", 10)
+	composed, _ := s.Search("migration", "core", "finding", "human:bcm", "2026-08-05T00:00:00Z", nil, 10)
 	if len(composed) != 1 {
 		t.Errorf("filters must compose: want 1, got %d", len(composed))
 	}
@@ -439,13 +439,13 @@ func TestRedactedBodyLeavesSearch(t *testing.T) {
 	s := newStore(t)
 	seq := mustAppend(t, s, ev(core.KindChat, "human:bcm", "hunter2 secret"), "r1")
 
-	if hits, _ := s.Search("hunter2", "", "", "", "", 10); len(hits) != 1 {
+	if hits, _ := s.Search("hunter2", "", "", "", "", nil, 10); len(hits) != 1 {
 		t.Fatal("setup: should be searchable before redaction")
 	}
 	if err := s.ApplyRedaction(seq, seq+1, "human:bcm", t0); err != nil {
 		t.Fatal(err)
 	}
-	if hits, _ := s.Search("hunter2", "", "", "", "", 10); len(hits) != 0 {
+	if hits, _ := s.Search("hunter2", "", "", "", "", nil, 10); len(hits) != 0 {
 		t.Errorf("a redacted body must not survive in search, got %d hits", len(hits))
 	}
 
@@ -502,7 +502,7 @@ func TestSearchDoesNotRequireEveryToken(t *testing.T) {
 
 	// Check the error: discarding it turns a SQL failure into "no hits", which
 	// is the exact confusion this ticket exists to remove.
-	exact, err := s.Search("sqlite-vec rejects long bodies", "", "", "", "", 10)
+	exact, err := s.Search("sqlite-vec rejects long bodies", "", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatalf("search errored: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestSearchDoesNotRequireEveryToken(t *testing.T) {
 	}
 
 	// One word the room does not contain must not zero the result.
-	loose, err := s.Search("sqlite-vec long bodies missing", "", "", "", "", 10)
+	loose, err := s.Search("sqlite-vec long bodies missing", "", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatalf("search errored: %v", err)
 	}

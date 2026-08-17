@@ -42,11 +42,6 @@ type Server struct {
 	// deployment is a decision someone made rather than one they inherited.
 	RequireSignature bool
 
-	// ReadAuth gates every read behind a session an enrolled key signed for
-	// (ADR-0014). Off by default: on a private network the perimeter is the
-	// auth, and this flag is for deployments that do not have one.
-	ReadAuth bool
-
 	limit    *limiter
 	correct  *corrections
 	escalate *escalations
@@ -102,10 +97,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /rooms", s.postRoom)
 	mux.HandleFunc("GET /search", s.searchPage)
 	mux.HandleFunc("GET /", s.roomPage)
-	if s.ReadAuth {
-		return s.readGate(mux)
-	}
-	return mux
+	// Reads are always authenticated. A permanent, secret-bearing log is not
+	// served unauthenticated, and room scoping is meaningless without read
+	// attribution — even locally, where distinct agents share one loopback. The
+	// gate self-authenticates the enrol/session routes and passes loopback with
+	// the full operator view, so the CLI and browser onboard transparently; a
+	// no-session browser read gets the unlock page, never content. There is no
+	// open-read mode and no flag to reintroduce one.
+	return s.readGate(mux)
 }
 
 // postKey enrols an actor's public key against a one-time invite token.
@@ -588,6 +587,57 @@ var bootID = fmt.Sprintf("%d", time.Now().UnixNano())
 // from a quiet room.
 const backlogCeiling = 500
 
+// canRead reports whether the reading seat may see a room. An empty reader is
+// the full view — loopback or a self-authenticating route, where the gate
+// attached no seat — so it sees everything, matching the operator trust the
+// gate already grants those paths. Otherwise membership decides, and a
+// '*'-scoped seat is a member of every room.
+func (s *Server) canRead(reader, room string) bool {
+	if reader == "" {
+		return true
+	}
+	return s.st.IsMember(reader, room)
+}
+
+// visibleRooms filters a room list to what the reading seat may see. The full
+// view (empty reader) passes through unchanged.
+func (s *Server) visibleRooms(reader string, rooms []string) []string {
+	if reader == "" {
+		return rooms
+	}
+	out := rooms[:0:0]
+	for _, room := range rooms {
+		if s.st.IsMember(reader, room) {
+			out = append(out, room)
+		}
+	}
+	return out
+}
+
+// readerRooms is the room allow-list a search must be confined to: the reading
+// seat's own rooms. An empty slice means unrestricted — the full view (loopback
+// / self-auth), or a '*'-scoped seat, both of which may search every room.
+// Scoping the query at the source, rather than filtering results after, means a
+// non-member room's content never enters the result set at all.
+func (s *Server) readerRooms(reader string) []string {
+	if reader == "" {
+		return nil
+	}
+	var rooms []string
+	for _, r := range s.st.Memberships(reader) {
+		if r == "*" {
+			return nil // an all-rooms seat searches everywhere
+		}
+		rooms = append(rooms, r)
+	}
+	// A seat with no rooms gets a non-nil, empty allow-list — it searches
+	// nothing, distinct from the nil "search everything" of the full view.
+	if rooms == nil {
+		return []string{}
+	}
+	return rooms
+}
+
 func (s *Server) roomsList(w http.ResponseWriter, r *http.Request) {
 	rooms, err := s.st.Rooms()
 	if err != nil {
@@ -595,6 +645,7 @@ func (s *Server) roomsList(w http.ResponseWriter, r *http.Request) {
 			rejectedResponse{"rooms.failed", err.Error(), ""})
 		return
 	}
+	rooms = s.visibleRooms(reader(r), rooms)
 	if !wantsJSON(r) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
@@ -608,6 +659,14 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
 	if room == "" {
 		room = "core"
+	}
+	// A non-member is refused before a single event is delivered — the live-read
+	// equivalent of the room page 404, and existence-hiding for the same reason:
+	// a 403 would confirm the room. This covers both the SSE and JSON lanes,
+	// since both flow through here.
+	if !s.canRead(reader(r), room) {
+		http.NotFound(w, r)
+		return
 	}
 	if wantsJSON(r) {
 		s.streamJSON(w, r, room)
@@ -859,7 +918,10 @@ func writeSSE(w http.ResponseWriter, rec store.Record, asSearchHit bool) {
 // decision projections only, so it stays an indexed read as the log grows.
 func (s *Server) roomBrief(w http.ResponseWriter, r *http.Request) {
 	room := r.PathValue("name")
-	if !s.st.RoomExists(room) {
+	// Membership before existence, and the same 404 either way: a non-member and
+	// a nonexistent room are indistinguishable to the reader, so scoping a seat
+	// away from a room hides whether it exists.
+	if !s.canRead(reader(r), room) || !s.st.RoomExists(room) {
 		writeJSON(w, http.StatusNotFound, rejectedResponse{"room.unknown",
 			"no room " + room + "; GET /rooms lists them", ""})
 		return

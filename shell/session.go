@@ -9,6 +9,7 @@ package shell
 // and a client that outlives a hub restart re-establishes with one signature.
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -196,8 +197,19 @@ func (s *Server) postSession(w http.ResponseWriter, r *http.Request) {
 // a perimeter (§7 of the deploy docs).
 func (s *Server) readGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.sessionOK(r) || isLoopback(r.RemoteAddr) || selfAuthenticating(r) {
+		// Loopback is operator trust (being on the box is holding the database),
+		// and the self-authenticating routes carry their own credential — both
+		// pass with the full view. Otherwise a live session is required, and its
+		// seat is stashed on the request so the read handlers can filter by that
+		// seat's room membership. A no-session browser read gets the unlock page
+		// rather than content: no token, no read; a #setup= token in the URL is
+		// what lets an unenrolled browser enrol and come back authenticated.
+		if isLoopback(r.RemoteAddr) || selfAuthenticating(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if actor, ok := s.sessionActor(r); ok {
+			next.ServeHTTP(w, withReader(r, actor))
 			return
 		}
 		if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
@@ -211,6 +223,24 @@ func (s *Server) readGate(next http.Handler) http.Handler {
 			"this hub requires a read session: sign a challenge with your enrolled key",
 			"GET /session/challenge, sign {\"actor\":...,\"challenge\":...}, POST /session — the CLI does this for you on the next read"})
 	})
+}
+
+// readerKey types the context value so nothing else can collide with it.
+type readerKey struct{}
+
+// withReader stashes the reading seat on the request, for the read handlers to
+// filter by. Absent (loopback, self-auth, or an unfiltered path) means the full
+// view: reader() returns "" and the membership filters treat that as operator.
+func withReader(r *http.Request, actor string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), readerKey{}, actor))
+}
+
+// reader returns the seat a read is attributed to, or "" for the full view.
+func reader(r *http.Request) string {
+	if a, ok := r.Context().Value(readerKey{}).(string); ok {
+		return a
+	}
+	return ""
 }
 
 // selfAuthenticating lists the routes that carry their own credential: a
@@ -227,15 +257,17 @@ func selfAuthenticating(r *http.Request) bool {
 	return false
 }
 
-func (s *Server) sessionOK(r *http.Request) bool {
+// sessionActor resolves the seat a request's session belongs to, from the
+// header or the cookie. The read gate uses the seat to filter by membership;
+// sessionOK is the boolean form for callers that only ask "is this authed".
+func (s *Server) sessionActor(r *http.Request) (string, bool) {
 	tok := r.Header.Get(SessionHeader)
 	if tok == "" {
 		if c, err := r.Cookie(SessionCookie); err == nil {
 			tok = c.Value
 		}
 	}
-	_, ok := s.sess.actorFor(tok)
-	return ok
+	return s.sess.actorFor(tok)
 }
 
 // unlockPage is what a browser sees instead of a 401 body. It signs the

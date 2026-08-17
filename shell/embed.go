@@ -262,8 +262,8 @@ func fuse(lex []store.Record, vec []store.VectorHit, byseq map[int64]store.Recor
 // searchBoth runs the lexical lane, and the semantic lane when it has anything
 // to say, and reports what each lane actually did — including that the semantic
 // one was skipped, and why.
-func (s *Server) searchBoth(ctx context.Context, q, room, kind, author, since string, limit int) ([]Fused, []store.LaneStatus, error) {
-	lex, err := s.st.Search(q, room, kind, author, since, limit)
+func (s *Server) searchBoth(ctx context.Context, q, room, kind, author, since string, allow []string, limit int) ([]Fused, []store.LaneStatus, error) {
+	lex, err := s.st.Search(q, room, kind, author, since, allow, limit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -286,7 +286,7 @@ func (s *Server) searchBoth(ctx context.Context, q, room, kind, author, since st
 			Detail: "the query could not be embedded; these results are lexical only"})
 		return fuse(lex, nil, byseq, limit), lanes, nil
 	}
-	hits, err := s.st.NearestVectors(qvec, room, limit)
+	hits, err := s.st.NearestVectors(qvec, room, allow, limit)
 	if err != nil {
 		lanes = append(lanes, store.LaneStatus{Name: "vector", State: "failed",
 			Detail: err.Error()})

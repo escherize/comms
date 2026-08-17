@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -233,14 +234,31 @@ type VectorHit struct {
 
 // NearestVectors scores every vector in a room against the query. Brute force,
 // deliberately: see the note at the top of this file.
-func (s *Store) NearestVectors(query []float32, room string, limit int) ([]VectorHit, error) {
+// NearestVectors runs the semantic lane. allow is the same room allow-list as
+// Search: nil is every room, a non-nil slice confines results to those rooms,
+// an empty slice matches nothing — the reading seat's membership applied at the
+// source so the semantic lane cannot surface a non-member room's content.
+func (s *Store) NearestVectors(query []float32, room string, allow []string, limit int) ([]VectorHit, error) {
 	if len(query) == 0 {
 		return nil, nil
 	}
+	if allow != nil && len(allow) == 0 {
+		return nil, nil
+	}
+	args := []any{room, room}
+	allowClause := ""
+	if len(allow) > 0 {
+		ph := make([]string, len(allow))
+		for i, rm := range allow {
+			ph[i] = "?"
+			args = append(args, rm)
+		}
+		allowClause = " AND e.room IN (" + strings.Join(ph, ",") + ")"
+	}
 	rows, err := s.db.Query(`
 		SELECT v.seq, v.vec FROM vector v JOIN envelope e ON e.seq = v.seq
-		WHERE (? = '' OR e.room = ?)
-		  AND v.seq NOT IN (SELECT seq FROM redacted)`, room, room)
+		WHERE (? = '' OR e.room = ?)`+allowClause+`
+		  AND v.seq NOT IN (SELECT seq FROM redacted)`, args...)
 	if err != nil {
 		return nil, err
 	}

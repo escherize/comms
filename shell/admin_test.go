@@ -98,7 +98,11 @@ func TestCapsListsWhatASeatHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// /caps is a gated read (it reports who holds what — not for anonymous
+	// eyes); the operator/browser reaches it from loopback or with a session.
+	// These requests come from loopback, the operator view.
 	r := httptest.NewRequest("GET", "/caps?actor=human:bcm", nil)
+	r.RemoteAddr = "127.0.0.1:5000"
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	var out struct {
@@ -113,6 +117,7 @@ func TestCapsListsWhatASeatHolds(t *testing.T) {
 
 	// A seat with nothing gets an empty list, not null: the browser iterates it.
 	r2 := httptest.NewRequest("GET", "/caps?actor=human:nobody", nil)
+	r2.RemoteAddr = "127.0.0.1:5000"
 	w2 := httptest.NewRecorder()
 	h.ServeHTTP(w2, r2)
 	if !strings.Contains(w2.Body.String(), `"capabilities":[]`) {
