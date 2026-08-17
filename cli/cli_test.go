@@ -67,7 +67,7 @@ const seat = "agent:bcm/claude-1"
 
 func enrol(t *testing.T, srv *httptest.Server, st *store.Store) {
 	t.Helper()
-	tok, err := st.MintInvite(seat, time.Now())
+	tok, err := st.MintInvite(seat, store.ScopeAll, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func enrol(t *testing.T, srv *httptest.Server, st *store.Store) {
 func TestEnrolNeverExposesThePrivateKey(t *testing.T) {
 	isolateKeys(t)
 	srv, st := liveServer(t)
-	tok, _ := st.MintInvite(seat, time.Now())
+	tok, _ := st.MintInvite(seat, store.ScopeAll, time.Now())
 
 	var c capture
 	code := Run(c.env(t, srv.URL, tok+"\n"), []string{"enrol", "--as", seat})

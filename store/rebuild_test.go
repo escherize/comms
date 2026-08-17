@@ -160,7 +160,7 @@ func TestRebuildDoesNotTouchWhatTheLogDoesNotDetermine(t *testing.T) {
 	if err := s.AddMembership("agent:kept", "core", "human:bcm", kt0); err != nil {
 		t.Fatal(err)
 	}
-	token, err := s.MintInvite("agent:pending", kt0)
+	token, err := s.MintInvite("agent:pending", ScopeAll, kt0)
 	if err != nil {
 		t.Fatal(err)
 	}

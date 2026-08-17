@@ -173,14 +173,14 @@ func (s *Server) whoseInvite(w http.ResponseWriter, r *http.Request) {
 			rejectedResponse{"token.required", "name the token to look up", ""})
 		return
 	}
-	actor, err := s.st.InviteActor(strings.TrimSpace(req.Token), s.now())
+	actor, scope, err := s.st.InviteActor(strings.TrimSpace(req.Token), s.now())
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, rejectedResponse{
 			"token.unknown", err.Error(),
 			"mint one with: comms invite <actor>"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "outcome": "read", "actor": actor})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "outcome": "read", "actor": actor, "scope": scope})
 }
 
 // postArtifact stores GFM content-addressed and returns its hash. Only markdown
@@ -1183,7 +1183,7 @@ func (s *Server) postInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.st.MintInvite(req.Actor, s.now())
+	token, err := s.st.MintInvite(req.Actor, store.ScopeAll, s.now())
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity,
 			rejectedResponse{"invite.refused", err.Error(), ""})

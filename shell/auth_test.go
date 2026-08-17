@@ -184,7 +184,7 @@ func TestEnrolmentRequiresAValidInvite(t *testing.T) {
 	}
 
 	// A real token works exactly once.
-	tok, err := st.MintInvite("agent:newbie", time.Now())
+	tok, err := st.MintInvite("agent:newbie", store.ScopeAll, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestEnrolmentRequiresAValidInvite(t *testing.T) {
 func TestInviteIsBoundToItsActor(t *testing.T) {
 	srv, st := newSigningServer(t)
 	pub, _, _ := ed25519.GenerateKey(nil)
-	tok, _ := st.MintInvite("human:sarah", time.Now())
+	tok, _ := st.MintInvite("human:sarah", store.ScopeAll, time.Now())
 
 	body := `{"actor":"mallory","public_key":"` + hex.EncodeToString(pub) + `","token":"` + tok + `"}`
 	resp, err := http.Post(srv.URL+"/keys", "application/json", strings.NewReader(body))

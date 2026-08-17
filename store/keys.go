@@ -289,22 +289,37 @@ CREATE TABLE IF NOT EXISTS invite (
   actor   TEXT NOT NULL,
   created TEXT NOT NULL,
   used_at TEXT NOT NULL DEFAULT '',
-  expires TEXT NOT NULL DEFAULT ''
+  expires TEXT NOT NULL DEFAULT '',
+  -- The rooms redeeming this token grants. 'all' is the wildcard (a '*'
+  -- membership row on redemption); a comma-separated list scopes the seat.
+  -- Defaults to 'all' so an unscoped invite stays a superuser invite,
+  -- backward compatible with every token minted before scoping existed.
+  scope   TEXT NOT NULL DEFAULT 'all'
 );
 `
+
+// ScopeAll is the invite scope that grants every room — the '*' membership
+// wildcard, and the default for an unscoped invite.
+const ScopeAll = "all"
 
 // InviteTTL bounds how long an enrolment token is worth pasting. An invite
 // with no expiry is a permanent credential sitting in whatever channel it was
 // sent through.
 const InviteTTL = 24 * time.Hour
 
-// MintInvite creates a one-time enrolment token for an actor. The operator
-// hands it over out of band; it is the only way to register a key over HTTP.
-func (s *Store) MintInvite(actor string, now time.Time) (string, error) {
+// MintInvite creates a one-time enrolment token for an actor, scoped to a set
+// of rooms ("all" for every room). The operator hands it over out of band; it
+// is the only way to register a key over HTTP. Re-minting for the same actor
+// supersedes the old token, so changing an unredeemed invite's scope is just
+// minting again — there is no separate edit.
+func (s *Store) MintInvite(actor, scope string, now time.Time) (string, error) {
 	// Refuse at mint time, not at redeem: the operator is here now, and the
 	// agent that would hit it is not.
 	if err := ValidActor(actor); err != nil {
 		return "", err
+	}
+	if scope == "" {
+		scope = ScopeAll
 	}
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
@@ -322,9 +337,9 @@ func (s *Store) MintInvite(actor string, now time.Time) (string, error) {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO invite(token, actor, created, expires) VALUES(?,?,?,?)`,
+		`INSERT INTO invite(token, actor, created, expires, scope) VALUES(?,?,?,?,?)`,
 		token, actor, now.UTC().Format(time.RFC3339Nano),
-		now.Add(InviteTTL).UTC().Format(time.RFC3339Nano))
+		now.Add(InviteTTL).UTC().Format(time.RFC3339Nano), scope)
 	if err != nil {
 		return "", err
 	}
@@ -358,40 +373,45 @@ func (s *Store) MintBootstrapInvite(now time.Time) (string, error) {
 		"superseded:"+now.UTC().Format(time.RFC3339Nano)); err != nil {
 		return "", err
 	}
+	// The first seat owns the hub, so the bootstrap invite is always all-rooms:
+	// there is no one to scope it against yet, and the owner is the one who will
+	// scope everybody else.
 	_, err := s.db.Exec(
-		`INSERT INTO invite(token, actor, created, expires) VALUES(?,'*',?,?)`,
+		`INSERT INTO invite(token, actor, created, expires, scope) VALUES(?,'*',?,?,?)`,
 		token, now.UTC().Format(time.RFC3339Nano),
-		now.Add(InviteTTL).UTC().Format(time.RFC3339Nano))
+		now.Add(InviteTTL).UTC().Format(time.RFC3339Nano), ScopeAll)
 	if err != nil {
 		return "", err
 	}
 	return token, nil
 }
 
-// InviteActor reports which seat a live token enrols, spending nothing. The
-// holder already has the whole credential; naming its seat is what lets the
-// composer set the right actor instead of making the person guess. "*" means
-// a bootstrap token: the redeemer names the seat.
-func (s *Store) InviteActor(token string, now time.Time) (string, error) {
-	var actor, usedAt, expires string
-	err := s.db.QueryRow(
-		`SELECT actor, used_at, COALESCE(expires,'') FROM invite WHERE token = ?`, token).
-		Scan(&actor, &usedAt, &expires)
+// InviteActor reports which seat a live token enrols and the rooms it grants,
+// spending nothing. The holder already has the whole credential; naming its
+// seat is what lets the composer set the right actor instead of making the
+// person guess, and the scope is what lets it show what the token grants
+// before anyone pastes it. "*" as the actor means a bootstrap token: the
+// redeemer names the seat. Scope is "all" or a comma-separated room list.
+func (s *Store) InviteActor(token string, now time.Time) (actor, scope string, err error) {
+	var usedAt, expires string
+	err = s.db.QueryRow(
+		`SELECT actor, used_at, COALESCE(expires,''), COALESCE(scope,'all') FROM invite WHERE token = ?`, token).
+		Scan(&actor, &usedAt, &expires, &scope)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", errors.New("unknown token")
+		return "", "", errors.New("unknown token")
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if usedAt != "" {
-		return "", errors.New("token already used")
+		return "", "", errors.New("token already used")
 	}
 	if expires != "" {
 		if exp, perr := time.Parse(time.RFC3339Nano, expires); perr == nil && now.After(exp) {
-			return "", errors.New("token expired")
+			return "", "", errors.New("token expired")
 		}
 	}
-	return actor, nil
+	return actor, scope, nil
 }
 
 // RedeemInvite consumes a token for an actor, returning an error if the token

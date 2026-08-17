@@ -567,7 +567,7 @@ func TestADatabaseFromAnEarlierSchemaStillOpens(t *testing.T) {
 		Lane: core.LaneOf(core.KindStatus)}, "mig1", time.Now()); err != nil {
 		t.Fatalf("append after migration: %v", err)
 	}
-	if _, err := s.MintInvite("agent:old", time.Now()); err != nil {
+	if _, err := s.MintInvite("agent:old", ScopeAll, time.Now()); err != nil {
 		t.Fatalf("invite after migration: %v", err)
 	}
 

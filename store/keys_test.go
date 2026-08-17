@@ -234,7 +234,7 @@ func TestEnrolmentRequiresANamespace(t *testing.T) {
 	st, _, pub := keyStore(t)
 
 	for _, bad := range []string{"sarah-ops", "bcm", "agent:", "human:", ""} {
-		if _, err := st.MintInvite(bad, time.Now()); err == nil {
+		if _, err := st.MintInvite(bad, ScopeAll, time.Now()); err == nil {
 			t.Errorf("minting an invite for %q should be refused at mint time", bad)
 		}
 		if err := st.RegisterKey(bad, pub, time.Now()); err == nil {
@@ -298,7 +298,7 @@ func TestBothEnrolmentAndPostingPutASeatOnTheRoster(t *testing.T) {
 func TestAnInviteCannotUndoARevocation(t *testing.T) {
 	s, _, pub := keyStore(t)
 
-	tok, err := s.MintInvite("agent:leaver", kt0)
+	tok, err := s.MintInvite("agent:leaver", ScopeAll, kt0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestAnInviteCannotUndoARevocation(t *testing.T) {
 
 	// The operator mints a replacement, then offboards the seat before it is
 	// spent — the scrollback case.
-	stale, err := s.MintInvite("agent:leaver", kt0.Add(time.Minute))
+	stale, err := s.MintInvite("agent:leaver", ScopeAll, kt0.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestRotationDoesNotClearCompromise(t *testing.T) {
 		t.Errorf("rotation cleared a compromise flag; got %q", st)
 	}
 
-	tok, _ := s.MintInvite("agent:leaky", kt0.Add(time.Hour))
+	tok, _ := s.MintInvite("agent:leaky", ScopeAll, kt0.Add(time.Hour))
 	if err := s.RedeemInvite(tok, "agent:leaky", pub, kt0.Add(2*time.Hour)); err == nil {
 		t.Error("an invite must not clear a compromise either")
 	}
@@ -356,7 +356,7 @@ func TestRotationDoesNotClearCompromise(t *testing.T) {
 // channel it was sent through.
 func TestInvitesExpireAndTheRefusalSaysHowLongAgo(t *testing.T) {
 	s, _, pub := keyStore(t)
-	tok, err := s.MintInvite("agent:slow", kt0)
+	tok, err := s.MintInvite("agent:slow", ScopeAll, kt0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestInvitesExpireAndTheRefusalSaysHowLongAgo(t *testing.T) {
 	}
 
 	// Just inside the window still works.
-	fresh, _ := s.MintInvite("agent:quick", kt0)
+	fresh, _ := s.MintInvite("agent:quick", ScopeAll, kt0)
 	if err := s.RedeemInvite(fresh, "agent:quick", pub, kt0.Add(InviteTTL-time.Minute)); err != nil {
 		t.Errorf("a token inside its window must work: %v", err)
 	}
@@ -383,8 +383,8 @@ func TestInvitesExpireAndTheRefusalSaysHowLongAgo(t *testing.T) {
 // old scrollback stops working the moment a replacement is issued.
 func TestMintingAnInviteRetiresTheOutstandingOne(t *testing.T) {
 	s, _, pub := keyStore(t)
-	first, _ := s.MintInvite("agent:two", kt0)
-	second, _ := s.MintInvite("agent:two", kt0.Add(time.Minute))
+	first, _ := s.MintInvite("agent:two", ScopeAll, kt0)
+	second, _ := s.MintInvite("agent:two", ScopeAll, kt0.Add(time.Minute))
 
 	if err := s.RedeemInvite(first, "agent:two", pub, kt0.Add(2*time.Minute)); err == nil {
 		t.Error("the superseded token must not enrol")
@@ -445,7 +445,7 @@ func TestOrdinaryEnrolmentGrantsNoCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A normal invite, minted for a named seat, then redeemed.
-	tok, err := s.MintInvite("agent:worker", kt0.Add(2*time.Minute))
+	tok, err := s.MintInvite("agent:worker", ScopeAll, kt0.Add(2*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestMintingABootstrapInviteRetiresTheOutstandingOne(t *testing.T) {
 // was this token for", asked in a browser far from the operator's scrollback.
 func TestActorMismatchRefusalNamesBothActors(t *testing.T) {
 	s, _, pub := keyStore(t)
-	tok, _ := s.MintInvite("human:ada", kt0)
+	tok, _ := s.MintInvite("human:ada", ScopeAll, kt0)
 	err := s.RedeemInvite(tok, "human:eve", pub, kt0.Add(time.Minute))
 	if err == nil {
 		t.Fatal("a token must not enrol a different actor")
@@ -693,5 +693,41 @@ func TestOpenGrandfathersExistingSeatsToAllRooms(t *testing.T) {
 	}
 	if got := s2.Memberships("agent:legacy"); len(got) != 1 || got[0] != membershipRoomAll {
 		t.Errorf("grandfather must write exactly one '*' row, got %v", got)
+	}
+}
+
+// An invite's scope round-trips: what you mint is what InviteActor reports, so
+// the composer can show a token's blast radius before anyone pastes it.
+func TestInviteScopeRoundTrips(t *testing.T) {
+	s, _, _ := keyStore(t)
+
+	scoped, err := s.MintInvite("human:sarah", "comms,ops", kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, scope, err := s.InviteActor(scoped, kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actor != "human:sarah" || scope != "comms,ops" {
+		t.Errorf("want human:sarah / comms,ops, got %s / %s", actor, scope)
+	}
+
+	// An empty scope defaults to all — an unscoped invite is a superuser invite.
+	unscoped, err := s.MintInvite("human:owner", "", kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, scope, _ := s.InviteActor(unscoped, kt0); scope != ScopeAll {
+		t.Errorf("an empty scope must default to all, got %q", scope)
+	}
+
+	// The bootstrap token is always all-rooms.
+	boot, err := s.MintBootstrapInvite(kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actor, scope, _ := s.InviteActor(boot, kt0); actor != "*" || scope != ScopeAll {
+		t.Errorf("bootstrap must be * / all, got %s / %s", actor, scope)
 	}
 }

@@ -149,7 +149,7 @@ Most flags below are operator actions that touch the database and exit
 	}
 
 	if *invite != "" {
-		tok, err := st.MintInvite(*invite, time.Now())
+		tok, err := st.MintInvite(*invite, store.ScopeAll, time.Now())
 		if err != nil {
 			log.Fatalf("invite: %v", err)
 		}
