@@ -539,3 +539,20 @@ func postTo(t *testing.T, srv *httptest.Server, path, body string) (int, map[str
 	json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
 }
+
+// The founder flow rides in the room page: a bootstrap (*) setup token gets a
+// claim card that enrols on the spot, then offers rooms/invite/just-post. The
+// card enrols through the composer's own keyFor, so there is one enrol rule.
+func TestRoomPageCarriesClaimFlow(t *testing.T) {
+	for _, want := range []string{
+		"claimCard(token)",     // the bootstrap branch renders the card
+		"claim this hub",       // the explicit claim action
+		"window.commsKeyFor",   // claim enrols via the composer's path
+		"window.commsSettings", // the rooms/invite doors open real panels
+		"just post",            // skipping is always offered
+	} {
+		if !strings.Contains(roomHTML, want) {
+			t.Errorf("room page missing %q", want)
+		}
+	}
+}

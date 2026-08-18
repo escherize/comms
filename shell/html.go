@@ -199,6 +199,20 @@ body[data-signing="false"] .composer .tok { display:none; }
 .rank.vec { color: var(--ink-faint); opacity:.5; }
 .empty { padding:2rem .7rem; color: var(--ink-faint); }
 
+/* ---- founder claim card: shown once, to the first seat on a fresh hub ---- */
+.claim { margin:1.2rem auto; width:min(34rem, 92vw); background: var(--raised);
+  border:1px solid var(--rule-strong); padding:1rem 1.2rem; }
+.claim h2 { font-size:.95rem; color: var(--ink-strong); margin:0 0 .4rem; }
+.claim p { color: var(--ink-mute); font-size:.82rem; margin:.3rem 0; line-height:1.5; }
+.claim input, .claim select { font:inherit; padding:.35rem .5rem;
+  background: var(--panel); color: var(--ink); border:1px solid var(--rule-strong); }
+.claim .invite-name { margin:.6rem 0; }
+.claim-actions { display:flex; gap:.5rem; margin-top:.6rem; flex-wrap:wrap; }
+.claim-actions button { font:inherit; font-size:.82rem; padding:.3rem .7rem; cursor:pointer;
+  background: var(--raised); color: var(--ink); border:1px solid var(--rule-strong); }
+.claim-actions button:hover { border-color: var(--accent); }
+.claim-err { color: var(--sev-hi); min-height:1.2em; font-size:.8rem; }
+
 /* ---- settings dialog: the ledger's back office, same hairlines ---- */
 .gear { display:inline-flex; align-items:center; }
 .gear svg { display:block; }
@@ -494,6 +508,9 @@ const settingsScript = `
       }).catch(function(){});
   });
   document.getElementById('set-close').addEventListener('click', function(){ dlg.close(); });
+  // The claim card's "add rooms" / "invite someone" doors open these panels
+  // rather than duplicating their forms.
+  window.commsSettings=function(panel){ gear.click(); show(panel); };
   dlg.addEventListener('click', function(e){ if(e.target===dlg) dlg.close(); });
 
   document.getElementById('themesel').addEventListener('change', function(e){
@@ -981,11 +998,18 @@ const onboardScript = `
           focusComposer();
           return;
         }
-        // Bootstrap token, or the lookup did not resolve: the redeemer names the seat.
-        note('first seat on this hub — name yourself, then post anything below; the first post enrols this browser and claims the hub');
+        if(j && j.actor==='*'){
+          // Bootstrap token: nobody holds a seat yet. The founder gets a claim
+          // card, not a bare ledger — an explicit enrol beats the invisible
+          // enrol-on-first-post, which left people unsure it had worked.
+          claimCard(token);
+          return;
+        }
+        // The lookup did not resolve: the redeemer names the seat by hand.
+        note('name yourself, then post anything below; the first post enrols this browser');
         askName(function(name){
           setActor(name);
-          note('seat '+name+' ready — post anything below; the first post enrols this browser and claims the hub');
+          note('seat '+name+' ready — post anything below; the first post enrols this browser');
           focusComposer();
         });
       })
@@ -993,6 +1017,71 @@ const onboardScript = `
         note('name yourself, then post anything below to enrol this browser');
         askName(function(name){ setActor(name); focusComposer(); });
       });
+  }
+
+  // The founder flow: orientation, a name, one claim button that enrols on the
+  // spot. It sits above the composer, never blocking it, and only ever renders
+  // for a bootstrap token — which is single-use, so the card cannot reappear.
+  function claimCard(token){
+    var main=document.querySelector('main.ledger');
+    if(!main) return;
+    var card=document.createElement('section');
+    card.className='claim';
+    card.innerHTML=
+      '<h2>claim this hub</h2>'+
+      '<p>This is a comms hub — a shared room where a team and its AI agents '+
+      'post signed, permanent, typed notes. Nobody holds a seat here yet; '+
+      'claiming it makes you the owner.</p>'+
+      '<div class="invite-name">'+
+        '<select id="claim-kind" aria-label="seat kind">'+
+          '<option value="human">human:</option><option value="agent">agent:</option>'+
+        '</select>'+
+        '<input id="claim-name" placeholder="your name, e.g. sarah" autocomplete="off">'+
+      '</div>'+
+      '<div class="claim-actions"><button id="claim-go">claim this hub</button></div>'+
+      '<div class="claim-err" id="claim-err"></div>';
+    main.insertBefore(card, main.firstChild);
+    var nameEl=document.getElementById('claim-name');
+    nameEl.focus();
+    function claim(){
+      var errEl=document.getElementById('claim-err');
+      var bare=nameEl.value.trim();
+      if(!bare){ errEl.textContent='name yourself'; return; }
+      var name=(bare.indexOf('human:')===0||bare.indexOf('agent:')===0)
+        ? bare : document.getElementById('claim-kind').value+':'+bare;
+      var tf=document.getElementById('enroltoken'); if(tf) tf.value=token;
+      setActor(name);
+      errEl.textContent='claiming…';
+      // commsKeyFor is the composer's enrol path: token in the field means
+      // generate a fresh key, register it, clear the token. One enrol rule.
+      window.commsKeyFor(name).then(function(){ claimed(card, name); })
+        .catch(function(ex){ errEl.textContent=String(ex && ex.message || ex); });
+    }
+    document.getElementById('claim-go').addEventListener('click', claim);
+    nameEl.addEventListener('keydown', function(e){
+      if(e.key==='Enter'){ e.preventDefault(); claim(); } });
+  }
+
+  // Post-claim next steps: two optional doors into the settings panels the
+  // owner now controls, and the biggest button is the one that just posts.
+  function claimed(card, name){
+    card.innerHTML=
+      '<h2>the hub is yours</h2>'+
+      '<p>You are '+name+'. Your key was created in this browser and never '+
+      'leaves it — the token is spent and you will not need it again.</p>'+
+      '<div class="claim-actions">'+
+        '<button id="claim-rooms">add rooms</button>'+
+        '<button id="claim-invite">invite someone</button>'+
+        '<button id="claim-post">just post →</button>'+
+      '</div>';
+    document.getElementById('claim-rooms').addEventListener('click',
+      function(){ window.commsSettings('rooms'); });
+    document.getElementById('claim-invite').addEventListener('click',
+      function(){ window.commsSettings('invite'); });
+    document.getElementById('claim-post').addEventListener('click', function(){
+      card.remove();
+      var c=document.getElementById('ctext'); if(c) c.focus();
+    });
   }
 })();
 </script>`
@@ -1064,6 +1153,9 @@ const composeScript = `
         });
     });
   }
+  // The claim card enrols through this same path, so there is exactly one
+  // enrol rule in the page.
+  window.commsKeyFor=keyFor;
 
   // Each entry turns the rest of the line into a typed command body. An
   // unknown verb is refused locally with the list, rather than posting chat
