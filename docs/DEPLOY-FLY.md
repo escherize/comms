@@ -1,5 +1,8 @@
 # Deploying to Fly.io
 
+In a hurry: [DEPLOY-QUICKSTART.md](DEPLOY-QUICKSTART.md) is the command-only
+version. This document is the why.
+
 About $3/month for one machine and a 1 GB volume. Everything the deploy needs
 is already in this repository: `Dockerfile` and `fly.toml`, both built and run
 locally before this was written.
