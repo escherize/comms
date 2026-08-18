@@ -382,8 +382,12 @@ func TestTheTwoOnboardingPromptsAgreeOnTheSteps(t *testing.T) {
 			t.Errorf("the web page's botPrompt is missing the step %q", step)
 		}
 	}
-	if !strings.Contains(cli, "single-use") {
-		t.Error("the prompt must say the token is single-use")
+	// The prompt stays terse by request; join's own refusals teach the
+	// single-use rule the moment it matters. It must still say the two
+	// operational facts a cold agent cannot infer: where to run join, and
+	// that a restart arms the feed.
+	if !strings.Contains(cli, "project's root") || !strings.Contains(cli, "restart your session") {
+		t.Error("the prompt must say where join runs and that a restart arms the feed")
 	}
 }
 
@@ -419,5 +423,30 @@ func TestHookReinstallDoesNotStackBakedShims(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "--as") || !strings.Contains(string(raw), "agent:bcm/claude-1") {
 		t.Fatalf("the shim must bake its seat, got: %s", raw)
+	}
+}
+
+// A "project" shim written from the home directory would land in the user's
+// personal settings and bake one seat into every session — refused, with both
+// real doors named.
+func TestProjectShimRefusesHomeDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev, _ := os.Getwd()
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(prev)
+
+	var c capture
+	if code := Run(c.env(t, "http://127.0.0.1:1", ""),
+		[]string{"hook", "--install", "--seat", "agent:bcm/claude-1"}); code != ExitUsage {
+		t.Fatalf("project install from $HOME must be refused, got %d: %s", code, c.out.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.local.json")); !os.IsNotExist(err) {
+		t.Error("nothing may be written into the personal settings by a project install")
 	}
 }

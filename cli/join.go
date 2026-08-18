@@ -105,14 +105,19 @@ every later command needs only --as.
 		}
 	}
 
+	// The hook step must not fail the join: by now the single-use token is
+	// spent and the seat exists, so a wiring refusal (wrong directory, no
+	// harness detected) is reported as the remaining step, not as failure.
+	next := "read the room's rules: comms skill comms — then restart your session so the hook feed arrives"
 	if !*noHook {
 		if code := runHookInstall(e, actor, false, false); code != ExitOK {
-			return code
+			next = "you are enrolled, but the harness hook is not wired — run at your project root: " +
+				"comms hook --install --seat " + actor + " — then restart your session"
 		}
 	}
 
 	return e.Out.Succeed(Result{
 		Outcome: "joined", Actor: actor, Server: e.Server,
-		Next: "read the room's rules: comms skill comms — then restart your session so the hook feed arrives",
+		Next: next,
 	})
 }

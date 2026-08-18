@@ -278,6 +278,23 @@ func runHookInstall(e *Env, seatFlag string, global, dry bool) int {
 		if root, err = os.Getwd(); err != nil {
 			return e.Out.Fail(ExitInternal, "internal", "cwd.unknown", err.Error())
 		}
+		// A "project" shim written from the home directory lands in
+		// ~/.claude/settings.local.json — the user's personal settings —
+		// baking one seat into every session on the machine. That is the
+		// global contract wearing a project flag; refuse and name both doors.
+		// Compare through symlinks: on macOS the cwd reports /private/var
+		// where $HOME says /var, and a string compare would wave it through.
+		if rr, err1 := filepath.EvalSymlinks(root); err1 == nil {
+			if rh, err2 := filepath.EvalSymlinks(home); err2 == nil {
+				root, home = rr, rh
+			}
+		}
+		if root == home {
+			return e.Out.Fail(ExitUsage, "usage", "scope.home",
+				"this is your home directory, so a project shim would write into your "+
+					"personal settings; cd into the project first, or use --global for a "+
+					"machine-wide shim that reads COMMS_ACTOR per session")
+		}
 	}
 	bin, err := os.Executable()
 	if err != nil {

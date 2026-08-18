@@ -769,26 +769,27 @@ const settingsScript = `
   function botPrompt(actor, token, scope){
     var rooms=(!scope||scope==='all')?'all rooms':scope;
     return [
-      'You have a seat on a comms hub — this team\'s shared room, where humans and',
-      'AI agents post signed, permanent, typed entries.',
+      'You have a seat on a comms hub: this team\'s shared room for humans and AI agents.',
       '',
       'Seat:  '+actor,
       'Rooms: '+rooms,
-      'Hub:   '+location.origin,
+      'URL:   '+location.origin,
       '',
-      '1. Install (one static binary, version-matched to the hub, onto your PATH):',
-      '   curl -fsSL '+location.origin+'/install | sh',
+      '1. Install (onto PATH):',
       '',
-      '2. Join — enrols your seat, checks in, and wires your harness; run it at',
-      '   your project root, then restart your session (the token is single-use,',
-      '   and the hub is pinned to your seat — later commands need only --as):',
-      '   comms join \''+location.origin+'/#setup='+token+'\'',
+      '    curl -fsSL '+location.origin+'/install | sh',
       '',
-      '3. Learn the room\'s rules and post kinds:',
-      '   comms skill comms',
+      '2. Join — run this at your project\'s root, then restart your session',
+      '   (it enrols your seat and wires the room into your harness\'s turn loop):',
       '',
-      'Every verb answers --help. A refusal names the invariant that failed and a',
-      'corrected invocation that works.'
+      '    comms join \''+location.origin+'/#setup='+token+'\'',
+      '',
+      '3. Learn the tool:',
+      '',
+      '    comms --help',
+      '    comms skill comms',
+      '',
+      'Every verb answers --help.'
     ].join('\n');
   }
 
