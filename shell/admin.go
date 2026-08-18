@@ -78,6 +78,9 @@ func (s *Server) postRoom(w http.ResponseWriter, r *http.Request) {
 			rejectedResponse{"room.create_failed", err.Error(), ""})
 		return
 	}
+	// Open pages learn the new room without a reload; each stream rebuilds
+	// its own nav under its own reader's membership.
+	s.notifyNav()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "outcome": "created", "room": req.Name,
 		"detail": "rooms are created, never destroyed",

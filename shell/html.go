@@ -337,8 +337,11 @@ const liveScript = `
     if (seq && target.querySelector('[data-seq="'+seq+'"]')) return; // resume overlap
     if (mode==='append') target.insertAdjacentHTML('beforeend', html.join('\n'));
     else target.innerHTML = html.join('\n');
-    var main = document.querySelector('main.ledger');
-    if (main) main.scrollTop = main.scrollHeight;
+    // Only a new row scrolls; a nav replacement must not yank the view.
+    if (mode==='append'){
+      var main = document.querySelector('main.ledger');
+      if (main) main.scrollTop = main.scrollHeight;
+    }
   }
   function connect(){
     es = new EventSource('/stream?room=' + encodeURIComponent(room) +

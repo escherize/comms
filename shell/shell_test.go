@@ -556,3 +556,28 @@ func TestRoomPageCarriesClaimFlow(t *testing.T) {
 		}
 	}
 }
+
+// Creating a room pushes a fresh nav to every open page, so viewers see the
+// room appear without a reload. The patch replaces the header nav wholesale
+// and is rebuilt per subscriber under its own reader's membership.
+func TestRoomCreationPushesNavPatch(t *testing.T) {
+	srv, _ := newServer(t)
+
+	resp, err := http.Get(srv.URL + "/stream?room=core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	time.Sleep(100 * time.Millisecond) // let the stream register its nav refresher
+
+	r2, err := http.Post(srv.URL+"/rooms", "application/json",
+		strings.NewReader(`{"name":"ops"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2.Body.Close()
+
+	if !scanFor(t, resp, `?room=ops`, 3*time.Second) {
+		t.Fatal("stream never delivered a nav patch naming the new room")
+	}
+}

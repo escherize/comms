@@ -36,6 +36,10 @@ type Server struct {
 	now  Clock
 	mu   sync.Mutex
 	subs map[chan store.Record]string // subscriber -> room
+	// navSubs are the browser streams' nav refreshers: on room creation each
+	// gets a nudge and rebuilds its own room nav, filtered by its own reader's
+	// membership — the patch is computed per subscriber, so scoping holds.
+	navSubs map[chan struct{}]navSub
 
 	// RequireSignature makes authentication mandatory. It defaults to on; the
 	// only way to turn it off is an explicit flag, so an unauthenticated
@@ -69,6 +73,7 @@ func New(st *store.Store, now Clock) *Server {
 		now = time.Now
 	}
 	sv := &Server{st: st, now: now, subs: map[chan store.Record]string{},
+		navSubs:          map[chan struct{}]navSub{},
 		RequireSignature: true,
 		limit:            newLimiter(PostsPerMinute, PostBurst, now),
 		correct:          newCorrections(),
@@ -601,6 +606,34 @@ func (s *Server) fanout(room string, seq int64) {
 	}
 }
 
+// navSub names the identity a nav refresher renders for.
+type navSub struct{ reader, room string }
+
+// notifyNav nudges every browser stream to rebuild its room nav. Non-blocking:
+// the channel holds one pending nudge, and a second while one is pending is
+// the same nudge — the subscriber rebuilds from current state either way.
+func (s *Server) notifyNav() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ch := range s.navSubs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// navFor renders the room nav links this reader may see. It is the live
+// counterpart of the render-time nav in render.go — same anchors, same
+// membership filter — so a pushed nav can replace the served one verbatim.
+func (s *Server) navFor(readerSeat, current string) string {
+	rooms, err := s.st.Rooms()
+	if err != nil {
+		return ""
+	}
+	return navLinks(s.visibleRooms(readerSeat, rooms), current)
+}
+
 // bootID identifies one run of this process. A client learns a restart as a
 // fact rather than inferring it from a seq delta, which ADR-0010 forbids —
 // seq is gappy by design, so a delta means nothing.
@@ -751,12 +784,15 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ch := make(chan store.Record, 64)
+	navCh := make(chan struct{}, 1)
 	s.mu.Lock()
 	s.subs[ch] = room
+	s.navSubs[navCh] = navSub{reader: reader(r), room: room}
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		delete(s.subs, ch)
+		delete(s.navSubs, navCh)
 		s.mu.Unlock()
 	}()
 
@@ -778,11 +814,29 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			}
 			writeSSE(w, rec, queryFilter != "")
 			flusher.Flush()
+		case <-navCh:
+			// A room was created. Rebuild this page's nav for this reader —
+			// the membership filter runs per subscriber, so a room the reader
+			// may not see never reaches its page.
+			if nav := s.navFor(reader(r), room); nav != "" {
+				writeNavSSE(w, nav)
+				flusher.Flush()
+			}
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		}
 	}
+}
+
+// writeNavSSE pushes a replacement for the header's room nav. No id: line —
+// nav refreshes carry no seq and must not disturb Last-Event-ID resume.
+func writeNavSSE(w http.ResponseWriter, nav string) {
+	fmt.Fprint(w, "event: datastar-patch-elements\n")
+	fmt.Fprint(w, "data: mode replace\n")
+	fmt.Fprint(w, "data: selector header nav\n")
+	fmt.Fprintf(w, "data: elements %s\n", nav)
+	fmt.Fprint(w, "\n")
 }
 
 // streamJSON is the read lane for a non-browser client. It carries the same

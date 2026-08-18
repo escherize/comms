@@ -72,6 +72,22 @@ func authorCell(a core.Actor) string {
 // renderRow is one ledger entry. Addressed rows break the band with an accent
 // gutter rule and drop the tick column; redactions render struck through with
 // their hash still attested.
+// navLinks renders the header's room anchors. Shared between the served page
+// and the live nav patch pushed on room creation, so the replacement is
+// byte-identical to a fresh render.
+func navLinks(rooms []string, current string) string {
+	var nav strings.Builder
+	for _, rm := range rooms {
+		sel := ""
+		if rm == current {
+			sel = ` class="sel"`
+		}
+		nav.WriteString(fmt.Sprintf(`<a href="/?room=%s"%s>%s</a>`,
+			html.EscapeString(rm), sel, html.EscapeString(rm)))
+	}
+	return nav.String()
+}
+
 func renderRow(r store.Record) string {
 	classes := []string{"row"}
 	if r.Lane == core.Addressed {
@@ -233,19 +249,9 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 
 	ambient, addressed, head := tally(recs)
 
-	var nav strings.Builder
-	for _, rm := range rooms {
-		sel := ""
-		if rm == room {
-			sel = ` class="sel"`
-		}
-		nav.WriteString(fmt.Sprintf(`<a href="/?room=%s"%s>%s</a>`,
-			html.EscapeString(rm), sel, html.EscapeString(rm)))
-	}
-
 	page := strings.NewReplacer(
 		"{{ROOM}}", html.EscapeString(room),
-		"{{NAV}}", nav.String(),
+		"{{NAV}}", navLinks(rooms, room),
 		"{{ROWS}}", rows.String(),
 		"{{AMBIENT}}", fmt.Sprint(ambient),
 		"{{ADDRESSED}}", fmt.Sprint(addressed),
