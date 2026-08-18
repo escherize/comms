@@ -352,3 +352,43 @@ func openAt(t *testing.T, path string) *Store {
 	t.Cleanup(func() { s.Close() })
 	return s
 }
+
+// The redact event and its suppression commit atomically in Append, and a
+// redacted row lost anyway (a restore landing between the old two-transaction
+// halves) is re-derived from the log: redacted is a projection, not a record.
+func TestAppendFoldsRedactionAndRebuildRederivesIt(t *testing.T) {
+	s := openAt(t, filepath.Join(t.TempDir(), "redfold.db"))
+	secret, err := s.Append(core.Event{Room: "core", Author: "human:bcm",
+		Kind: core.KindTIL, Body: map[string]any{"text": "token HUNTER2-NOT-REAL"},
+		Lane: core.LaneOf(core.KindTIL)}, "sec2", kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One Append, no separate ApplyRedaction call: the fold is in-transaction.
+	if _, err := s.Append(core.Event{Room: "core", Author: "human:bcm",
+		Kind: core.KindRedact, Refs: []string{itoa(secret)},
+		Body: map[string]any{"text": "pasted a credential"},
+		Lane: core.LaneOf(core.KindRedact)}, "red2", kt0); err != nil {
+		t.Fatal(err)
+	}
+	if !s.IsRedacted(secret) {
+		t.Fatal("append alone must suppress the target")
+	}
+	if hits, _ := s.Search("HUNTER2", "core", "", "", "", nil, 10); len(hits) != 0 {
+		t.Fatalf("append alone must clear the index, got %d hits", len(hits))
+	}
+
+	// Simulate the lost suppression a restore can produce.
+	if _, err := s.db.Exec(`DELETE FROM redacted WHERE seq = ?`, secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if !s.IsRedacted(secret) {
+		t.Error("rebuild must re-derive the redacted row from the redact event")
+	}
+	if hits, _ := s.Search("HUNTER2", "core", "", "", "", nil, 10); len(hits) != 0 {
+		t.Errorf("rebuild resurrected a redacted body: %d hits", len(hits))
+	}
+}

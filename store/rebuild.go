@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/escherize/comms/core"
@@ -168,6 +169,18 @@ func foldInto(tx *sql.Tx, rec Record) error {
 				`UPDATE question SET answer_seq = ?, answered_at = ?
 				 WHERE seq = ? AND answer_seq = 0`, rec.Seq, ts, ref); err != nil {
 				return err
+			}
+		}
+	case core.KindRedact:
+		// Redaction is re-derived from the log, not merely preserved: a
+		// redacted row lost to a crash or a restore comes back on rebuild.
+		// The fold runs in seq order, so the target's search row (re-inserted
+		// when the target was folded) is deleted again here.
+		if len(rec.Refs) == 1 {
+			if target, convErr := strconv.ParseInt(rec.Refs[0], 10, 64); convErr == nil {
+				if err := applyRedactionTx(tx, target, rec.Seq, string(rec.Author), rec.ServerTS); err != nil {
+					return err
+				}
 			}
 		}
 	}

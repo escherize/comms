@@ -247,13 +247,23 @@ func intField(body map[string]any, key string) int {
 // ApplyRedaction folds a redact event into the projection and drops the target
 // from search in the same transaction. Suppression that left the text findable
 // would be worse than no redaction at all, because the room implies it worked.
+//
+// Append calls the tx form inline, so the redact event and its suppression
+// commit atomically — a crash can never leave a committed redact event whose
+// target is still served. This wrapper remains for callers holding no tx.
 func (s *Store) ApplyRedaction(targetSeq, bySeq int64, byActor string, now time.Time) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := applyRedactionTx(tx, targetSeq, bySeq, byActor, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
+func applyRedactionTx(tx *sql.Tx, targetSeq, bySeq int64, byActor string, now time.Time) error {
 	if _, err := tx.Exec(
 		`INSERT INTO redacted(seq, by_actor, by_seq, server_ts) VALUES(?,?,?,?)
 		 ON CONFLICT(seq) DO NOTHING`,
@@ -302,7 +312,7 @@ func (s *Store) ApplyRedaction(targetSeq, bySeq int64, byActor string, now time.
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // IsRedacted backs both the renderer and the decider.

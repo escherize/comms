@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -561,6 +562,19 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 				`UPDATE question SET answer_seq = ?, answered_at = ?
 				 WHERE seq = ? AND answer_seq = 0`, next, ts, ref); err != nil {
 				return 0, err
+			}
+		}
+	}
+
+	// Redaction folds in the same transaction as its event. Committing the
+	// redact event first and suppressing in a second transaction left a crash
+	// window where the log claimed suppression that never happened — and
+	// nothing on restart would re-apply it. Atomic here, re-derivable in
+	// Rebuild: the redacted table is a true projection.
+	if ev.Kind == core.KindRedact && len(ev.Refs) == 1 {
+		if target, convErr := strconv.ParseInt(ev.Refs[0], 10, 64); convErr == nil {
+			if err := applyRedactionTx(tx, target, next, string(ev.Author), now); err != nil {
+				return 0, fmt.Errorf("redaction: %w", err)
 			}
 		}
 	}
