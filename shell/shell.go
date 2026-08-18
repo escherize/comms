@@ -1197,12 +1197,11 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check before appending and charge after it applies. Checking first is what
-	// makes the budget a budget — by the time an append has happened the
-	// interrupt has happened. Charging only on a real append is what keeps a
-	// replay free: escalating the same entry with the same words twice is one
-	// act, and the second one interrupts nobody.
-	_, retryAfter, ok := s.escalate.canSpend(author)
+	// Reserve before appending — atomically, so two concurrent escalations
+	// cannot both pass a check and overspend the budget. A path that posts
+	// nothing (replay, rejection, failed append) releases the slot: a replay
+	// stays free because the second one interrupts nobody.
+	retryAfter, ok := s.escalate.reserve(author)
 	if !ok {
 		ms := retryAfter.Milliseconds()
 		if ms < 1 {
@@ -1239,6 +1238,7 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 
 	events, rej := core.Decide(s.decisionState(), cmd)
 	if rej != nil {
+		s.escalate.release(author)
 		writeJSON(w, http.StatusUnprocessableEntity,
 			rejectedResponse{rej.Invariant, rej.Detail, schemaFor(cmd.Kind)})
 		return
@@ -1248,6 +1248,7 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 	for _, ev := range events {
 		n, err := s.st.Append(ev, cmd.Idem, s.now())
 		if err != nil {
+			s.escalate.release(author)
 			var dup store.ErrDuplicate
 			if errors.As(err, &dup) {
 				// A replay. Nothing was appended, nobody was interrupted, and
@@ -1267,8 +1268,7 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		s.fanout(ev.Room, seq)
 	}
 
-	// It landed, so it is charged.
-	remaining, _, _ := s.escalate.spend(author)
+	remaining := s.escalate.left(author)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "outcome": "escalated", "seq": seq, "applied": true,

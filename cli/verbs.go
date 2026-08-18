@@ -751,6 +751,11 @@ event; someone else's is an operator action.`)
 
 	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
 	if exit != ExitOK {
+		if sent.Body.Invariant == "key.revoked" || sent.Body.Invariant == "key.compromised" {
+			// A dead seat must not keep a queue of signed bytes that lands the
+			// moment somebody re-enrols it — same rule as every write verb.
+			DropSpool(seat)
+		}
 		return e.Out.FailWith(Result{
 			Outcome: outcome, Exit: exit,
 			Invariant: sent.Body.Invariant, Detail: sent.Body.Detail, Schema: sent.Body.Schema,

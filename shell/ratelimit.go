@@ -152,7 +152,12 @@ func newEscalations(now func() time.Time) *escalations {
 // take are separate because a replay must not be charged: escalating the same
 // entry with the same words twice is one act, and the second one interrupts
 // nobody.
-func (e *escalations) canSpend(actor core.Actor) (remaining int, retryAfter time.Duration, ok bool) {
+// reserve charges one slot up-front, atomically. The old check-then-act pair
+// (canSpend, then an append, then spend under a fresh lock) let two
+// concurrent escalations from one seat both pass the check and spend N+1
+// against a budget of N. A path that ends up interrupting nobody — replay,
+// rejection, failed append — hands the slot back with release.
+func (e *escalations) reserve(actor core.Actor) (retryAfter time.Duration, ok bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.now()
@@ -163,41 +168,28 @@ func (e *escalations) canSpend(actor core.Actor) (remaining int, retryAfter time
 			live = append(live, at)
 		}
 	}
-	e.spent[actor] = live
 	if len(live) >= EscalationBudget {
-		return 0, live[0].Add(EscalationWindow).Sub(now), false
+		e.spent[actor] = live
+		// The window is a sliding one, so the next slot opens when the oldest
+		// spend ages out, not at a fixed boundary.
+		return live[0].Add(EscalationWindow).Sub(now), false
 	}
-	return EscalationBudget - len(live), 0, true
+	e.spent[actor] = append(live, now)
+	return 0, true
+}
+
+// release gives back the newest reserved slot.
+func (e *escalations) release(actor core.Actor) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if n := len(e.spent[actor]); n > 0 {
+		e.spent[actor] = e.spent[actor][:n-1]
+	}
 }
 
 // spend records one escalation and reports what is left. It returns ok=false
 // when the budget is exhausted, along with when the oldest spend expires — an
 // agent told "no" without being told "until when" will simply ask again.
-func (e *escalations) spend(actor core.Actor) (remaining int, retryAfter time.Duration, ok bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	now := e.now()
-	cutoff := now.Add(-EscalationWindow)
-	var live []time.Time
-	for _, at := range e.spent[actor] {
-		if at.After(cutoff) {
-			live = append(live, at)
-		}
-	}
-
-	if len(live) >= EscalationBudget {
-		e.spent[actor] = live
-		// The window is a sliding one, so the next slot opens when the oldest
-		// spend ages out, not at a fixed boundary.
-		return 0, live[0].Add(EscalationWindow).Sub(now), false
-	}
-
-	live = append(live, now)
-	e.spent[actor] = live
-	return EscalationBudget - len(live), 0, true
-}
-
 // left reports the remaining budget without spending it.
 func (e *escalations) left(actor core.Actor) int {
 	e.mu.Lock()

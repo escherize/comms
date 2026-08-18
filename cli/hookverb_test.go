@@ -215,10 +215,18 @@ func TestHookInstallScopesAndDetects(t *testing.T) {
 	}
 	defer os.Chdir(prev)
 
+	// A project install without a seat is refused: an unbaked shim is a dead
+	// switch waiting for a COMMS_ACTOR nobody exports.
+	var bare capture
+	if code := Run(bare.env(t, "http://127.0.0.1:1", ""), []string{"hook", "--install"}); code != ExitUsage {
+		t.Fatalf("seatless project install must be usage-refused, got %d: %s", code, bare.out.String())
+	}
+
 	// Default scope is the project: files land in the working directory, and
 	// the personal settings file, not the shared one.
 	var c capture
-	if code := Run(c.env(t, "http://127.0.0.1:1", ""), []string{"hook", "--install"}); code != ExitOK {
+	if code := Run(c.env(t, "http://127.0.0.1:1", ""),
+		[]string{"hook", "--install", "--seat", "agent:bcm/claude-1"}); code != ExitOK {
 		t.Fatalf("hook --install exited %d: %s", code, c.out.String())
 	}
 	if _, err := os.Stat(filepath.Join(project, ".claude", "settings.local.json")); err != nil {
@@ -375,5 +383,40 @@ func TestTheTwoOnboardingPromptsAgreeOnTheSteps(t *testing.T) {
 	}
 	if !strings.Contains(cli, "single-use") {
 		t.Error("the prompt must say the token is single-use")
+	}
+}
+
+// Reinstalling over a baked shim updates it in place. The old marker matched
+// only a bare "... hook run" suffix, so every reinstall of a baked shim
+// stacked another hook entry.
+func TestHookReinstallDoesNotStackBakedShims(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	prev, _ := os.Getwd()
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(prev)
+
+	for i := 0; i < 2; i++ {
+		var c capture
+		if code := Run(c.env(t, "http://127.0.0.1:1", ""),
+			[]string{"hook", "--install", "--seat", "agent:bcm/claude-1"}); code != ExitOK {
+			t.Fatalf("install %d exited %d: %s", i, code, c.out.String())
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(project, ".claude", "settings.local.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), "hook run"); n != 1 {
+		t.Fatalf("want exactly one hook entry after reinstall, found %d in: %s", n, raw)
+	}
+	if !strings.Contains(string(raw), "--as") || !strings.Contains(string(raw), "agent:bcm/claude-1") {
+		t.Fatalf("the shim must bake its seat, got: %s", raw)
 	}
 }

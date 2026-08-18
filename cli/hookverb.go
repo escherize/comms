@@ -296,6 +296,15 @@ func runHookInstall(e *Env, seatFlag string, global, dry bool) int {
 		return e.Out.Fail(ExitUsage, "usage", "seat.global",
 			"--seat with --global would speak as one seat from every project; bake seats per project")
 	}
+	// A project shim with no seat is a dead switch: it installs fine, then
+	// waits forever for a COMMS_ACTOR nobody exports (harness shells forget
+	// env). Refuse to write it — a project install names its seat, and the
+	// baked shim is self-contained: seat inline, hub from the seat's pin.
+	if !global && seat == "" {
+		return e.Out.Fail(ExitUsage, "usage", "seat.required",
+			"a project shim bakes its seat so no session has to export anything: "+
+				"comms hook --install --seat agent:you/name")
+	}
 	if !global && seat != "" {
 		cmd += " --as " + shellQuote(seat)
 		if !HasSeat(seat) {
@@ -336,9 +345,15 @@ func runHookInstall(e *Env, seatFlag string, global, dry bool) int {
 	if dry {
 		return e.Out.Succeed(Result{Outcome: "dry-run"})
 	}
-	return e.Out.Succeed(Result{Outcome: "installed", Count: installed,
-		Detail: "new sessions pick the hook up; current ones do not. The hook fires " +
-			"only in sessions that export COMMS_ACTOR — that is the per-session switch"})
+	detail := "new sessions pick the hook up; current ones do not. The seat is " +
+		"baked into the shim and the hub comes from its enrolment pin — no " +
+		"environment variable to export"
+	if global {
+		detail = "new sessions pick the hook up; current ones do not. A global " +
+			"shim speaks as whichever seat a session exports in COMMS_ACTOR — " +
+			"that is the per-session switch"
+	}
+	return e.Out.Succeed(Result{Outcome: "installed", Count: installed, Detail: detail})
 }
 
 // writeClaudeShim merges one UserPromptSubmit entry into settings.json. Merge,
@@ -368,7 +383,10 @@ func writeClaudeShim(target, cmd string) error {
 		inner, _ := m["hooks"].([]any)
 		for _, h := range inner {
 			hm, _ := h.(map[string]any)
-			if c, _ := hm["command"].(string); strings.HasSuffix(c, " hook run") {
+			// Contains, not HasSuffix: a baked command reads
+			// "... hook run --as 'agent:x'", and a marker that missed it
+			// stacked a duplicate hook on every reinstall.
+			if c, _ := hm["command"].(string); strings.Contains(c, " hook run") {
 				hm["command"] = cmd
 				found = true
 			}

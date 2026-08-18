@@ -62,7 +62,14 @@ func randomHex() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *sessions) challenge() string {
+// challengeCeiling bounds the outstanding-nonce map. The endpoint is
+// unauthenticated by necessity (the challenge is how you become
+// authenticated), so an unbounded map is a memory faucet anyone on the
+// internet can open. Legitimate load is one nonce per connecting seat per
+// two minutes; thousands outstanding is an attack, not traffic.
+const challengeCeiling = 4096
+
+func (s *sessions) challenge() (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
@@ -71,9 +78,12 @@ func (s *sessions) challenge() string {
 			delete(s.challenges, n)
 		}
 	}
+	if len(s.challenges) >= challengeCeiling {
+		return "", false
+	}
 	n := randomHex()
 	s.challenges[n] = now.Add(challengeTTL)
-	return n
+	return n, true
 }
 
 // redeem consumes a challenge. Single-use is what stops a captured signature
@@ -121,8 +131,17 @@ func (s *sessions) actorFor(token string) (string, bool) {
 // getChallenge hands out a nonce to sign. Unauthenticated by necessity: it is
 // the first step of authenticating.
 func (s *Server) getChallenge(w http.ResponseWriter, r *http.Request) {
+	nonce, ok := s.sess.challenge()
+	if !ok {
+		w.Header().Set("Retry-After", "120")
+		writeJSON(w, http.StatusTooManyRequests, rejectedResponse{
+			"challenge.exhausted",
+			"too many outstanding challenges; retry after the current window drains",
+			""})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"challenge":     s.sess.challenge(),
+		"challenge":     nonce,
 		"expires_in_ms": challengeTTL.Milliseconds(),
 	})
 }

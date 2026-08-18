@@ -207,6 +207,14 @@ func send(e *Env, c *Client, cmd map[string]any, what string, retry func(string)
 	}
 	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
 	if exit != ExitOK {
+		if sent.Body.Invariant == "key.revoked" || sent.Body.Invariant == "key.compromised" {
+			// Same rule as post: a dead seat must not keep a queue of signed
+			// bytes that lands the moment somebody re-enrols it. Every write
+			// verb that spools also drops on revocation.
+			if actor, ok := cmd["author"].(string); ok {
+				DropSpool(actor)
+			}
+		}
 		if sent.Body.Exit != 0 && stricter(sent.Body.Exit, exit) {
 			exit = sent.Body.Exit
 			outcome = "refused"
