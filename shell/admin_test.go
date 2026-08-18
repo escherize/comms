@@ -294,3 +294,29 @@ func TestSuperuserMintRequiresSuperuser(t *testing.T) {
 		t.Errorf("loopback must mint a superuser, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// A deployed hub is dialled over loopback when minting (fly ssh console), so
+// the client cannot know the public hostname. The hub can: --public-url rides
+// back on the invite response and the CLI composes the setup link from it.
+func TestInviteResponseCarriesPublicURL(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "pub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	srv := New(st, func() time.Time { return now })
+	srv.PublicURL = "https://hub.example"
+	h := srv.Routes()
+
+	r := httptest.NewRequest("POST", "/invite", strings.NewReader(`{"actor":"human:sarah"}`))
+	r.RemoteAddr = "127.0.0.1:9"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("loopback mint must succeed, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"public_url":"https://hub.example"`) {
+		t.Errorf("invite response must carry the hub's public URL, got %s", w.Body.String())
+	}
+}

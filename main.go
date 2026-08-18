@@ -43,6 +43,8 @@ func main() {
 	db := flag.String("db", envOr("COMMS_DB", "comms.db"),
 		"path to the event log (default $COMMS_DB, else ./comms.db)")
 	rooms := flag.String("rooms", "core", "comma-separated rooms to ensure at startup")
+	publicURL := flag.String("public-url", envOr("COMMS_PUBLIC_URL", ""),
+		"public base URL of this hub (e.g. https://comms.example.com); used in printed invite links, which otherwise name the loopback address")
 	asSeat := flag.String("as", "", "enrol this seat as the hub owner at startup (grants invite; the key is written locally)")
 	seed := flag.Bool("seed", false, "seed the log with a demo working session")
 	insecure := flag.Bool("insecure", false, "accept unsigned commands (localhost demos only)")
@@ -269,6 +271,7 @@ Most flags below are operator actions that touch the database and exit
 	}
 
 	srv := shell.New(st, time.Now)
+	srv.PublicURL = strings.TrimRight(*publicURL, "/")
 	if *insecure {
 		srv.RequireSignature = false
 		log.Printf("WARNING: --insecure is set. Unsigned commands are accepted, so anyone " +
@@ -354,16 +357,20 @@ Most flags below are operator actions that touch the database and exit
 	// else to join the room.
 	if *asSeat == "" && st.EnrolledSeats() == 0 {
 		if tok, err := st.MintBootstrapInvite(time.Now()); err == nil {
+			base := "http://" + ln.Addr().String()
+			if srv.PublicURL != "" {
+				base = srv.PublicURL
+			}
 			fmt.Printf(`
 no seats enrolled yet — claim the first one:
 
-  browser   open http://%s/#setup=%s
+  browser   open %s/#setup=%s
             the page asks you to name your seat and enrols this browser
 
   terminal  echo "%s" | comms enrol --as human:<you>%s
 
 One use, expires in 24h, works only while the hub has no seats.
-`, ln.Addr(), tok, tok, srvHint)
+`, base, tok, tok, srvHint)
 		}
 	}
 	fmt.Printf(`

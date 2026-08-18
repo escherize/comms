@@ -43,6 +43,7 @@ type wireResponse struct {
 	Attempts     int    `json:"attempts"`
 	Remaining    int    `json:"remaining"`
 	Token        string `json:"token"`
+	PublicURL    string `json:"public_url"`
 }
 
 // Sent is the outcome of one post, including the exact bytes that were signed

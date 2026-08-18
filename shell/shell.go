@@ -42,6 +42,12 @@ type Server struct {
 	// deployment is a decision someone made rather than one they inherited.
 	RequireSignature bool
 
+	// PublicURL is the base URL clients should use to reach this hub from
+	// outside (--public-url). A loopback mint composes invite links from the
+	// address it dialled, which on a deployed hub is 127.0.0.1; when set, the
+	// invite response carries this instead. Empty means "no better answer".
+	PublicURL string
+
 	limit    *limiter
 	correct  *corrections
 	escalate *escalations
@@ -1318,6 +1324,7 @@ func (s *Server) postInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "outcome": "invited", "actor": req.Actor, "token": token, "scope": scope,
+		"public_url": s.PublicURL,
 		"detail": "one use. It exists in the database this hub is serving, which is " +
 			"the point of minting it here",
 	})
