@@ -381,6 +381,13 @@ half never leaves this browser.</p>
   // (the seat may have a new server-side key on a rebuilt hub), which is the
   // key.unknown a reused key would otherwise cause. Take this branch before the
   // saved-seat silent unlock, so the explicit link wins.
+  // A setup link pasted into this already-open page is a same-document
+  // fragment navigation — no reload, no script re-run. Reload so the load
+  // path below handles it.
+  window.addEventListener('hashchange', function(){
+    if(/^#setup=/.test(location.hash)) location.reload();
+  });
+
   var setupMatch=location.hash.match(/^#setup=([0-9a-f]{32})$/);
   if(setupMatch){
     var setupToken=setupMatch[1];

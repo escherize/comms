@@ -307,11 +307,9 @@ const liveScript = `
   // stream replays the whole backlog and appends duplicates of every row that
   // was collapsed into a carried-forward line (those have no DOM node to
   // dedupe against).
-  var after = document.body.getAttribute('data-head') || '0';
-  var es = new EventSource('/stream?room=' + encodeURIComponent(room) +
-                           '&after=' + encodeURIComponent(after) +
-                           (query ? '&q=' + encodeURIComponent(query) : ''));
-  es.addEventListener('datastar-patch-elements', function(e){
+  var last = document.body.getAttribute('data-head') || '0';
+  var es = null;
+  function handle(e){
     var mode='append', selector='#ledger-body', html=[];
     e.data.split('\n').forEach(function(line){
       if (line.indexOf('mode ')===0) mode = line.slice(5).trim();
@@ -321,12 +319,30 @@ const liveScript = `
     var target = document.querySelector(selector);
     if (!target) return;
     var seq = e.lastEventId;
+    if (seq) last = seq;
     if (seq && target.querySelector('[data-seq="'+seq+'"]')) return; // resume overlap
     if (mode==='append') target.insertAdjacentHTML('beforeend', html.join('\n'));
     else target.innerHTML = html.join('\n');
     var main = document.querySelector('main.ledger');
     if (main) main.scrollTop = main.scrollHeight;
+  }
+  function connect(){
+    es = new EventSource('/stream?room=' + encodeURIComponent(room) +
+                         '&after=' + encodeURIComponent(last) +
+                         (query ? '&q=' + encodeURIComponent(query) : ''));
+    es.addEventListener('datastar-patch-elements', handle);
+  }
+  // The stream socket belongs to the visible tab only. Browsers cap HTTP/1.1
+  // at ~6 connections per host, and a hidden tab holding its stream open
+  // starves the pool: the seventh tab's page load queues forever behind them —
+  // a "hang" with a perfectly healthy server. Hidden tabs hand the socket
+  // back and resume from the last folio they saw when shown again.
+  // ponytail: many visible windows can still fill the pool; HTTP/2 lifts it.
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) { if (es) { es.close(); es = null; } }
+    else if (!es) connect();
   });
+  if (!document.hidden) connect();
 })();
 </script>`
 
@@ -931,6 +947,13 @@ const onboardScript = `
         note('this token enrols '+j.actor+' — post anything to claim the seat');
       })
       .catch(function(){});
+  });
+
+  // A setup link pasted into an already-open tab is a same-document fragment
+  // navigation: no reload, no script re-run, nothing visibly happens. Reload
+  // so the load path below handles it.
+  window.addEventListener('hashchange', function(){
+    if(/^#setup=/.test(location.hash)) location.reload();
   });
 
   function setup(){
