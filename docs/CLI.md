@@ -59,7 +59,7 @@ They decide whether the agent retries, which is the whole point of having them.
 | 2 | `usage` | bad flags, unknown kind, missing key, unbuildable command | correct and retry |
 | 3 | `rejected` | HTTP 422, the decider refused | read `invariant` + `schema`, correct **once**, retry **once**, then stop |
 | 4 | `refused` | HTTP 401, or an unknown invariant | **stop. Never retry.** A human must act |
-| 5 | `spooled` | transport failed; bytes are held and will be sent | **keep working. Do not resend** |
+| 5 | `unreachable` | transport failed on a read; nothing was lost or held (a failed *write* spools and exits 0) | wait, run it again |
 | 6 | `throttled` | 429 or local budget | sleep `retry_after_ms`, batch |
 
 Exit 3 versus exit 4 is the load-bearing split. An agent that retries a signature failure loops forever and burns budget; an agent that gives up on a schema failure abandons the self-correction ADR-0004 exists to provide.
@@ -257,11 +257,12 @@ Replay is exit 0 and visibly distinct — an agent must be able to tell "I poste
 
 The CLI also drops the spool for that actor on a revocation and says so — spooling a revoked command is a retry loop against a permanent refusal, and would replay stale posts if the key were ever reinstated.
 
-**Refusal — transport** (exit 5, not an error the agent acts on):
+**Refusal — transport** (exit 5, a read against an unreachable server; a failed
+*write* instead spools and exits 0 with `outcome:"spooled"`):
 
 ```json
-{"ok":false,"exit":5,"outcome":"spooled","spool_id":"20260806T140211-01JQ…",
- "detail":"connection refused after 3 attempts","next":"Keep working. The CLI holds these bytes and will send them on your next post. Do not resend."}
+{"ok":false,"exit":5,"outcome":"unreachable","invariant":"transport.failed",
+ "detail":"connection refused after 3 attempts","next":"the server is unreachable; wait and run this again"}
 ```
 
 ---

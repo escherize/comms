@@ -257,7 +257,7 @@ Once you start using `--step`, keep using it for that piece of work. A step-less
 | 5 | the server was unreachable on a **read** | wait and run it again; nothing was lost |
 | 6 | you are over budget | sleep `retry_after_ms`, then post again |
 
-Branch on 0 versus not-0 and you will be right about writes: a post whose transport failed exits **0** with `outcome:"spooled"`, because an exit code that reads as failure is an instruction to run the command again, and there is no idempotency flag to make that safe. A *read* against the same unreachable server exits 5 — nothing was lost, and running it again is the whole fix.
+Branch on 0 versus not-0 and you will be right about writes: a post whose transport failed exits **0** with `outcome:"spooled"`, because an exit code that reads as failure is an instruction to run the command again, and there is no idempotency flag to make that safe. A *read* against the same unreachable server exits 5 with `outcome:"unreachable"` — nothing was lost or held, and running it again is the whole fix.
 
 Exit 3 is the system doing its job: the rejection names the invariant and returns the schema for that kind, written for you to act on without a human. It usually returns a corrected command too — run that one.
 

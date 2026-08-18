@@ -17,7 +17,7 @@ const (
 	ExitUsage     = 2 // bad flags, unknown kind, missing key
 	ExitRejected  = 3 // the decider refused; read invariant + schema, correct once
 	ExitRefused   = 4 // unauthorized, or an invariant we do not recognise. Stop.
-	ExitSpooled   = 5 // transport failed; bytes are held. Keep working.
+	ExitSpooled   = 5 // transport failed on a read; nothing held, run it again. (A failed write spools and exits 0.)
 	ExitThrottled = 6 // sleep retry_after_ms, batch
 )
 

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -130,7 +131,37 @@ func Run(e *Env, args []string) int {
 		return usage(e)
 	}
 	return e.Out.Fail(ExitUsage, "usage", "verb.unknown",
-		"no verb "+args[0]+"; known verbs: "+strings.Join(Verbs, ", "))
+		"no verb "+args[0]+"; known verbs: "+strings.Join(Verbs, ", ")+
+			" (this binary: "+buildID()+" — if the docs promise this verb, the installed binary is stale)")
+}
+
+// buildID names the binary for skew diagnosis: when a doc or setup banner
+// promises a verb this binary lacks, the error must say which build refused,
+// or the skew reads as user error.
+func buildID() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown build"
+	}
+	rev, at := "", ""
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.time":
+			at = s.Value
+		}
+	}
+	if rev == "" {
+		return "unknown build"
+	}
+	if len(rev) > 12 {
+		rev = rev[:12]
+	}
+	if at != "" {
+		return rev + " built " + at
+	}
+	return rev
 }
 
 func usage(e *Env) int {
@@ -1014,7 +1045,7 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 		// A transport failure is not unretryable. Exit 4 here while post on the
 		// same unreachable server returns spooled/exit 0 told an agent to stop
 		// over a condition that fixes itself.
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	return emit(e, o, events, meta)
 }
@@ -1074,7 +1105,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 	if err != nil {
 		// A drop mid-wait must leave the cursor where it was, so nothing is
 		// skipped on the next read.
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 
 	if *wait > 0 && len(events) == 0 {
@@ -1212,7 +1243,7 @@ right to record.`, 3)
 	applyIdem(e, body, *idem)
 	sent, err := c.PostTo("/escalate", body)
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
 	if exit != ExitOK {

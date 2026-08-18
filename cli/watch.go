@@ -91,7 +91,7 @@ useful for watching what a seat is being sent.`)
 			e.Out.Note("stream ended (%v); reconnecting", err)
 			time.Sleep(2 * time.Second)
 			if *once {
-				return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+				return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 			}
 			continue
 		}

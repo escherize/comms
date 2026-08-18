@@ -114,7 +114,7 @@ merely misspelt would otherwise be accepted, addressed to nobody, permanently.
 
 	body, status, err := fetchJSON(e, "/rooms/"+url.PathEscape(name))
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	if status != http.StatusOK {
 		return e.Out.Fail(ExitRejected, "rejected",
@@ -135,7 +135,7 @@ merely misspelt would otherwise be accepted, addressed to nobody, permanently.
 func listRoomsAndActors(e *Env) int {
 	rooms, status, err := fetchJSON(e, "/rooms")
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	if status != http.StatusOK {
 		return e.Out.Fail(ExitRejected, "rejected", str(rooms["invariant"], "rooms.failed"),
@@ -143,7 +143,7 @@ func listRoomsAndActors(e *Env) int {
 	}
 	actors, _, err := fetchJSON(e, "/actors")
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	e.Out.Line(map[string]any{"type": "rooms", "rooms": rooms["rooms"]})
 	e.Out.Line(map[string]any{"type": "actors", "actors": actors["actors"]})
@@ -253,7 +253,7 @@ can draw a false conclusion from.`)
 		return req, nil
 	})
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	defer resp.Body.Close()
 
@@ -509,7 +509,7 @@ within its own rooms.`)
 		sent, err = postUnsigned(e.Server, "/invite", body)
 	}
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "spooled", "transport.failed", err.Error())
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	if sent.Status != http.StatusOK {
 		exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)

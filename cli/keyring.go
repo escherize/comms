@@ -44,8 +44,33 @@ func configDir() string {
 // seatFile maps an actor to its key path. Slashes in a seat name would
 // otherwise create directories.
 func seatFile(actor string) string {
-	safe := strings.NewReplacer("/", "_", ":", "_", string(filepath.Separator), "_").Replace(actor)
-	return filepath.Join(KeyDir(), safe+".key")
+	return filepath.Join(KeyDir(), safeName(actor)+".key")
+}
+
+// adoptLegacySeat copies one seat key across from the pre-rename directory.
+// The whole-directory rename in configDir only fires when ~/.config/comms
+// does not exist yet, so on a machine that already had the new directory a
+// seat enrolled by an old binary stays stranded under agent_comms — and the
+// "re-enrol" the error suggests is a dead end, because the invite token was
+// single-use. The old file is left in place; a stale binary can keep using it.
+func adoptLegacySeat(actor string) {
+	if os.Getenv("COMMS_HOME") != "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	src := filepath.Join(home, ".config", "agent_comms", "keys", safeName(actor)+".key")
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(KeyDir(), 0o700); err != nil {
+		return
+	}
+	_ = os.Chmod(KeyDir(), 0o700)
+	_ = os.WriteFile(seatFile(actor), raw, 0o600)
 }
 
 // SaveSeat writes a private key readable only by its owner.
@@ -69,6 +94,10 @@ func SaveSeat(actor string, priv ed25519.PrivateKey) error {
 // environment variable exposes what it returns.
 func LoadSeat(actor string) (ed25519.PrivateKey, error) {
 	raw, err := os.ReadFile(seatFile(actor))
+	if os.IsNotExist(err) {
+		adoptLegacySeat(actor)
+		raw, err = os.ReadFile(seatFile(actor))
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("no key for %s; run: comms enrol --as %s", actor, actor)
@@ -84,6 +113,10 @@ func LoadSeat(actor string) (ed25519.PrivateKey, error) {
 
 // HasSeat reports whether a seat is enrolled, without loading the key.
 func HasSeat(actor string) bool {
+	if _, err := os.Stat(seatFile(actor)); err == nil {
+		return true
+	}
+	adoptLegacySeat(actor)
 	_, err := os.Stat(seatFile(actor))
 	return err == nil
 }

@@ -38,3 +38,18 @@ func TestHumanPromptOffersLinkAndEnrol(t *testing.T) {
 		t.Error("the human prompt must not include agent harness steps")
 	}
 }
+
+// A read against an unreachable server holds nothing, so its outcome must not
+// say "spooled" — that word is the held-write promise, and it is a lie here.
+func TestUnreachableReadOutcomeIsNotSpooled(t *testing.T) {
+	isolateKeys(t)
+	var c capture
+	code := Run(c.env(t, "http://127.0.0.1:1", ""), []string{"room", "--as", "human:x"})
+	if code != ExitSpooled {
+		t.Fatalf("want exit %d, got %d: %s", ExitSpooled, code, c.out.String())
+	}
+	m := c.last(t)
+	if m["outcome"] != "unreachable" {
+		t.Fatalf("want outcome unreachable, got %v", m["outcome"])
+	}
+}
