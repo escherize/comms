@@ -1342,14 +1342,37 @@ right to record.`, 3)
 func resolveSeat(e *Env, flagValue string) (string, int) {
 	if flagValue != "" {
 		e.Seat = flagValue
+		applyPinnedServer(e, flagValue)
 		return flagValue, 0
 	}
 	if v, ok := e.getenv("COMMS_ACTOR"); ok && v != "" {
 		e.Seat = v
+		applyPinnedServer(e, v)
 		return v, 0
 	}
 	return "", e.Out.Fail(ExitUsage, "usage", "actor.required",
 		"name the seat with --as, or set COMMS_ACTOR")
+}
+
+// DefaultServer is the built-in hub address a bare client talks to.
+const DefaultServer = "http://127.0.0.1:7777"
+
+// applyPinnedServer defaults the server to the hub this seat enrolled
+// against, when nothing chose one: no --server flag (e.Server still the
+// built-in default) and no COMMS_SERVER. Enrolment pins the hub per seat, so
+// a harness whose shell forgets exported env between commands still reaches
+// the right hub with a bare `comms read --as <seat>`. An explicit choice
+// always wins; CheckServer still refuses a mismatched write.
+func applyPinnedServer(e *Env, seat string) {
+	if e.Server != DefaultServer {
+		return
+	}
+	if v, ok := e.getenv("COMMS_SERVER"); ok && v != "" {
+		return
+	}
+	if pinned := PinnedServer(seat); pinned != "" {
+		e.Server = pinned
+	}
 }
 
 // newIdem is gone. A random key made every re-run a new event, so the fix an

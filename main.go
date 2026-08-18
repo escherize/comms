@@ -119,7 +119,7 @@ Most flags below are operator actions that touch the database and exit
 		os.Exit(cli.Run(&cli.Env{
 			Out:    cli.Std(),
 			Stdin:  os.Stdin,
-			Server: envOr("COMMS_SERVER", "http://127.0.0.1:7777"),
+			Server: envOr("COMMS_SERVER", cli.DefaultServer),
 			Host:   hostname(),
 		}, args))
 	}

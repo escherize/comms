@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -48,5 +49,29 @@ func TestLoadSeatAdoptsLegacyKey(t *testing.T) {
 	}
 	if _, err := os.Stat(legacy); err != nil {
 		t.Fatal("the legacy file must stay for the old binary to keep using")
+	}
+}
+
+// After enrolment, a seat's commands find their hub from the pin alone: a
+// harness whose shell forgets exported env between commands still reaches the
+// right server with a bare `comms room --as <seat>` — no COMMS_SERVER needed.
+func TestBareCommandUsesPinnedServer(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+
+	var c capture
+	e := &Env{
+		Out:       &Out{Stdout: &c.out, Stderr: &c.err},
+		Stdin:     strings.NewReader(""),
+		Server:    DefaultServer, // nothing chose a server
+		Host:      "test-host",
+		LookupEnv: func(string) (string, bool) { return "", false },
+	}
+	if code := Run(e, []string{"room", "--as", seat}); code != ExitOK {
+		t.Fatalf("bare room via pin failed: %d %s", code, c.out.String())
+	}
+	if !strings.Contains(c.out.String(), `"core"`) {
+		t.Fatalf("expected the pinned hub's rooms, got: %s", c.out.String())
 	}
 }
