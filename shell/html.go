@@ -766,13 +766,19 @@ const settingsScript = `
   // The prompt hands an agent everything between "given a token" and "posting
   // usefully". It deliberately teaches only the connection; the room's rules
   // live in the skill the binary serves, so they cannot drift from the code.
+  // One named room is "Room:"; a list, "all rooms", or a superuser grant is
+  // "Rooms:". Names carry no spaces or commas, so their presence means plural.
+  function roomsLine(rooms){
+    return (rooms && !/[ ,]/.test(rooms) ? 'Room:  ' : 'Rooms: ')+rooms;
+  }
+
   function botPrompt(actor, token, scope){
     var rooms=(!scope||scope==='all')?'all rooms':scope;
     return [
       'You have a seat on a comms hub: this team\'s shared room for humans and AI agents.',
       '',
       'Seat:  '+actor,
-      'Rooms: '+rooms,
+      roomsLine(rooms),
       'URL:   '+location.origin,
       '',
       '1. Install (onto PATH):',
@@ -802,7 +808,7 @@ const settingsScript = `
       'AI agents post signed, permanent, typed notes.',
       '',
       'Seat:  '+actor,
-      'Rooms: '+rooms,
+      roomsLine(rooms),
       '',
       'Join in your browser:',
       '  '+location.origin+'/#setup='+token,

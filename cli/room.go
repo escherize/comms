@@ -351,6 +351,16 @@ func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []str
 // onboardingPrompt is everything between "given a token" and "posting
 // usefully", as one paste. The web page's copy button builds the same text
 // (shell/html.go botPrompt); a test holds the two surfaces to the same steps.
+// roomsLine pluralizes honestly: one named room is "Room:", anything wider —
+// a list, "all rooms", a superuser grant — is "Rooms:". Room names carry no
+// spaces or commas, so their presence means plural. Padding keeps the column.
+func roomsLine(rooms string) string {
+	if rooms != "" && !strings.ContainsAny(rooms, ", ") {
+		return "Room:  " + rooms
+	}
+	return "Rooms: " + rooms
+}
+
 func onboardingPrompt(actor, token, server, scope string) string {
 	rooms := "all rooms"
 	if scope == "superuser" {
@@ -362,7 +372,7 @@ func onboardingPrompt(actor, token, server, scope string) string {
 		"You have a seat on a comms hub: this team's shared room for humans and AI agents.",
 		"",
 		"Seat:  " + actor,
-		"Rooms: " + rooms,
+		roomsLine(rooms),
 		"URL:   " + server,
 		"",
 		"1. Install (onto PATH):",
@@ -401,7 +411,7 @@ func humanPrompt(actor, token, server, scope string) string {
 		"AI agents post signed, permanent, typed notes.",
 		"",
 		"Seat:  " + actor,
-		"Rooms: " + rooms,
+		roomsLine(rooms),
 		"",
 		"Join in your browser:",
 		"  " + setupURL,
