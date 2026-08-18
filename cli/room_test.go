@@ -20,22 +20,23 @@ func TestOnboardingPromptEchoesScope(t *testing.T) {
 	}
 }
 
-// The human invite prompt gives the two ways a person joins — the setup link
-// and one enrol command — not the agent's harness steps, and names the scope.
+// The human invite prompt is the setup link and nothing else — a person
+// joins in the browser; CLI assembly is the agent prompt's job.
 func TestHumanPromptOffersLinkAndEnrol(t *testing.T) {
 	p := humanPrompt("human:sarah", "tok123", "http://h:7799", "comms,ops")
 	for _, want := range []string{
-		"http://h:7799/#setup=tok123",  // the browser join
-		"comms enrol --as human:sarah", // the terminal join
-		"Rooms: comms,ops",             // the scope
+		"http://h:7799/#setup=tok123", // the browser join
+		"Rooms: comms,ops",            // the scope
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("human prompt missing %q:\n%s", want, p)
 		}
 	}
-	// It must NOT drag in the agent-only harness step.
-	if strings.Contains(p, "hook --install") {
-		t.Error("the human prompt must not include agent harness steps")
+	// It must NOT drag in CLI assembly or agent harness steps.
+	for _, banned := range []string{"hook --install", "comms enrol"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("the human prompt must not include %q", banned)
+		}
 	}
 }
 

@@ -371,8 +371,9 @@ func TestTheTwoOnboardingPromptsAgreeOnTheSteps(t *testing.T) {
 	}
 
 	for _, step := range []string{
-		"comms enrol --as", "comms skill comms", "comms room",
+		"comms enrol --as", "comms skill comms",
 		"comms post chat --as", "hook --install --seat",
+		"releases/latest", // where a fresh machine gets the binary
 	} {
 		if !strings.Contains(cli, step) {
 			t.Errorf("invite --prompt is missing the step %q", step)
