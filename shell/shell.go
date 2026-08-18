@@ -99,6 +99,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /actors", s.actorsList)
 	mux.HandleFunc("POST /escalate", s.postEscalation)
 	mux.HandleFunc("GET /index", s.indexStatus)
+	mux.HandleFunc("GET /install", s.getInstall)
 	mux.HandleFunc("POST /delivered", s.postDelivered)
 	mux.HandleFunc("POST /invite", s.postInvite)
 	mux.HandleFunc("POST /invites/whose", s.whoseInvite)

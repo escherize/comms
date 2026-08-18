@@ -586,3 +586,67 @@ func TestKindAsVerbWithPositionalText(t *testing.T) {
 		t.Fatalf("positional + --text must be text.contested, got %d: %s", code, c2.out.String())
 	}
 }
+
+// join is onboarding as one act: the same setup link a human clicks enrols
+// the seat the token names, checks in, and wires the harness hook.
+func TestJoinFromSetupLink(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	prev, _ := os.Getwd()
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(prev)
+
+	tok, err := st.MintInvite("agent:bcm/joiner", store.ScopeAll, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var c capture
+	code := Run(c.env(t, "http://127.0.0.1:1", ""), // wrong server on purpose: the link wins
+		[]string{"join", srv.URL + "/#setup=" + tok})
+	if code != ExitOK {
+		t.Fatalf("join exited %d: %s", code, c.out.String())
+	}
+	if m := c.last(t); m["outcome"] != "joined" || m["actor"] != "agent:bcm/joiner" {
+		t.Fatalf("want joined as agent:bcm/joiner, got %v", m)
+	}
+	if !HasSeat("agent:bcm/joiner") {
+		t.Error("join must leave an enrolled key behind")
+	}
+	if PinnedServer("agent:bcm/joiner") != srv.URL {
+		t.Error("join must pin the hub from the link")
+	}
+	if _, err := os.Stat(filepath.Join(project, ".claude", "settings.local.json")); err != nil {
+		t.Error("join must wire the harness hook for the seat")
+	}
+	// The check-in landed.
+	recs, err := st.Since("core", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range recs {
+		if string(r.Author) == "agent:bcm/joiner" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("join must post the check-in")
+	}
+
+	// A seat mismatch is refused; the spent token is a refusal too.
+	var c2 capture
+	if code := Run(c2.env(t, "http://127.0.0.1:1", ""),
+		[]string{"join", srv.URL + "/#setup=" + tok, "--as", "agent:bcm/other"}); code == ExitOK {
+		t.Error("a spent token (or mismatched --as) must not join")
+	}
+}

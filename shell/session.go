@@ -280,6 +280,10 @@ func selfAuthenticating(r *http.Request) bool {
 		"POST /invite", "POST /invites/whose",
 		"POST /rooms", "POST /session", "GET /session/challenge":
 		return true
+	case "GET /install":
+		// Public by design: an uninstalled client cannot hold a session, and
+		// the script carries no hub data beyond the version string.
+		return true
 	}
 	return false
 }

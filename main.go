@@ -273,6 +273,9 @@ Most flags below are operator actions that touch the database and exit
 
 	srv := shell.New(st, time.Now)
 	srv.PublicURL = strings.TrimRight(*publicURL, "/")
+	// The hub-served installer pins clients to this build's version, so a
+	// client installed through the hub can never be skewed against it.
+	shell.InstallVersion = cli.Version
 	if *insecure {
 		srv.RequireSignature = false
 		log.Printf("WARNING: --insecure is set. Unsigned commands are accepted, so anyone " +

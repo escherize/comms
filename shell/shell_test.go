@@ -642,3 +642,30 @@ func TestTokenFieldHidesWhenLoggedIn(t *testing.T) {
 		}
 	}
 }
+
+// The hub serves its own installer, unauthenticated by design — an
+// uninstalled client cannot hold a session. The script pins the hub's own
+// version so a client installed through this door can never be skewed.
+func TestHubServesTheInstaller(t *testing.T) {
+	srv, _ := newServer(t)
+	old := InstallVersion
+	InstallVersion = "v9.9.9"
+	defer func() { InstallVersion = old }()
+
+	resp, err := http.Get(srv.URL + "/install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	script := buf.String()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("installer must be public, got %d", resp.StatusCode)
+	}
+	for _, want := range []string{`VER="v9.9.9"`, "#!/bin/sh", "releases/download", "uname"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("installer missing %q", want)
+		}
+	}
+}

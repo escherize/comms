@@ -44,6 +44,8 @@ type wireResponse struct {
 	Remaining    int    `json:"remaining"`
 	Token        string `json:"token"`
 	PublicURL    string `json:"public_url"`
+	Actor        string `json:"actor"`
+	Scope        string `json:"scope"`
 }
 
 // Sent is the outcome of one post, including the exact bytes that were signed

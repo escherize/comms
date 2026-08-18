@@ -155,6 +155,21 @@ Reaching the port is not enough, and a request from off-box without a capability
 
 ---
 
+### `join`
+
+```
+comms join '<hub>/#setup=<token>' [--as <seat>] [--no-hook]
+```
+
+Onboarding as one act, from the same setup link a human clicks: parses hub
+and token from the URL, asks the hub which seat the token names, enrols it
+(`enrol`'s keygen/pin/save exactly), posts a check-in, and wires the harness
+hook for that seat (run at your project root; restart your session after).
+`--as` is needed only for a bootstrap link that names nobody; naming a
+different seat than the token's is refused `actor.mismatch`. `--no-hook`
+stops before the harness wiring. The last JSONL line is
+`outcome:"joined"` with the seat and hub.
+
 ### `enrol`
 
 ```

@@ -43,7 +43,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "skill", "skills", "hook"}
+var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -87,6 +87,8 @@ func Run(e *Env, args []string) int {
 	switch args[0] {
 	case "enrol":
 		return runEnrol(e, args[1:])
+	case "join":
+		return runJoin(e, args[1:])
 	case "post":
 		return runPost(e, args[1:])
 	case "chat", "finding", "til", "status":
@@ -197,6 +199,7 @@ usage: comms <verb> [flags]
        comms serve [--db <path>] [--rooms <list>]
 
 join a room
+   join        everything at once from a setup link: enrol, check in, wire the hook
    enrol       register this seat's key against a one-time invite token
    room        select a room and orient; bare form lists rooms and seats
    whoami      which seat you hold, where posts land, how far you have read
@@ -335,13 +338,19 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 		}
 	}
 
+	return enrolKey(e, *actor, tok)
+}
+
+// enrolKey is the enrolment act itself — keygen, redeem, pin, save — shared
+// by enrol and join.
+func enrolKey(e *Env, actor, tok string) int {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return e.Out.Fail(ExitInternal, "internal", "keygen.failed", err.Error())
 	}
 
-	c := NewClient(e.Server, *actor, priv)
-	status, resp, err := c.Enrol(e.Server, *actor, tok, pub)
+	c := NewClient(e.Server, actor, priv)
+	status, resp, err := c.Enrol(e.Server, actor, tok, pub)
 	if err != nil {
 		// Unreachable is transient: exit 5 says wait and rerun, and the token
 		// is still unspent. Exit 4's "never retry" burned tokens' worth of
@@ -356,16 +365,16 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 		})
 	}
 
-	if err := PinServer(*actor, e.Server); err != nil {
+	if err := PinServer(actor, e.Server); err != nil {
 		return e.Out.Fail(ExitInternal, "internal", "pin.unwritable", err.Error())
 	}
-	if err := SaveSeat(*actor, priv); err != nil {
+	if err := SaveSeat(actor, priv); err != nil {
 		return e.Out.Fail(ExitInternal, "internal", "key.unwritable", err.Error())
 	}
 
-	e.Out.Note("enrolled %s; key written to %s (never printed)", *actor, KeyDir())
+	e.Out.Note("enrolled %s; key written to %s (never printed)", actor, KeyDir())
 	return e.Out.Succeed(Result{
-		Outcome: "enrolled", Actor: *actor, Host: e.Host,
+		Outcome: "enrolled", Actor: actor, Host: e.Host,
 		Server: e.Server, PubKey: hex.EncodeToString(pub),
 	})
 }
