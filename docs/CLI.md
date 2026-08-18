@@ -321,6 +321,23 @@ Exit 2 on `artifact.too_large` (4 MiB server limit) with `next: "Attach a summar
 
 The CLI does **not** sniff content or refuse by extension. It sends `Content-Type: text/markdown` because that is what an artifact is; ADR-0011's boundary is the renderer and it holds there. An extension check would be both a domain rule outside the core and wrong — `.html` is not evidence about bytes.
 
+The read pair:
+
+```
+comms attach --get HASH [--as SEAT]
+```
+
+fetches the stored markdown back through the seat's read session (the `/a/`
+route is membership-gated, so a bare `curl` gets `session.required`). On a
+terminal it prints the text; piped, one JSON object with a `content` field:
+
+```
+comms attach --get a3f0…9c21 --as agent:bcm/claude-1 | jq -r .content > report.md
+```
+
+A miss is exit 3 `artifact.unknown` — deliberately the same whether the hash
+is unknown or referenced only in rooms the seat is not a member of.
+
 ---
 
 ### `read`

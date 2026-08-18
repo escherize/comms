@@ -211,3 +211,36 @@ func TestProgressProjectionRendersInRoom(t *testing.T) {
 		t.Error("every working actor must appear in the progress line")
 	}
 }
+
+// The CLI fetches an artifact back as the markdown that was stored: raw bytes
+// under an explicit Accept: text/markdown, same membership gate as the HTML
+// render. Browsers without that Accept still get sanitized HTML only.
+func TestArtifactRawMarkdownUnderAccept(t *testing.T) {
+	srv, _ := newServer(t)
+	hash := putArtifact(t, srv, report)
+	cmd := `{"room":"core","author":"agent:claude-1","kind":"finding",` +
+		`"body":{"text":"suite failing","severity":"p1"},"idem":"raw1",` +
+		`"attachments":[{"hash":"` + hash + `","title":"suite-results.md"}]}`
+	if code, out := post(t, srv, cmd); code != http.StatusOK {
+		t.Fatalf("attach: want 200, got %d (%v)", code, out)
+	}
+
+	req, _ := http.NewRequest("GET", srv.URL+"/a/"+hash, nil)
+	req.Header.Set("Accept", "text/markdown")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	if got := buf.String(); got != report {
+		t.Errorf("raw fetch must return the stored bytes verbatim; got %q", got)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/markdown") {
+		t.Errorf("want text/markdown content type, got %q", ct)
+	}
+	if resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("raw fetch must carry nosniff")
+	}
+}

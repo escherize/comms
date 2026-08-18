@@ -907,6 +907,13 @@ always reaches whoever asked.
 // ---------------------------------------------------------------- attach
 
 func runAttach(e *Env, args []string) int {
+	// --get is the read pair of attach: the same hash, back as the stored
+	// markdown, through the seat's read session. Without it an agent can see
+	// an attachment exists in a read and have no way to open it — the /a/
+	// route wants a session a bare curl does not carry.
+	if len(args) > 0 && (strings.HasPrefix(args[0], "--get") || strings.HasPrefix(args[0], "-get")) {
+		return runAttachGet(e, args)
+	}
 	fs, sink := newFlags("attach")
 	title := fs.String("title", "", "what to call it where it is referenced")
 	fs.Usage = func() {
@@ -921,7 +928,11 @@ you already consumed.
       --text "suite red" --attach-hash "$HASH" --attach-title suite.md
 
 --title travels with the upload and comes back in the reply, so the pair to
-paste into the post is printed for you rather than reassembled by hand.`)
+paste into the post is printed for you rather than reassembled by hand.
+
+The pair verb: comms attach --get <hash> [--as <seat>] fetches a stored
+artifact back as markdown, through your read session. On a terminal it prints
+the text; piped, one JSON object with a content field.`)
 	}
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		fs.Usage()
@@ -961,6 +972,64 @@ paste into the post is printed for you rather than reassembled by hand.`)
 		// two fields and gets subtly wrong under a shell.
 		Next: "reference it: --attach-hash " + hash + " --attach-title " + shellQuote(name),
 	})
+}
+
+// runAttachGet fetches a stored artifact by hash, as the markdown that was
+// uploaded. It reads through doRead, so a session hub gets the seat's session
+// and the membership gate on /a/ applies — this is the sanctioned door a bare
+// curl lacks.
+func runAttachGet(e *Env, args []string) int {
+	fs, sink := newFlags("attach")
+	hash := fs.String("get", "", "the artifact hash to fetch")
+	actor := fs.String("as", "", "the seat reading")
+	fs.Usage = func() {
+		e.Out.HelpFS(fs, `comms attach --get <hash> [--as <seat>]
+
+Fetches a stored artifact back as markdown, through your read session. On a
+terminal it prints the text; piped, one JSON object with a content field:
+
+  comms attach --get <hash> --as <seat> | jq -r .content > report.md`)
+	}
+	if err := fs.Parse(args); err != nil {
+		if isHelp(err) {
+			fs.Usage()
+			return usageOK(e)
+		}
+		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+	if len(*hash) != 64 {
+		return e.Out.Fail(ExitUsage, "usage", "hash.invalid",
+			"--get wants the 64-hex artifact hash a read printed")
+	}
+	if _, code := resolveSeat(e, *actor); code != 0 {
+		return code
+	}
+	resp, err := doRead(e, nil, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", strings.TrimRight(e.Server, "/")+"/a/"+*hash, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "text/markdown")
+		return req, nil
+	})
+	if err != nil {
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		// The server 404s identically for unknown, unreferenced, and
+		// not-yours-to-see; say all three so the reader does not chase the wrong one.
+		return e.Out.Fail(ExitRejected, "rejected", "artifact.unknown",
+			"no artifact "+*hash+" visible to "+e.Seat+
+				" — unknown hash, or referenced only in rooms this seat is not a member of")
+	}
+	if e.Out.Quiet {
+		return e.Out.Succeed(Result{Outcome: "fetched", Hash: *hash, Size: len(body), Content: string(body)})
+	}
+	fmt.Fprint(e.Out.Stdout, string(body))
+	e.Out.Note("%d bytes, artifact %s", len(body), (*hash)[:12])
+	return ExitOK
 }
 
 // ---------------------------------------------------------------- read / inbox

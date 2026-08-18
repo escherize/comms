@@ -111,6 +111,7 @@ type Result struct {
 	URL          string           `json:"url,omitempty"`
 	Size         int              `json:"size,omitempty"`
 	Count        int              `json:"count,omitempty"`
+	Content      string           `json:"content,omitempty"`
 
 	Invariant string `json:"invariant,omitempty"`
 	Detail    string `json:"detail,omitempty"`

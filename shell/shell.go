@@ -224,8 +224,9 @@ func (s *Server) postArtifact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"hash": hash, "size": len(content)})
 }
 
-// getArtifact renders stored markdown as sanitized HTML. The stored bytes are
-// never served raw.
+// getArtifact serves stored markdown: rendered as sanitized HTML for a
+// browser, or the raw bytes under an explicit Accept: text/markdown (the
+// CLI's fetch). HTML is never served unsanitized.
 func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	// A raw hash is not a bypass around room scoping: the reader must be a member
@@ -239,6 +240,15 @@ func (s *Server) getArtifact(w http.ResponseWriter, r *http.Request) {
 	content, ok := s.st.GetArtifact(hash)
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	// The CLI reads the stored markdown itself; only browsers get HTML, and
+	// only sanitized. text/markdown is inert in a browser (nosniff, no
+	// execution), so raw-under-explicit-Accept keeps the never-raw-HTML stance.
+	if strings.Contains(r.Header.Get("Accept"), "text/markdown") {
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write(content)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
