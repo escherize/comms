@@ -627,3 +627,18 @@ func TestRoomPageCarriesTheRefinedSurface(t *testing.T) {
 		t.Error("the header room strip should be gone; rooms live in the rail")
 	}
 }
+
+// The token field earns its place: hidden once the browser holds a key for
+// the acting seat, shown when a token is in hand, and brought back by a
+// key.*/enrolment.* refusal — the moment a fresh token is the fix.
+func TestTokenFieldHidesWhenLoggedIn(t *testing.T) {
+	for _, want := range []string{
+		"window.commsTokenVis",
+		"tokField.hidden=!!pair",
+		`/^(key|enrolment)\./.test(j.invariant)`,
+	} {
+		if !strings.Contains(roomHTML, want) {
+			t.Errorf("room page missing %q", want)
+		}
+	}
+}

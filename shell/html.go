@@ -1036,6 +1036,8 @@ const onboardScript = `
       a.insertBefore(opt(v), a.lastElementChild);
     a.value=v; localStorage.setItem(ak,v);
     paintMe();
+    // The composer re-decides whether the token field is needed for this seat.
+    if(window.commsTokenVis) window.commsTokenVis();
   }
   function note(msg){
     var bar=document.getElementById('composer-error');
@@ -1153,6 +1155,8 @@ const onboardScript = `
     // serve output if this attempt is abandoned.
     history.replaceState(null,'',location.pathname);
     var tf=document.getElementById('enroltoken'); if(tf) tf.value=token;
+    // A token in hand must be visible even for a seat that has a stale key.
+    if(window.commsTokenVis) window.commsTokenVis();
     var focusComposer=function(){ var c=document.getElementById('ctext'); if(c) c.focus(); };
     // The token knows its seat — an invite for human:sarah names her — so ask
     // the hub and pre-fill it rather than making the person retype what the link
@@ -1325,7 +1329,26 @@ const composeScript = `
     pending=[];
     renderChips();
     if(ta) ta.style.height='';
+    updateTok();
   }
+
+  // The token field earns its place: shown only while this browser holds no
+  // key for the acting seat, or while a token is actually in hand. Once
+  // enrolled ("logged in"), it disappears — and a key.* refusal brings it
+  // back, because that is the moment a fresh token becomes the fix.
+  var tokField=document.getElementById('enroltoken');
+  function updateTok(){
+    if(!tokField) return;
+    if(tokField.value){ tokField.hidden=false; return; }
+    var actor=(document.getElementById('actor')||{}).value;
+    if(!actor || actor==='__new__'){ tokField.hidden=false; return; }
+    idbGet(actor).then(function(pair){ tokField.hidden=!!pair; })
+      .catch(function(){ tokField.hidden=false; });
+  }
+  window.commsTokenVis=updateTok;
+  updateTok();
+  var actorSel=document.getElementById('actor');
+  if(actorSel) actorSel.addEventListener('change', updateTok);
 
   var DB='comms.keys', STORE='keys';
   function idb(){ return new Promise(function(res,rej){
@@ -1516,7 +1539,8 @@ const composeScript = `
     if(document.body.getAttribute('data-signing') !== 'true'){
       fetch('/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:payload})
         .then(function(r){ return r.json(); }).then(function(j){
-          if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
+          if(j.invariant){ if(/^(key|enrolment)\./.test(j.invariant) && tokField) tokField.hidden=false;
+        fail(text, j.invariant+': '+j.detail); }
           else { text.value=''; clearFail(text); clearPending(); }
         }).catch(function(err){ fail(text, String(err && err.message || err)); });
       return;
@@ -1538,7 +1562,8 @@ const composeScript = `
         headers:{'Content-Type':'application/json','X-Signature':hex(sig)},
         body:payload});
     }).then(function(r){ return r.json(); }).then(function(j){
-      if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
+      if(j.invariant){ if(/^(key|enrolment)\./.test(j.invariant) && tokField) tokField.hidden=false;
+        fail(text, j.invariant+': '+j.detail); }
       else { text.value=''; clearFail(text); clearPending(); }
     }).catch(function(err){ fail(text, String(err && err.message || err)); });
   });
