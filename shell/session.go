@@ -306,8 +306,8 @@ button { cursor:pointer; } button:hover { border-color:var(--accent); }
 <p>Reads here are for enrolled seats. Your key signs a challenge; the private
 half never leaves this browser.</p>
 <form id="unlock">
-  <input id="actor" placeholder="actor, e.g. human:you" autocomplete="username">
-  <input id="token" placeholder="enrolment token (first visit only)">
+  <input id="actor" placeholder="actor, e.g. human:you" aria-label="your seat name" autocomplete="username">
+  <input id="token" placeholder="enrolment token (first visit only)" aria-label="enrolment token">
   <button>unlock</button>
   <div id="err"></div>
 </form>
@@ -347,6 +347,9 @@ half never leaves this browser.</p>
         if(!r.ok) return r.json().then(function(j){
           throw new Error(j.detail||'session refused'); });
         localStorage.setItem(AK, actor);
+        // Success re-arms the silent unlock for this tab's next visit; the
+        // guard exists to stop a failure loop, not to expire on success.
+        sessionStorage.removeItem('comms.unlock_tried');
         location.reload();
       });
   }
@@ -428,12 +431,17 @@ half never leaves this browser.</p>
     var actor=actorField.value.trim(), token=document.getElementById('token').value.trim();
     if(!actor){ err.textContent='name your seat'; return; }
     sessionStorage.removeItem('comms.unlock_tried');
-    idbGet(actor).then(function(pair){
-      if(pair) return establish(actor, pair);
-      if(!token) throw new Error('no key in this browser for '+actor+
-        ' — paste an enrolment token (ask an operator: comms invite '+actor+')');
-      return enrolThen(actor, token);
-    }).catch(function(ex){ err.textContent=ex.message; });
+    // A pasted token wins over any cached key — same rule as the composer's
+    // keyFor. The cached pair going first meant a stale key (rebuilt hub, new
+    // server-side key) blocked a perfectly good token forever: key.unknown on
+    // every try, and the token field did nothing.
+    (token ? enrolThen(actor, token)
+           : idbGet(actor).then(function(pair){
+               if(pair) return establish(actor, pair);
+               throw new Error('no key in this browser for '+actor+
+                 ' — paste an enrolment token (ask an operator: comms invite '+actor+')');
+             })
+    ).catch(function(ex){ err.textContent=ex.message; });
   });
 })();
 </script>

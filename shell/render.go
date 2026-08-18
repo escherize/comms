@@ -453,15 +453,17 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 // row's position, so a reader can see how much better the first hit is than the
 // second. The vector rank column ships with ticket 07; the grammar has its slot.
 func searchRow(r store.Record) string {
+	// data-seq is the live-lane dedupe hook: without it a resume overlap
+	// appends duplicate hit rows on the search page with nothing to catch it.
 	return fmt.Sprintf(
-		`<div class="row srow">`+
+		`<div class="row srow" data-seq="%d">`+
 			`<div class="folio">%d</div>`+
 			`<div class="rank">%.1f</div>`+
 			`<div class="rank vec">—</div>`+
 			`<div class="author">%s</div>`+
 			`<div class="kind">%s</div>`+
 			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
-		r.Seq, r.Rank, authorCell(r.Author), kindGlyph(r.Kind),
+		r.Seq, r.Seq, r.Rank, authorCell(r.Author), kindGlyph(r.Kind),
 		html.EscapeString(r.Room), r.Seq, html.EscapeString(r.Text()))
 }
 

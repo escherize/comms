@@ -307,3 +307,23 @@ func TestBareFrontDoorLandsScopedSeatInItsRoom(t *testing.T) {
 		t.Errorf("expected sarah's room content on /, got %s", body)
 	}
 }
+
+// A delivery receipt moves only the session's own watermark. Without the
+// check, any authenticated seat could mark another seat's addressed lane
+// drained — the delivery signal falsified for exactly the reader it protects.
+func TestDeliveredRefusesAnotherSeatsWatermark(t *testing.T) {
+	h, _, sarahTok := scopedServer(t)
+
+	forge := gated(h, "POST", "/delivered", sess(sarahTok),
+		`{"actor":"human:owner","room":"comms","addressed_through":99}`)
+	if forge.Code != http.StatusForbidden {
+		t.Fatalf("forging another seat's watermark must 403, got %d: %s",
+			forge.Code, forge.Body.String())
+	}
+	own := gated(h, "POST", "/delivered", sess(sarahTok),
+		`{"actor":"human:sarah","room":"comms","addressed_through":99}`)
+	if own.Code != http.StatusOK {
+		t.Fatalf("a seat's own receipt must be recorded, got %d: %s",
+			own.Code, own.Body.String())
+	}
+}

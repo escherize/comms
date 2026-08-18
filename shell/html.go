@@ -335,19 +335,35 @@ const liveScript = `
     var seq = e.lastEventId;
     if (seq) last = seq;
     if (seq && target.querySelector('[data-seq="'+seq+'"]')) return; // resume overlap
+    // Measure before inserting: whether the reader was at the bottom is a
+    // fact about the view before the new row grew it.
+    var main = document.querySelector('main.ledger');
+    var nearBottom = main && (main.scrollHeight - main.scrollTop - main.clientHeight < 48);
     if (mode==='append') target.insertAdjacentHTML('beforeend', html.join('\n'));
     else target.innerHTML = html.join('\n');
-    // Only a new row scrolls; a nav replacement must not yank the view.
-    if (mode==='append'){
-      var main = document.querySelector('main.ledger');
-      if (main) main.scrollTop = main.scrollHeight;
-    }
+    // Follow the tail only for a reader already at it. Yanking the view on
+    // every append made history unreadable in a live room; a nav replacement
+    // never scrolls at all.
+    if (mode==='append' && nearBottom) main.scrollTop = main.scrollHeight;
   }
   function connect(){
     es = new EventSource('/stream?room=' + encodeURIComponent(room) +
                          '&after=' + encodeURIComponent(last) +
                          (query ? '&q=' + encodeURIComponent(query) : ''));
     es.addEventListener('datastar-patch-elements', handle);
+    // EventSource retries transient drops itself; a fatal close (the 401
+    // after a hub restart — sessions are in-memory) previously froze the
+    // ledger silently while posting kept working. Keep re-dialling: when the
+    // hub (or a fresh session via reload) is back, the stream resumes from
+    // the last folio.
+    es.onerror = function(){
+      if (es && es.readyState === 2) {
+        es = null;
+        var bar = document.getElementById('composer-error');
+        if (bar) { bar.textContent = 'live updates interrupted — retrying; reload if this persists'; bar.hidden = false; }
+        setTimeout(function(){ if (!document.hidden && !es) connect(); }, 5000);
+      }
+    };
   }
   // The stream socket belongs to the visible tab only. Browsers cap HTTP/1.1
   // at ~6 connections per host, and a hidden tab holding its stream open
@@ -858,7 +874,7 @@ finish review, the verdict, and DESIGN.md.
       <option value="status">status</option>
     </select>
     <input id="ctext" name="text" placeholder="entry, or /finding /til /status /ask /answer /handoff /pr  (c to focus)" autocomplete="off">
-    <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" autocomplete="off">
+    <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" aria-label="enrolment token" autocomplete="off">
     <button type="submit">post</button>
   </form>
 </footer>
@@ -893,9 +909,11 @@ const onboardScript = `
     if(bar){ bar.textContent=msg; bar.hidden=false; }
   }
 
+  var rosterLoaded=false;
   fetch('/actors',{headers:{'Accept':'application/json'}})
     .then(function(r){ return r.json(); })
     .then(function(j){
+      rosterLoaded=true;
       (j.actors||[]).forEach(function(x){
         if(x.key_status!=='revoked' && x.key_status!=='compromised')
           a.appendChild(opt(x.actor));
@@ -905,7 +923,15 @@ const onboardScript = `
     .then(function(){
       a.appendChild(opt('__new__','new seat…'));
       var saved=localStorage.getItem(ak);
-      if(saved && saved!=='__new__') setActor(saved);
+      // Restore the remembered seat only if the live roster still has it: a
+      // revoked seat, or one from another hub on this origin (localhost dev),
+      // must not stay the default identity and fail every post. When the
+      // roster fetch itself failed, keep the memory — offline is not revoked.
+      if(saved && saved!=='__new__'){
+        var known=[].some.call(a.options,function(o){ return o.value===saved; });
+        if(known || !rosterLoaded) setActor(saved);
+        else localStorage.removeItem(ak);
+      }
       setup();
     });
 
@@ -945,6 +971,13 @@ const onboardScript = `
       note('first post as '+name+' needs its enrolment token in the token field');
     });
   });
+
+  // The composer's no-seat rescue lives in another IIFE; these are its door.
+  // Without them the guard was an uncaught ReferenceError — the failure it
+  // exists to prevent.
+  window.commsAskName=askName;
+  window.commsSetActor=setActor;
+  window.commsNote=note;
 
   // A pasted token names its seat, so the dropdown follows the token: the
   // hub is asked whose it is and the actor is set to match, instead of the
@@ -1146,6 +1179,15 @@ const composeScript = `
               body:JSON.stringify({actor:actor, public_key:hex(raw), token:token.trim()})
             }).then(function(r){
               if(!r.ok) return r.json().then(function(j){
+                // Two tabs, one token: the other tab spent it, and its key is
+                // already in the shared IndexedDB. Fall back to that key
+                // rather than wedging on the spent token forever.
+                if(/already used/i.test(j.detail||'')){
+                  return idbGet(actor).then(function(pair){
+                    if(pair){ if(tf) tf.value=''; return pair; }
+                    throw new Error(j.detail||'enrolment refused');
+                  });
+                }
                 throw new Error(j.detail||'enrolment refused'); });
               // The token is single-use and now spent: clear it so the next
               // post signs with the enrolled key instead of resending a used
@@ -1237,10 +1279,10 @@ const composeScript = `
     // first-timer who typed in the composer without touching it.
     if(!actor || actor==='__new__'){
       var pending=text.value;
-      askName(function(name){
-        setActor(name);
+      window.commsAskName(function(name){
+        window.commsSetActor(name);
         text.value=pending;
-        note('seat '+name+' ready — press post again; the first post enrols this browser');
+        window.commsNote('seat '+name+' ready — press post again; the first post enrols this browser');
         text.focus();
       });
       return;

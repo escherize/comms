@@ -581,3 +581,26 @@ func TestRoomCreationPushesNavPatch(t *testing.T) {
 		t.Fatal("stream never delivered a nav patch naming the new room")
 	}
 }
+
+// The rescue paths a stuck newcomer reaches must exist across script
+// boundaries: the composer's no-seat guard calls onboardScript's helpers via
+// their window exports (a bare askName there was an uncaught ReferenceError),
+// and the unlock page lets a pasted token beat a stale cached key.
+func TestRescuePathsAreWired(t *testing.T) {
+	for _, want := range []string{
+		"window.commsAskName", // exported…
+		"window.commsSetActor",
+		"window.commsNote",
+		"window.commsAskName(function(name)", // …and used by the composer guard
+	} {
+		if !strings.Contains(roomHTML, want) {
+			t.Errorf("room page missing %q", want)
+		}
+	}
+	if !strings.Contains(unlockPage, "token ? enrolThen") {
+		t.Error("unlock page must let a pasted token win over a cached key")
+	}
+	if !strings.Contains(unlockPage, `aria-label="enrolment token"`) {
+		t.Error("unlock token input must be labelled")
+	}
+}

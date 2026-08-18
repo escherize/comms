@@ -536,18 +536,10 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		}
 		last = seq
 
-		// A redact event must actually suppress its target. Rendering it
-		// struck-through while leaving the body readable and searchable is
-		// worse than no redaction, because the room implies it worked.
-		if ev.Kind == core.KindRedact && len(ev.Refs) == 1 {
-			if target, convErr := strconv.ParseInt(ev.Refs[0], 10, 64); convErr == nil {
-				if err := s.st.ApplyRedaction(target, seq, string(ev.Author), s.now()); err != nil {
-					writeJSON(w, http.StatusInternalServerError,
-						rejectedResponse{"redaction.failed", err.Error(), ""})
-					return
-				}
-			}
-		}
+		// A redact event suppresses its target inside Append's own
+		// transaction (store.Append folds it), so a committed redact event is
+		// a suppressed target by construction — no second transaction, no
+		// crash window between the claim and the act.
 
 		s.fanout(ev.Room, seq)
 	}
@@ -770,24 +762,22 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	// Resume: replay everything after the client's last seen seq, so a
-	// reconnect never silently drops events.
-	after := lastEventID(r)
-	if backlog, err := s.st.Since(room, after, 500); err == nil {
-		for _, rec := range backlog {
-			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
-				continue
-			}
-			writeSSE(w, rec, queryFilter != "")
-		}
-		flusher.Flush()
-	}
-
+	// Subscribe BEFORE reading the backlog. The old order (backlog first,
+	// subscribe second) had a window where an event fanned out between the
+	// snapshot and the registration reached neither — a silent gap the client
+	// cannot detect, because seq is gappy by design. Registered first, an
+	// event can arrive twice (once buffered live, once in the backlog); the
+	// seq high-water below drops the duplicate.
 	ch := make(chan store.Record, 64)
 	navCh := make(chan struct{}, 1)
 	s.mu.Lock()
 	s.subs[ch] = room
-	s.navSubs[navCh] = navSub{reader: reader(r), room: room}
+	// Only room pages get nav pushes: the search page shares this stream (with
+	// q=) but its header nav is rooms|search, and a room-links replacement
+	// would clobber it.
+	if queryFilter == "" {
+		s.navSubs[navCh] = navSub{reader: reader(r), room: room}
+	}
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -795,6 +785,27 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		delete(s.navSubs, navCh)
 		s.mu.Unlock()
 	}()
+
+	// Resume: replay everything after the client's last seen seq. Paged, not
+	// capped — the browser lane has no re-request protocol, so a cap would be
+	// a permanent hole for any tab more than a page behind.
+	lastSeq := lastEventID(r)
+	for {
+		backlog, err := s.st.Since(room, lastSeq, 500)
+		if err != nil || len(backlog) == 0 {
+			break
+		}
+		for _, rec := range backlog {
+			if lastSeq = rec.Seq; !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
+				continue
+			}
+			writeSSE(w, rec, queryFilter != "")
+		}
+		flusher.Flush()
+		if len(backlog) < 500 {
+			break
+		}
+	}
 
 	ping := time.NewTicker(25 * time.Second)
 	defer ping.Stop()
@@ -809,6 +820,11 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 				// reconnects on its own and replays from Last-Event-ID.
 				return
 			}
+			// Buffered during the backlog replay and already sent from it.
+			if rec.Seq <= lastSeq {
+				continue
+			}
+			lastSeq = rec.Seq
 			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
 				continue
 			}
@@ -867,6 +883,20 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 	})
 	flusher.Flush()
 
+	// Subscribe before the backlog snapshot, for the same no-silent-gap
+	// reason as the datastar lane: an event fanned out between snapshot and
+	// registration must land in the buffered channel, not nowhere. The seq
+	// high-water below drops the resulting duplicates.
+	ch := make(chan store.Record, 64)
+	s.mu.Lock()
+	s.subs[ch] = room
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.subs, ch)
+		s.mu.Unlock()
+	}()
+
 	after := lastEventID(r)
 	backlog, err := s.st.Since(room, after, backlogCeiling+1)
 	if err != nil {
@@ -906,16 +936,6 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 	})
 	flusher.Flush()
 
-	ch := make(chan store.Record, 64)
-	s.mu.Lock()
-	s.subs[ch] = room
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		delete(s.subs, ch)
-		s.mu.Unlock()
-	}()
-
 	ping := time.NewTicker(25 * time.Second)
 	defer ping.Stop()
 
@@ -935,6 +955,11 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 				flusher.Flush()
 				return
 			}
+			// Buffered during the backlog replay and already sent from it.
+			if rec.Seq <= lastSeq {
+				continue
+			}
+			lastSeq = rec.Seq
 			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
 				continue
 			}
@@ -1300,6 +1325,17 @@ func (s *Server) postDelivered(w http.ResponseWriter, r *http.Request) {
 	if req.Actor == "" || req.Room == "" {
 		writeJSON(w, http.StatusUnprocessableEntity, rejectedResponse{"actor.required",
 			"a delivery receipt names the seat and the room", ""})
+		return
+	}
+	// Identity wins over the body: a session names the seat whose watermark
+	// may move. Without this, any authenticated seat could mark another
+	// seat's addressed lane drained — the delivery signal falsified for
+	// exactly the reader it exists to protect. A seatless request (the
+	// operator on loopback) may still name any seat.
+	if who := reader(r); who != "" && who != req.Actor {
+		writeJSON(w, http.StatusForbidden, rejectedResponse{"delivery.not_yours",
+			"a delivery receipt moves only your own watermark: this session is " +
+				who + ", the receipt names " + req.Actor, ""})
 		return
 	}
 	if err := s.st.MarkDelivered(req.Actor, req.Room, req.Through, s.now()); err != nil {
