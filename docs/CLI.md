@@ -12,19 +12,21 @@ Global flags, accepted by every verb:
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--server URL` | `COMMS_SERVER` | `http://127.0.0.1:7777` | |
-| `--as ACTOR` | `COMMS_ACTOR` | the single enrolled seat | Selects among seats **enrolled on this machine**. Naming an actor with no local key is `key.missing`, exit 2 — never `signature.invalid`. |
-| `--room NAME` | `COMMS_ROOM` | `core` | |
-| `--quiet` | | off | Suppress the stderr line. stdout is unaffected. |
-| `--timeout D` | | `10s` | Per network attempt, not per command. |
+| `--server URL` | `COMMS_SERVER` | the seat's pinned hub, else `http://127.0.0.1:7777` | Enrolment pins seat→server; a bare command with `--as` finds its hub from the pin. |
+| `--as ACTOR` | `COMMS_ACTOR` | — | Selects among seats **enrolled on this machine**. Required on verbs that act as a seat. |
+| `--room NAME` | | the seat's selected room, else `core` | `comms room <name>` selects. |
 
-Paths, under `COMMS_HOME` (default `~/.config/comms`) and `~/.local/state/comms`:
+Quietness is automatic: piped stdout means a program is reading, so stderr
+prose is suppressed and stdout stays JSONL.
+
+Paths, under `COMMS_HOME` (default `~/.config/comms`):
 
 ```
-~/.config/comms/keys/<pct-encoded-actor>.key   0600, dir 0700, hex ed25519 seed
-~/.config/comms/seats/<pct-encoded-actor>.json actor, host, public key, enrolled_at, server
-~/.local/state/comms/cursor/<host>/<actor>/<room>   one integer
-~/.local/state/comms/spool/<actor>/<ts>-<idem>.cmd  exact bytes + signature
+keys/<flattened-actor>.key            0600, dir 0700, hex ed25519 seed
+state/<flattened-actor>.server        the hub this seat enrolled against (the pin)
+state/<flattened-actor>.cursors.json  read cursors, one file per seat
+state/spool/<ts>-<idem>-*.json        held writes: exact bytes + signature
+sessions/                             cached read-session tokens
 ```
 
 The CLI refuses to run if the key file's mode is not 0600, or if its path resolves inside a git worktree. `COMMS_KEY` is not read; setting it is `key.on_env`, exit 2, with the reason — environment is inherited by every child the agent spawns and `env` is a command agents run casually.
@@ -72,7 +74,7 @@ One `idem` per logical post, **derived from the command's content plus a run sco
 
 The retry unit is the `(bytes, signature)` pair, cached, never a re-serialized command: `store.SignedBytes` is identity, so a re-serialize risks a key-order change that fails verification.
 
-On transport failure: three attempts, 1s/2s/4s jittered, then write the pair to the spool and exit 5. Every write verb drains the spool FIFO before doing its own work. A 5xx (including the `UNIQUE constraint failed` race in `Append`, which is semantically a 200 replay) is spooled, never tight-retried.
+On transport failure: three attempts, 200ms/400ms linear backoff, then write the pair to the spool and exit **0** `spooled` (an exit that read as failure was an instruction to re-run, and there is no idempotency flag to make that safe). Every write verb drains the spool FIFO before doing its own work. A 5xx is spooled, never tight-retried — the hub failing is transport, not refusal.
 
 ## The verbs
 
@@ -175,11 +177,9 @@ key written 0600. It was not printed and is not recoverable — re-enrol with a 
 | Refusal | Exit | `invariant` | `detail` |
 |---|---|---|---|
 | token spent or wrong | 4 | `enrolment.refused` | `invite token already redeemed. One token, one use — ask the operator for another.` |
-| key file exists | 2 | `key.exists` | `enrolling again would orphan the registered public key` |
 | token passed as a flag (`--token`) | 2 | `token.on_argv` | `a bearer token on argv lands in ps, shell history, and your own transcript; pipe it on stdin` |
-| no tty and no stdin | 2 | `enrolment.non_interactive` | `enrolment is a human act` |
-
-`--keychain` (macOS Keychain, `secret-tool` on Linux) ships from day one even where it only supports one platform, so the shape does not have to change when it becomes the default. It is the CLI's equivalent of the browser's non-extractable WebCrypto key, and the only version where the custody constraint is enforced rather than observed.
+| `COMMS_KEY` set | 2 | `key.on_env` | the environment is inherited by every child process; the client never reads a key from it |
+| server unreachable | 5 | `transport.failed` | retryable — the token is still unspent |
 
 ---
 
@@ -597,18 +597,15 @@ Refused `refs.handoff_required` if the seq is not a handoff, and `refs.unknown` 
 ### `escalate`
 
 ```
-comms escalate --as <seat> --to <human> --text <why>
+comms escalate <seq> --as <seat> --to <human> --text "<why now>"
 ```
 
-Exists, always refuses, posts nothing. `--help` answers before the refusal, because an agent reading the flags has not escalated yet and refusing the question teaches nothing:
-
-```json
-{"ok":false,"exit":4,"outcome":"refused","invariant":"escalation.not_built",
- "detail":"escalation budgets are designed but not built (ticket 05). Nothing was posted. To interrupt a human now, ask them: comms ask --to <human>",
- "next":"stop escalating; ask a human directly instead"}
-```
-
-It exists rather than being absent because ARCHITECTURE and CONTEXT both name escalation, so an agent will try it, and "unknown command" teaches nothing while this teaches the whole attention model in four lines.
+Pulls one entry already in the room into a person's attention, as an ordinary
+addressed question referencing it. Priced: three per seat per hour; past that
+it is refused `escalation.exhausted` with the window named, and the entry is
+still in the room — what ran out is the right to interrupt, not the right to
+record. Transport failure is exit 5 `unreachable`: retryable, and the budget
+is only spent on acceptance.
 
 ## What the CLI must never do
 

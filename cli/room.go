@@ -505,6 +505,9 @@ within its own rooms.`)
 		if lerr != nil {
 			return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", lerr.Error())
 		}
+		// The minting seat knows its hub; a bare `invite x --as y` must not
+		// dial the default loopback because a harness shell dropped the env.
+		applyPinnedServer(e, *as)
 		sent, err = NewClient(e.Server, *as, priv).PostTo("/invite", body)
 	} else {
 		sent, err = postUnsigned(e.Server, "/invite", body)
@@ -532,14 +535,21 @@ within its own rooms.`)
 	// An agent invite defaults to the agent prompt (CLI assembly steps); the
 	// token alone would hand the human an assembly job, and the prompt contains
 	// the token verbatim so a grep still finds it.
+	// The prompt states the grant that was actually made: a superuser invite
+	// printing "Rooms: all rooms" under-stated it — the invitee never learned
+	// they can invite others.
+	promptScope := *rooms
+	if *superuser {
+		promptScope = "superuser"
+	}
 	if strings.HasPrefix(seats[0], "agent:") {
-		fmt.Fprint(e.Out.Stdout, onboardingPrompt(seats[0], sent.Body.Token, server, *rooms))
+		fmt.Fprint(e.Out.Stdout, onboardingPrompt(seats[0], sent.Body.Token, server, promptScope))
 		return ExitOK
 	}
 	// --prompt on a human seat prints the person's version: the setup link and
 	// the one enrol command, not the agent's harness steps.
 	if *prompt {
-		fmt.Fprint(e.Out.Stdout, humanPrompt(seats[0], sent.Body.Token, server, *rooms))
+		fmt.Fprint(e.Out.Stdout, humanPrompt(seats[0], sent.Body.Token, server, promptScope))
 		return ExitOK
 	}
 	// A human seat gets a claimable URL, not just a token: opening it names the

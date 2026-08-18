@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -97,6 +98,10 @@ func searchFor(e *Env, room, query string, limit int) []searchHit {
 	return hits
 }
 
+// errUnreachable marks an upload that never reached the hub, so callers can
+// answer "wait and retry" instead of misreporting transport as a refusal.
+var errUnreachable = errors.New("unreachable")
+
 // uploadArtifact stores content and returns its hash. It sends text/markdown
 // and sniffs nothing: ADR-0011 puts the boundary at the renderer, and a file
 // extension is not evidence about bytes.
@@ -110,7 +115,7 @@ func uploadArtifact(e *Env, content []byte) (string, int, error) {
 		return req, nil
 	})
 	if err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("%w: %v", errUnreachable, err)
 	}
 	defer resp.Body.Close()
 

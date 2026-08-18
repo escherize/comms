@@ -76,6 +76,15 @@ func (c *Client) Post(cmd map[string]any) (Sent, error) {
 			time.Sleep(retryBackoff * time.Duration(attempt))
 		}
 		status, out, err := postExactWith(c.HTTP, c.Server, payload, sig)
+		if err == nil && status >= 500 {
+			// A 5xx is the transport's problem wearing a status code — a
+			// crashing handler, a proxy mid-deploy. The contract says spooled,
+			// never tight-retried: surface it as a transport failure so the
+			// spool takes the pair, instead of exit 4 "stop, never retry"
+			// abandoning the write over a ten-second redeploy.
+			return Sent{Bytes: payload, Signature: sig},
+				fmt.Errorf("server error %d: %s", status, orDefault(out.Detail, "the hub failed to answer"))
+		}
 		if err == nil {
 			return Sent{Status: status, Body: out, Bytes: payload, Signature: sig}, nil
 		}
@@ -192,6 +201,11 @@ func statusToExit(status int, invariant string) (int, string) {
 			return ExitRefused, "refused"
 		}
 		return ExitRejected, "rejected"
+	}
+	if status >= 500 {
+		// The hub failing is not the caller refused: 5xx is transient by
+		// contract (retry/spool), never "stop, never retry".
+		return ExitSpooled, "unreachable"
 	}
 	return ExitRefused, "refused"
 }

@@ -282,10 +282,14 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 			return e.Out.Fail(ExitRefused, "refused", "via.no_key",
 				*via+" holds no key on this machine; --via signs with a local seat")
 		}
+		// The via seat knows its hub: without this, the documented bare
+		// `enrol --as x --via y` dialled the default loopback and dead-ended
+		// in every harness whose shell forgot COMMS_SERVER.
+		applyPinnedServer(e, *via)
 		sent, err := NewClient(e.Server, *via, viaPriv).
 			PostTo("/invite", map[string]any{"actor": *actor, "as": *via})
 		if err != nil {
-			return e.Out.Fail(ExitRefused, "refused", "server.unreachable", err.Error())
+			return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 		}
 		if sent.Status != 200 || sent.Body.Token == "" {
 			return e.Out.FailWith(Result{
@@ -313,7 +317,10 @@ The private key is written 0600 under %s and is never printed.`, KeyDir())
 	c := NewClient(e.Server, *actor, priv)
 	status, resp, err := c.Enrol(e.Server, *actor, tok, pub)
 	if err != nil {
-		return e.Out.Fail(ExitRefused, "refused", "server.unreachable", err.Error())
+		// Unreachable is transient: exit 5 says wait and rerun, and the token
+		// is still unspent. Exit 4's "never retry" burned tokens' worth of
+		// human attention over network blips.
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
 	}
 	if status != 200 {
 		return e.Out.FailWith(Result{
@@ -462,6 +469,9 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 		}
 		h, _, err := uploadArtifact(e, content)
 		if err != nil {
+			if errors.Is(err, errUnreachable) {
+				return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
+			}
 			return e.Out.Fail(ExitRefused, "refused", "artifact.rejected", err.Error())
 		}
 		atts = append(atts, map[string]any{"hash": h, "title": defaultTitle(path)})
@@ -916,8 +926,9 @@ func runAttach(e *Env, args []string) int {
 	}
 	fs, sink := newFlags("attach")
 	title := fs.String("title", "", "what to call it where it is referenced")
+	actor := fs.String("as", "", "the seat uploading — a session hub requires one")
 	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms attach <path|->
+		e.Out.HelpFS(fs, `comms attach <path|-> [--as <seat>]
 
 Uploads markdown and prints its hash. post --attach-hash accepts the hash, so a
 rejected post does not mean re-running a three-minute test to reproduce stdin
@@ -945,6 +956,17 @@ the text; piped, one JSON object with a content field.`)
 	if err := fs.Parse(args[1:]); err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
+	// The seat is optional on open hubs but load-bearing on session hubs: it
+	// names the read session the upload rides and lets the seat's pinned
+	// server apply, so an env-less harness reaches the right hub. Resolved
+	// leniently — no seat is not an error here, the server decides.
+	if *actor != "" {
+		e.Seat = *actor
+		applyPinnedServer(e, *actor)
+	} else if v, ok := e.getenv("COMMS_ACTOR"); ok && v != "" {
+		e.Seat = v
+		applyPinnedServer(e, v)
+	}
 
 	if err := WithinTree(args[0]); err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "attach.outside_tree", err.Error())
@@ -959,6 +981,11 @@ the text; piped, one JSON object with a content field.`)
 
 	hash, size, err := uploadArtifact(e, content)
 	if err != nil {
+		// Transport is not refusal: an unreachable hub answers "wait and run
+		// this again", never "stop".
+		if errors.Is(err, errUnreachable) {
+			return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
+		}
 		return e.Out.Fail(ExitRefused, "refused", "artifact.rejected", err.Error())
 	}
 	name := *title
@@ -1017,6 +1044,12 @@ terminal it prints the text; piped, one JSON object with a content field:
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 500 {
+		// A hub failure is not "no such artifact": that lie sent readers
+		// chasing hashes that were fine.
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed",
+			fmt.Sprintf("server error %d fetching the artifact", resp.StatusCode))
+	}
 	if resp.StatusCode != http.StatusOK {
 		// The server 404s identically for unknown, unreferenced, and
 		// not-yours-to-see; say all three so the reader does not chase the wrong one.

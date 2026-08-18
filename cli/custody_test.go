@@ -263,3 +263,51 @@ func TestDryRunPrintsADigestNotTheSignature(t *testing.T) {
 		t.Errorf("dry-run file mode is %v, want 0600", info.Mode().Perm())
 	}
 }
+
+// A 5xx is transport wearing a status code: the write spools (exit 0), it is
+// not exit 4 "stop, never retry" — a ten-second proxy blip during a redeploy
+// must not make an unattended agent permanently abandon its write.
+func TestServerErrorSpoolsTheWrite(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(502)
+	}))
+	defer down.Close()
+	if err := PinServer(seat, down.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	var c capture
+	code := Run(c.env(t, down.URL, ""), []string{"post", "finding", "--as", seat,
+		"--severity", "p1", "--text", "written mid-redeploy"})
+	if code != ExitOK {
+		t.Fatalf("a 5xx write must spool and exit 0, got %d: %s", code, c.out.String())
+	}
+	if m := c.last(t); m["outcome"] != "spooled" {
+		t.Fatalf("want outcome spooled on 5xx, got %v", m)
+	}
+}
+
+// A typo'd recipient is the most correctable refusal there is: exit 3 with a
+// route to the roster, never exit 4 "a human must act".
+func TestUnknownRecipientIsCorrectableNotFatal(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+
+	var c capture
+	code := Run(c.env(t, srv.URL, ""), []string{"ask", "--as", seat,
+		"--to", "human:sarrah", "--text", "is the migration safe?", "--no-search"})
+	if code != ExitRejected {
+		t.Fatalf("recipient.unknown must be exit %d (correctable), got %d: %s",
+			ExitRejected, code, c.out.String())
+	}
+	m := c.last(t)
+	next, _ := m["next"].(string)
+	if !strings.Contains(next, "comms room") {
+		t.Fatalf("the next step must route to the roster, got %v", m["next"])
+	}
+}
