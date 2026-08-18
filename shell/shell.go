@@ -1337,8 +1337,18 @@ func (s *Server) scopeExceedsGranter(r *http.Request, as, scope string) string {
 	if as == "" && isLoopback(r.RemoteAddr) {
 		return ""
 	}
+	// Minting a superuser (all rooms + invite capability) is an escalation
+	// unless the granter is itself a superuser. An all-rooms admin without the
+	// capability sees everything but cannot hand out the capability it does not
+	// hold; only a seat that already runs the hub mints another that does.
+	if scope == store.ScopeSuperuser {
+		if as != "" && s.st.IsMember(as, "*") && s.st.HasCapability(as, CapInvite) {
+			return ""
+		}
+		return "superuser (all rooms + invite capability)"
+	}
 	if as != "" && s.st.IsMember(as, "*") {
-		return "" // an all-rooms admin grants anything, from anywhere
+		return "" // an all-rooms admin grants any room scope, from anywhere
 	}
 	// A scoped admin granting "all" is exceeding its grant by definition.
 	if scope == store.ScopeAll || scope == "*" {

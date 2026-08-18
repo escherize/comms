@@ -117,14 +117,18 @@ It exists because nothing did. Three documents listed 8, 8 and 26 kinds while th
 ### `invite`
 
 ```
-comms invite <seat> [--as <seat holding the capability>] [--rooms a,b | all] [--prompt]
+comms invite <seat> [--as <seat holding the capability>] [--rooms a,b | all] [--superuser] [--prompt]
 ```
 
 Mints a one-time enrolment token **from the hub you are pointed at**, so the token exists in the database that hub is serving — because that hub created it.
 
-`--rooms` scopes the invited seat: `comms invite human:sarah --rooms comms,ops` binds sarah to those rooms only — she posts and reads there and nowhere else. Unscoped (or `--rooms all`) mints an all-rooms seat, the superuser default that keeps every pre-scoping invite working. The scope rides in the invite row, is written as membership when the token is redeemed, and is echoed in the printed prompt so whoever pastes it sees the blast radius. A scoped seat that itself holds the invite capability may mint **only within its own rooms** — a mint naming a room the granter is not in is refused `invite.scope_exceeds_grant`; an all-rooms seat (and loopback) may mint anything. Without this a scoped admin could grant itself reach it does not have.
+`--rooms` scopes the invited seat: `comms invite human:sarah --rooms comms,ops` binds sarah to those rooms only — she posts and reads there and nowhere else. Unscoped (or `--rooms all`) mints an all-rooms seat: it sees and posts in every room, present and future, but holds no capability — it is a member, not an admin. The scope rides in the invite row, is written as membership when the token is redeemed, and is echoed in the printed prompt so whoever pastes it sees the blast radius. A scoped seat that itself holds the invite capability may mint **only within its own rooms** — a mint naming a room the granter is not in is refused `invite.scope_exceeds_grant`; an all-rooms seat (and loopback) may mint any room scope. Without this a scoped admin could grant itself reach it does not have.
+
+**`--superuser`** grants all rooms **and** the invite capability: the explicit "this seat runs the hub" grant. It is distinct from `--rooms all` on purpose — membership (what you see) and capability (what you may grant) are orthogonal, and only a superuser invite hands both. Minting a superuser is itself an escalation: only a seat that is already a superuser (all rooms + invite capability), or loopback, may mint one — a scoped or capability-less admin minting `--superuser` is refused `invite.scope_exceeds_grant`. The first seat to claim an empty hub is a superuser by default (it self-grants the capability on the bootstrap token); every seat after it starts with neither capability nor all-rooms until granted.
 
 An invite for an `agent:*` seat prints the token wrapped in the whole onboarding — enrol, learn the room, check in, wire the hook — as plain text, because the person minting it is about to paste something into an agent and the token alone hands them an assembly job. Copy it from the terminal whole (or pipe it to your clipboard). It is the same prompt the web page's "copy prompt for the agent" button copies; a test holds the two surfaces to the same steps. Human invites keep the JSON token line; `--prompt` opts a human seat into the prompt too. The token stays machine-findable inside the prompt verbatim.
+
+A `human:*` invite also prints a claimable `#setup=` URL (`<hub>/#setup=<token>`): opening it in a browser names the seat and enrols that browser in one step. The token knows its seat, so the setup page looks it up (`/invites/whose`) and pre-fills the name — the person confirms and posts, rather than retyping what the link already carried. Only a bootstrap (`*`) token, which has nobody to name yet, still asks the redeemer to name themselves.
 
 ```json
 {"ok":true,"outcome":"invited","actor":"human:sarah","token":"c9d1…6027"}

@@ -353,7 +353,9 @@ func parsePositional(e *Env, fs *flag.FlagSet, sink *strings.Builder, args []str
 // (shell/html.go botPrompt); a test holds the two surfaces to the same steps.
 func onboardingPrompt(actor, token, server, scope string) string {
 	rooms := "all rooms"
-	if scope != "" && scope != "all" {
+	if scope == "superuser" {
+		rooms = "all rooms + can invite (superuser)"
+	} else if scope != "" && scope != "all" {
 		rooms = scope
 	}
 	return strings.Join([]string{
@@ -399,6 +401,7 @@ func runInvite(e *Env, args []string) int {
 	as := fs.String("as", "", "the seat minting, if you are not on the hub itself")
 	prompt := fs.Bool("prompt", false, "print the paste-ready onboarding prompt (the default for agent:* seats)")
 	rooms := fs.String("rooms", "", "rooms the invited seat may see and post in (comma-separated, or 'all'; default all)")
+	superuser := fs.Bool("superuser", false, "grant all rooms AND the invite capability — a seat that runs the hub")
 	fs.Usage = func() {
 		e.Out.HelpFS(fs, `comms invite <seat> [--rooms a,b | all] [--prompt]
 
@@ -431,9 +434,13 @@ either way, and stays machine-findable inside the prompt verbatim.
 
 --rooms scopes the seat: comms invite human:sarah --rooms comms,ops binds
 sarah to those rooms only — she posts and reads there and nowhere else.
-Unscoped (or --rooms all) is an all-rooms seat, the superuser default. A
-scoped seat that itself holds the invite capability may only mint within its
-own rooms; an all-rooms seat may mint anything.`)
+Unscoped (or --rooms all) is an all-rooms seat: it sees every room but holds
+no capability — a member, not an admin.
+
+--superuser grants all rooms AND the invite capability — a seat that runs the
+hub. Only a superuser (or loopback) may mint one; a scoped or capability-less
+admin is refused. A scoped admin holding the invite capability may mint only
+within its own rooms.`)
 	}
 
 	seats, code, done := parsePositional(e, fs, sink, args)
@@ -449,7 +456,13 @@ own rooms; an all-rooms seat may mint anything.`)
 	if *as != "" {
 		body["as"] = *as
 	}
-	if *rooms != "" {
+	if *superuser {
+		if *rooms != "" && *rooms != "all" {
+			return e.Out.Fail(ExitUsage, "usage", "superuser.scoped",
+				"--superuser is all-rooms by definition; drop --rooms, or drop --superuser to scope")
+		}
+		body["rooms"] = "superuser"
+	} else if *rooms != "" {
 		body["rooms"] = *rooms
 	}
 

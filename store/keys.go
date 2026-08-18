@@ -302,6 +302,21 @@ CREATE TABLE IF NOT EXISTS invite (
 // wildcard, and the default for an unscoped invite.
 const ScopeAll = "all"
 
+// ScopeSuperuser is the invite scope that grants every room AND the invite
+// capability: the explicit "this seat runs the hub" grant. It is distinct from
+// ScopeAll, which sees every room but cannot mint — membership and capability
+// stay orthogonal, and this is the one invite that hands both.
+const ScopeSuperuser = "superuser"
+
+// boolStr picks between two strings on a condition — a tiny helper so a grantor
+// label can vary without an if just to build a string.
+func boolStr(cond bool, ifTrue, ifFalse string) string {
+	if cond {
+		return ifTrue
+	}
+	return ifFalse
+}
+
 // InviteTTL bounds how long an enrolment token is worth pasting. An invite
 // with no expiry is a permanent credential sitting in whatever channel it was
 // sent through.
@@ -518,12 +533,18 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 	// running an operator command on the box. Granted by "bootstrap" to mark
 	// that no human deliberately conferred it — it came with claiming an empty
 	// hub. Later seats get no capability by default; the owner grants them.
-	if bootstrap {
+	// The bootstrap seat and a superuser invite both get the invite capability,
+	// so they can bring the rest of the team on. A superuser invite is the
+	// explicit "this seat runs the hub" grant — all rooms AND the ability to
+	// mint — kept distinct from a plain all-rooms invite, which sees everything
+	// but is not an admin. Membership (what you see) and capability (what you
+	// may grant) stay orthogonal; superuser is the one invite that hands both.
+	if bootstrap || scope == ScopeSuperuser {
 		if _, err := tx.Exec(
 			`INSERT INTO capability(actor, capability, granted_at, granted_by)
-			 VALUES(?, 'invite', ?, 'bootstrap')
+			 VALUES(?, 'invite', ?, ?)
 			 ON CONFLICT(actor, capability) DO NOTHING`,
-			actor, ts); err != nil {
+			actor, ts, boolStr(bootstrap, "bootstrap", "superuser-invite")); err != nil {
 			return err
 		}
 	}
@@ -555,7 +576,7 @@ func (s *Store) RedeemInvite(token, actor string, pub ed25519.PublicKey, now tim
 // one meant.
 func membershipRooms(scope string) []string {
 	scope = strings.TrimSpace(scope)
-	if scope == "" || scope == ScopeAll || scope == membershipRoomAll {
+	if scope == "" || scope == ScopeAll || scope == ScopeSuperuser || scope == membershipRoomAll {
 		return []string{membershipRoomAll}
 	}
 	seen := map[string]bool{}

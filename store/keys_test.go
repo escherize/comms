@@ -805,3 +805,40 @@ func TestMembershipRoomsParsing(t *testing.T) {
 		}
 	}
 }
+
+// A superuser invite grants all rooms AND the invite capability in one redeem —
+// the "this seat runs the hub" grant, distinct from a plain all-rooms invite
+// which sees everything but cannot mint.
+func TestSuperuserInviteGrantsRoomsAndCapability(t *testing.T) {
+	s, _, pub := keyStore(t)
+
+	tok, err := s.MintInvite("human:admin", ScopeSuperuser, kt0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RedeemInvite(tok, "human:admin", pub, kt0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !s.IsMember("human:admin", "anything") {
+		t.Error("a superuser must be an all-rooms member")
+	}
+	if got := s.Memberships("human:admin"); len(got) != 1 || got[0] != membershipRoomAll {
+		t.Errorf("a superuser must hold exactly the '*' membership, got %v", got)
+	}
+	if !s.HasCapability("human:admin", "invite") {
+		t.Error("a superuser must hold the invite capability")
+	}
+
+	// A plain all-rooms invite is NOT a superuser: rooms yes, capability no.
+	pub2, _, _ := ed25519.GenerateKey(nil)
+	allTok, _ := s.MintInvite("human:reader", "all", kt0)
+	if err := s.RedeemInvite(allTok, "human:reader", pub2, kt0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !s.IsMember("human:reader", "anything") {
+		t.Error("an all-rooms seat must be a member of every room")
+	}
+	if s.HasCapability("human:reader", "invite") {
+		t.Error("a plain all-rooms invite must NOT grant the invite capability — membership and capability are orthogonal")
+	}
+}

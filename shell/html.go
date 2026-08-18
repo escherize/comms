@@ -246,6 +246,7 @@ body[data-signing="false"] .composer .tok { display:none; }
 .invite-scope > summary { cursor:pointer; color: var(--ink-mute); font-size:.8rem; margin:.35rem 0; }
 .set-rooms { display:flex; flex-wrap:wrap; gap:.15rem .8rem; margin:.3rem 0; }
 .set-rooms label { display:flex; align-items:center; gap:.3rem; color: var(--ink); font-size:.82rem; cursor:pointer; }
+.invite-super-row { display:flex; align-items:center; gap:.35rem; color: var(--ink-mute); font-size:.82rem; margin:.35rem 0; cursor:pointer; }
 .set-out { display:block; margin-top:.5rem; word-break:break-all; color: var(--ok); }
 .set-out:empty { display:none; }
 .set-list { margin:.4rem 0; padding:0; list-style:none; }
@@ -343,6 +344,7 @@ const settingsModal = `
         out of band; it is the whole credential.</p>
         <form id="invite-form">
           <input id="invite-actor" placeholder="human:sarah, or agent:you/name" autocomplete="off">
+          <label id="invite-super-row" class="invite-super-row"><input type="checkbox" id="invite-super"> superuser (all rooms, and can invite others)</label>
           <details id="invite-scope" class="invite-scope">
             <summary>all rooms &middot; scope to specific rooms &rarr;</summary>
             <div id="invite-rooms" class="set-rooms"></div>
@@ -452,12 +454,23 @@ const settingsScript = `
   // stays one click. A checkbox list confined to the minter's own rooms means
   // the server-side subset rule can never be tripped from the UI.
   function chosenScope(){
+    var su=document.getElementById('invite-super');
+    if(su && su.checked) return 'superuser';
     var box=document.getElementById('invite-rooms');
     var rooms=[];
     if(box){ box.querySelectorAll('input').forEach(function(b){ if(b.checked) rooms.push(b.value); }); }
     return rooms.length===0 ? 'all' : rooms.join(',');
   }
-  function scopeLabel(scope){ return (!scope||scope==='all')?'all rooms':scope; }
+  function scopeLabel(scope){
+    if(scope==='superuser') return 'superuser — all rooms + can invite';
+    return (!scope||scope==='all')?'all rooms':scope;
+  }
+  // Superuser is all-rooms by definition, so checking it disables the
+  // room-scope picker — the two are mutually exclusive.
+  (function(){
+    var su=document.getElementById('invite-super'), sc=document.getElementById('invite-scope');
+    if(su&&sc) su.addEventListener('change', function(){ sc.style.display = su.checked ? 'none' : ''; });
+  })();
 
   document.getElementById('invite-form').addEventListener('submit', function(e){
     e.preventDefault();
@@ -824,16 +837,40 @@ const onboardScript = `
   function setup(){
     var m=location.hash.match(/^#setup=([0-9a-f]{32})$/);
     if(!m) return;
+    var token=m[1];
     // The token has no business staying in the URL bar; it survives in the
     // serve output if this attempt is abandoned.
     history.replaceState(null,'',location.pathname);
-    var tf=document.getElementById('enroltoken'); if(tf) tf.value=m[1];
-    note('first seat on this hub — name yourself, then post anything below; the first post enrols this browser and claims the hub');
-    askName(function(name){
-      setActor(name);
-      note('seat '+name+' ready — post anything below; the first post enrols this browser and claims the hub');
-      var c=document.getElementById('ctext'); if(c) c.focus();
-    });
+    var tf=document.getElementById('enroltoken'); if(tf) tf.value=token;
+    var focusComposer=function(){ var c=document.getElementById('ctext'); if(c) c.focus(); };
+    // The token knows its seat — an invite for human:sarah names her — so ask
+    // the hub and pre-fill it rather than making the person retype what the link
+    // already carried. Only a bootstrap ('*') token has nobody to name yet, so
+    // that one still asks.
+    fetch('/invites/whose',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:token})})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        if(j && j.actor && j.actor!=='*'){
+          setActor(j.actor);
+          var rooms=(j.scope && j.scope!=='all') ? j.scope : 'all rooms';
+          note('you are '+j.actor+' ('+rooms+') — post anything below and this browser is enrolled');
+          focusComposer();
+          return;
+        }
+        // Bootstrap token, or the lookup did not resolve: the redeemer names the seat.
+        note('first seat on this hub — name yourself, then post anything below; the first post enrols this browser and claims the hub');
+        askName(function(name){
+          setActor(name);
+          note('seat '+name+' ready — post anything below; the first post enrols this browser and claims the hub');
+          focusComposer();
+        });
+      })
+      .catch(function(){
+        note('name yourself, then post anything below to enrol this browser');
+        askName(function(name){ setActor(name); focusComposer(); });
+      });
   }
 })();
 </script>`

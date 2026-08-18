@@ -228,7 +228,9 @@ func TestInvitePanelHasScopePicker(t *testing.T) {
 	for _, want := range []string{
 		`id="invite-scope"`,       // the <details> disclosure
 		`id="invite-rooms"`,       // where member-room checkboxes land
+		`id="invite-super"`,       // the superuser toggle
 		"scope to specific rooms", // the summary label, all-rooms default
+		"can invite others",       // the superuser label
 		"turns on read sessions",  // the read-auth note
 	} {
 		if !strings.Contains(settingsModal, want) {
@@ -240,9 +242,24 @@ func TestInvitePanelHasScopePicker(t *testing.T) {
 		"chosenScope",     // reads the checkboxes, defaults to all
 		"rooms:scope",     // sends the scope to /invite
 		"j.scope",         // echoes the granted scope back
+		"'superuser'",     // the superuser scope value
 	} {
 		if !strings.Contains(settingsScript, want) {
 			t.Errorf("the invite panel script must wire %q", want)
+		}
+	}
+}
+
+// The setup flow pre-fills the seat from the token instead of asking, since the
+// #setup= link already named it. Only a bootstrap ('*') token still asks.
+func TestSetupPrefillsSeatFromToken(t *testing.T) {
+	for _, want := range []string{
+		"/invites/whose", // asks the hub whose token this is
+		"setActor(j.actor)",
+		"j.actor!=='*'", // a named seat is pre-filled; only bootstrap asks
+	} {
+		if !strings.Contains(onboardScript, want) {
+			t.Errorf("the setup flow must wire %q so it does not make the person retype the seat", want)
 		}
 	}
 }

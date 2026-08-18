@@ -250,3 +250,47 @@ func TestScopedAdminOnLoopbackStillBounded(t *testing.T) {
 		t.Errorf("a bare loopback operator mint must grant any scope, got %d: %s", bw.Code, bw.Body.String())
 	}
 }
+
+// A superuser is a seat holding both all-rooms membership and the invite
+// capability. Minting a superuser is an escalation unless the granter is
+// itself one: an all-rooms admin lacking the capability, and a scoped admin,
+// are both refused. Loopback and an actual superuser may mint one.
+func TestSuperuserMintRequiresSuperuser(t *testing.T) {
+	h, st, priv := adminServer(t)
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+
+	// human:bcm holds the invite capability but is scoped (not all-rooms):
+	// it may mint within its rooms, never a superuser.
+	if err := st.Grant("human:bcm", CapInvite, "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnsureRoom("comms"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddMembership("human:bcm", "comms", "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	no := postInviteAs(h, `{"actor":"human:x","as":"human:bcm","rooms":"superuser"}`, priv)
+	if no.Code != http.StatusForbidden || !strings.Contains(no.Body.String(), "scope_exceeds_grant") {
+		t.Errorf("a scoped admin must not mint a superuser, got %d: %s", no.Code, no.Body.String())
+	}
+
+	// Grant bcm all-rooms too — now it holds '*' AND invite, which IS a
+	// superuser, so it may mint another.
+	if err := st.AddMembership("human:bcm", "*", "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	ok := postInviteAs(h, `{"actor":"human:y","as":"human:bcm","rooms":"superuser"}`, priv)
+	if ok.Code != http.StatusOK {
+		t.Errorf("a superuser (all-rooms + invite) must mint another, got %d: %s", ok.Code, ok.Body.String())
+	}
+
+	// Loopback (the operator) may mint a superuser with no seat at all.
+	r := httptest.NewRequest("POST", "/invite", strings.NewReader(`{"actor":"human:root","rooms":"superuser"}`))
+	r.RemoteAddr = "127.0.0.1:9"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Errorf("loopback must mint a superuser, got %d: %s", w.Code, w.Body.String())
+	}
+}
