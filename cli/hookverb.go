@@ -115,6 +115,11 @@ func runHookRun(e *Env, args []string) int {
 		e.Out.Note("comms hook run: no seat; set COMMS_ACTOR or pass --as")
 		return ExitOK
 	}
+	// The seat must also be the env's seat: doRead establishes and attaches
+	// the read session keyed off e.Seat, and a session-required hub answers
+	// an anonymous lane=all stream with a 200 error envelope that drains as
+	// an empty room. Without this line the hook is silent on ADR-0015 hubs.
+	e.Seat = seat
 	// The pinned server is authoritative for a headless hook: there is no
 	// human to notice COMMS_SERVER pointing somewhere else.
 	if pinned := PinnedServer(seat); pinned != "" {
