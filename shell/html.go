@@ -16,7 +16,7 @@ const tokens = `
   --sev-hi:#f14c4c; --sev-lo:#cca700; --ok:#89d185;
   /* metrics */
   --scrim: rgba(0,0,0,.55);
-  --row-pad:.28rem .6rem; --col-folio:3.2rem; --col-author:7.5rem; --col-kind:1.6rem;
+  --row-pad:.28rem .6rem; --col-folio:4.6rem; --col-author:10rem; --col-kind:1.6rem;
 }
 :root[data-theme="light"] {
   --ground:#ffffff; --band:#f6f6f6; --panel:#f3f3f3; --raised:#eaeaea;
@@ -83,6 +83,41 @@ header button, .composer button {
 }
 header button:hover, .composer button:hover { border-color: var(--accent); }
 
+/* ---- room rail: rooms live on the left, one glance, one click ---- */
+body.railed { grid-template-rows: auto 1fr auto; grid-template-columns: 12rem 1fr; }
+body.railed > header, body.railed > footer { grid-column: 1 / -1; }
+.rail {
+  grid-row: 2; grid-column: 1; overflow-y: auto;
+  background: var(--band); border-right: 1px solid var(--rule);
+  padding: .45rem 0; font-size: .82rem;
+}
+.rail a {
+  display: flex; align-items: baseline; gap: .4rem;
+  padding: .22rem .8rem; color: var(--ink-mute);
+}
+.rail a:hover { color: var(--ink-strong); text-decoration: none; }
+.rail a.sel {
+  color: var(--ink-strong); background: var(--ground);
+  border-left: 2px solid var(--accent); padding-left: calc(.8rem - 2px);
+}
+.rail a .room-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* unread: an accent tick, only ever on rooms that moved past what this
+   browser has seen — chroma stays rationed */
+.rail a .unread { color: var(--accent-ink); visibility: hidden; font-size: .7rem; }
+.rail a.has-unread .unread { visibility: visible; }
+body.railed main.ledger { grid-row: 2; grid-column: 2; }
+@media (max-width: 640px) {
+  body.railed { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; }
+  .rail { grid-row: 2; grid-column: 1; display: flex; overflow-x: auto; overflow-y: hidden;
+    border-right: 0; border-bottom: 1px solid var(--rule); padding: 0 .3rem; }
+  .rail a.sel { border-left: 0; border-bottom: 2px solid var(--accent); padding-left: .8rem; }
+  body.railed main.ledger { grid-row: 3; grid-column: 1; }
+}
+
+/* the identity chip: derived from the enrolled key, never a picker */
+.me { border: 1px solid var(--rule-strong); border-radius: 3px;
+  padding: .1rem .55rem; color: var(--ink); font-size: .75rem; }
+
 /* ---- ledger ---- */
 .ledger { overflow-y:auto; }
 .head, .row, .carried, .srow {
@@ -105,6 +140,8 @@ header button:hover, .composer button:hover { border-color: var(--accent); }
   font-size:.72rem; }
 .author { color: var(--ink-mute); overflow:hidden; text-overflow:ellipsis;
   white-space:nowrap; }
+/* a grouped continuation keeps its row, loses only the repeated name */
+.row.cont .author { visibility:hidden; }
 .kind { text-align:center; font-size:.8rem; cursor:default; padding-left:0; padding-right:0; }
 .chip { width:.7rem; height:.7rem; margin-right:.28rem; vertical-align:-1px;
   color:var(--ink-faint); stroke-width:1; }
@@ -183,7 +220,21 @@ footer {
   padding:.3rem .7rem; color: var(--ink-faint); font-size:.72rem;
 }
 .balance b { color: var(--ink); font-weight:500; }
-.composer { display:flex; gap:.3rem; padding:.4rem .7rem; border-top:1px solid var(--rule); }
+.composer { display:flex; gap:.3rem; padding:.4rem .7rem; border-top:1px solid var(--rule); align-items:flex-end; }
+/* a taller instrument for longer thought: ~3 lines by default, grows as typed */
+.composer textarea { flex:1; resize:vertical; min-height:3.4rem; max-height:14rem;
+  font:inherit; line-height:1.5; background: var(--ground); color: var(--ink);
+  border:1px solid var(--rule-strong); border-radius:3px; padding:.3rem .45rem; }
+/* pending attachments, one chip each, removable until posted */
+.cchips { display:flex; gap:.4rem; flex-wrap:wrap; padding:0 .7rem; }
+.cchips:empty { display:none; }
+.cchips { padding-top:.3rem; }
+.cchips .chip { display:inline-flex; align-items:center; gap:.3rem;
+  border:1px solid var(--rule-strong); background: var(--raised);
+  padding:.05rem .5rem; font-size:.75rem; color: var(--ink); }
+.cchips .chip button { background:none; border:0; color: var(--ink-mute);
+  cursor:pointer; font:inherit; padding:0; }
+.cchips .chip button:hover { color: var(--sev-hi); }
 /* A refusal has to be readable without hovering. */
 .composer-error {
   padding:.4rem .7rem; border-top:1px solid var(--sev-hi);
@@ -297,7 +348,7 @@ body[data-signing="false"] .composer .tok { display:none; }
 
 @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 @media (max-width: 640px) {
-  :root { --col-folio:2.6rem; --col-author:4.5rem; --col-kind:1.4rem; }
+  :root { --col-folio:3.4rem; --col-author:4.5rem; --col-kind:1.4rem; }
   body { font-size:12px; }
 }
 `
@@ -323,6 +374,63 @@ const liveScript = `
   // dedupe against).
   var last = document.body.getAttribute('data-head') || '0';
   var es = null;
+
+  // The left column is the reader's clock: today shows the time, older rows
+  // the date; the full local timestamp (and the folio, for refs) rides the
+  // hover tip. The server sent UTC facts; formatting is the browser's job.
+  function fmtTime(iso){
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    var now = new Date();
+    if (d.toDateString() === now.toDateString())
+      return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+    var day = d.toLocaleDateString([], {month:'short', day:'numeric'});
+    return d.getFullYear() === now.getFullYear() ? day : day + ' ' + d.getFullYear();
+  }
+  function stamp(root){
+    [].forEach.call(root.querySelectorAll('.row[data-ts]:not([data-stamped])'), function(r){
+      r.setAttribute('data-stamped','1');
+      var cell = r.querySelector('.folio');
+      if (!cell) return;
+      var iso = r.getAttribute('data-ts');
+      var label = fmtTime(iso);
+      if (label) cell.textContent = label;
+      cell.setAttribute('data-tip',
+        (cell.getAttribute('data-tip')||'') + ' · ' + new Date(iso).toLocaleString());
+    });
+  }
+  // Consecutive rows from one author group: the name prints once, the rows
+  // keep their height (density is a commitment). Addressed rows always name
+  // their author — attention stands alone.
+  function groupAuthors(){
+    if (!document.body.classList.contains('railed')) return;
+    var prev = null;
+    [].forEach.call(body.querySelectorAll('.row'), function(r){
+      var a = r.querySelector('.author');
+      if (!a) { prev = null; return; }
+      if (prev === a.textContent && !r.classList.contains('addressed')) r.classList.add('cont');
+      else r.classList.remove('cont');
+      prev = a.textContent;
+    });
+  }
+  // Unread marks: a room whose head moved past what this browser last saw
+  // there. The current room is always caught up by being looked at.
+  function paintRail(){
+    var rail = document.querySelector('nav.rail');
+    if (!rail) return;
+    [].forEach.call(rail.querySelectorAll('a[data-room]'), function(a){
+      var rm = a.getAttribute('data-room');
+      var head = parseInt(a.getAttribute('data-head')||'0', 10);
+      var seen = parseInt(localStorage.getItem('comms.seen.'+rm)||'0', 10);
+      if (rm === room){
+        if (head > seen) localStorage.setItem('comms.seen.'+rm, String(head));
+        a.classList.remove('has-unread');
+        return;
+      }
+      a.classList.toggle('has-unread', head > seen);
+    });
+  }
+
   function handle(e){
     var mode='append', selector='#ledger-body', html=[];
     e.data.split('\n').forEach(function(line){
@@ -341,10 +449,17 @@ const liveScript = `
     var nearBottom = main && (main.scrollHeight - main.scrollTop - main.clientHeight < 48);
     if (mode==='append') target.insertAdjacentHTML('beforeend', html.join('\n'));
     else target.innerHTML = html.join('\n');
-    // Follow the tail only for a reader already at it. Yanking the view on
-    // every append made history unreadable in a live room; a nav replacement
-    // never scrolls at all.
-    if (mode==='append' && nearBottom) main.scrollTop = main.scrollHeight;
+    if (target === body){
+      if (seq) localStorage.setItem('comms.seen.'+room, seq);
+      stamp(body);
+      groupAuthors();
+      // Follow the tail only for a reader already at it. Yanking the view on
+      // every append made history unreadable in a live room.
+      if (mode==='append' && nearBottom) main.scrollTop = main.scrollHeight;
+      return;
+    }
+    // A rail replacement repaints unread marks and never scrolls.
+    paintRail();
   }
   function connect(){
     es = new EventSource('/stream?room=' + encodeURIComponent(room) +
@@ -375,6 +490,9 @@ const liveScript = `
     if (document.hidden) { if (es) { es.close(); es = null; } }
     else if (!es) connect();
   });
+  stamp(document);
+  groupAuthors();
+  paintRail();
   if (!document.hidden) connect();
 })();
 </script>`
@@ -402,6 +520,12 @@ const settingsModal = `
     </nav>
     <div class="set-panels">
       <section data-panel="theme">
+        <h2>you</h2>
+        <p class="set-note"><label for="actor">acting seat </label>
+        <select id="actor" aria-label="acting seat"></select></p>
+        <p class="set-note">Identity is your enrolled key; the page derives it.
+        Switching seats here is an operator act — posts sign as whichever seat
+        holds a key in this browser.</p>
         <h2>theme</h2>
         <label for="themesel">this browser renders the ledger in</label>
         <select id="themesel">
@@ -771,7 +895,7 @@ const themeScript = `
   });
 
   document.addEventListener('keydown', function(e){
-    if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+    if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA') return;
     // A bare letter is a hotkey; the same letter with a modifier belongs to the
     // browser. Without this, cmd-C focused the composer and swallowed the copy,
     // which is the kind of theft a reader blames on their own hands.
@@ -784,7 +908,7 @@ const themeScript = `
     if(e.key==='c'){ var c=document.getElementById('ctext'); if(c){ e.preventDefault(); c.focus(); } }
     // Room switching: [ and ] move through the nav without a mouse.
     if(e.key==='[' || e.key===']'){
-      var links=[].slice.call(document.querySelectorAll('header nav a'));
+      var links=[].slice.call(document.querySelectorAll('nav.rail a, header nav a'));
       var at=links.findIndex(function(a){ return a.classList.contains('sel'); });
       if(links.length>1 && at>=0){
         var next=(at + (e.key===']' ? 1 : links.length-1)) % links.length;
@@ -813,7 +937,7 @@ const roomHTML = `<!doctype html>
 <title>{{ROOM}} · comms</title>
 <style>` + baseCSS + `</style>
 </head>
-<body data-room="{{ROOM}}" data-head="{{HEAD}}" data-signing="{{SIGNING}}">
+<body class="railed" data-room="{{ROOM}}" data-head="{{HEAD}}" data-signing="{{SIGNING}}">
 <!--
 THESIS: The room IS the book. Every event is a numbered entry in an append-only
 journal; nothing is erased, corrections are new entries, and state as of any row
@@ -837,21 +961,19 @@ finish review, the verdict, and DESIGN.md.
 -->
 <header>
   <span class="brand">comms</span>
-  <nav>{{NAV}}</nav>
   <span class="spacer"></span>
   <form action="/search" method="get">
     <input id="q" name="q" placeholder="search  /" autocomplete="off">
   </form>
-  <span class="who" id="whoami" title="who you are posting as — identity, not authentication">
-    <label for="actor">as</label>
-    <select id="actor"></select>
-  </span>
+  <span class="who me" id="me" title="your enrolled seat — identity is derived from your key, not chosen">…</span>
   <button type="button" id="gear" class="gear" title="settings" aria-haspopup="dialog" aria-controls="settings">` + gearGlyph + `</button>
 </header>
 
+<nav class="rail" id="rail" aria-label="rooms">{{RAIL}}</nav>
+
 <main class="ledger">
   <div class="head">
-    <div>folio</div><div>author</div><div title="kind">·</div><div>entry</div><div>✓</div>
+    <div>when</div><div>author</div><div title="kind">·</div><div>entry</div><div>✓</div>
   </div>
   <div id="ledger-body">{{ROWS}}</div>
 </main>
@@ -866,14 +988,17 @@ finish review, the verdict, and DESIGN.md.
     {{PROGRESS}}
   </div>
   <div id="composer-error" class="composer-error" hidden></div>
+  <div id="cchips" class="cchips"></div>
   <form class="composer" id="composer">
-    <select name="kind" id="ckind">
+    <select name="kind" id="ckind" aria-label="entry kind">
       <option value="chat">chat</option>
       <option value="finding">finding</option>
       <option value="til">til</option>
       <option value="status">status</option>
     </select>
-    <input id="ctext" name="text" placeholder="entry, or /finding /til /status /ask /answer /handoff /pr  (c to focus)" autocomplete="off">
+    <textarea id="ctext" name="text" rows="3" placeholder="entry, or /finding /til /status /ask /answer /handoff /pr — enter posts, shift+enter for a new line  (c to focus)" aria-label="entry"></textarea>
+    <input type="file" id="cfile" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple hidden>
+    <button type="button" id="cattach" title="attach a markdown file">▤</button>
     <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" aria-label="enrolment token" autocomplete="off">
     <button type="submit">post</button>
   </form>
@@ -899,10 +1024,18 @@ const onboardScript = `
     o.value=v; o.textContent=label||v.replace(/^(human|agent):/,'');
     return o;
   }
+  // The header chip derives identity; nobody picks who they are up there.
+  var meChip=document.getElementById('me');
+  function paintMe(){
+    if(!meChip) return;
+    var v=a.value;
+    meChip.textContent=(v && v!=='__new__') ? v : 'no seat yet';
+  }
   function setActor(v){
     if(![].some.call(a.options,function(o){return o.value===v;}))
       a.insertBefore(opt(v), a.lastElementChild);
     a.value=v; localStorage.setItem(ak,v);
+    paintMe();
   }
   function note(msg){
     var bar=document.getElementById('composer-error');
@@ -932,6 +1065,7 @@ const onboardScript = `
         if(known || !rosterLoaded) setActor(saved);
         else localStorage.removeItem(ak);
       }
+      paintMe();
       setup();
     });
 
@@ -965,6 +1099,7 @@ const onboardScript = `
   }
 
   a.addEventListener('change', function(){
+    paintMe();
     if(a.value!=='__new__'){ localStorage.setItem(ak, a.value); return; }
     askName(function(name){
       setActor(name);
@@ -1136,6 +1271,62 @@ const composeScript = `
   var f=document.getElementById('composer');
   if(!f) return;
 
+  // The composer is a place to think: ~3 lines tall, grows as typed. Enter
+  // posts, shift+enter breaks a line — the convention every chat trained.
+  var ta=document.getElementById('ctext');
+  if(ta){
+    ta.addEventListener('keydown', function(e){
+      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); f.requestSubmit(); }
+    });
+    ta.addEventListener('input', function(){
+      ta.style.height='auto';
+      ta.style.height=Math.min(ta.scrollHeight+2, 224)+'px';
+    });
+  }
+
+  // Attachments: pick a markdown file, it uploads content-addressed at once,
+  // and the post carries the reference. Chips are removable until posted;
+  // an orphan upload is served to nobody, so an abandoned pick costs nothing.
+  var pending=[];
+  var fileIn=document.getElementById('cfile');
+  var attachBtn=document.getElementById('cattach');
+  var chips=document.getElementById('cchips');
+  function renderChips(){
+    if(!chips) return;
+    chips.innerHTML='';
+    pending.forEach(function(p, i){
+      var c=document.createElement('span'); c.className='chip';
+      c.appendChild(document.createTextNode('▤ '+p.title+' '));
+      var x=document.createElement('button'); x.type='button'; x.textContent='×';
+      x.setAttribute('aria-label','remove '+p.title);
+      x.addEventListener('click', function(){ pending.splice(i,1); renderChips(); });
+      c.appendChild(x);
+      chips.appendChild(c);
+    });
+  }
+  if(attachBtn && fileIn){
+    attachBtn.addEventListener('click', function(){ fileIn.click(); });
+    fileIn.addEventListener('change', function(){
+      [].forEach.call(fileIn.files, function(file){
+        file.text().then(function(content){
+          return fetch('/artifacts',{method:'POST',
+            headers:{'Content-Type':'text/markdown'}, body:content})
+            .then(function(r){ return r.json().then(function(j){
+              if(!r.ok) throw new Error(j.detail||'artifact refused');
+              pending.push({hash:j.hash, title:file.name});
+              renderChips();
+            });});
+        }).catch(function(ex){ if(ta) fail(ta, String(ex && ex.message || ex)); });
+      });
+      fileIn.value='';
+    });
+  }
+  function clearPending(){
+    pending=[];
+    renderChips();
+    if(ta) ta.style.height='';
+  }
+
   var DB='comms.keys', STORE='keys';
   function idb(){ return new Promise(function(res,rej){
     var r=indexedDB.open(DB,1);
@@ -1278,10 +1469,10 @@ const composeScript = `
     // placeholder survives: an inline name box that blurred empty on load, or a
     // first-timer who typed in the composer without touching it.
     if(!actor || actor==='__new__'){
-      var pending=text.value;
+      var held=text.value;
       window.commsAskName(function(name){
         window.commsSetActor(name);
-        text.value=pending;
+        text.value=held;
         window.commsNote('seat '+name+' ready — press post again; the first post enrols this browser');
         text.focus();
       });
@@ -1315,6 +1506,8 @@ const composeScript = `
       idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))};
     if(recipient) cmdObj.recipient=recipient;
     if(refs) cmdObj.refs=refs;
+    if(pending.length) cmdObj.attachments=pending.map(function(p){
+      return {hash:p.hash, title:p.title}; });
     var payload=JSON.stringify(cmdObj);
 
     // When the server accepts unsigned commands (-insecure, localhost demos),
@@ -1324,7 +1517,7 @@ const composeScript = `
       fetch('/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:payload})
         .then(function(r){ return r.json(); }).then(function(j){
           if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
-          else { text.value=''; clearFail(text); }
+          else { text.value=''; clearFail(text); clearPending(); }
         }).catch(function(err){ fail(text, String(err && err.message || err)); });
       return;
     }
@@ -1346,7 +1539,7 @@ const composeScript = `
         body:payload});
     }).then(function(r){ return r.json(); }).then(function(j){
       if(j.invariant){ fail(text, j.invariant+': '+j.detail); }
-      else { text.value=''; clearFail(text); }
+      else { text.value=''; clearFail(text); clearPending(); }
     }).catch(function(err){ fail(text, String(err && err.message || err)); });
   });
 })();

@@ -353,6 +353,26 @@ func (s *Store) Rooms() ([]string, error) {
 	return out, rows.Err()
 }
 
+// RoomHeads is each room's newest seq. The rail's unread marks compare these
+// against what a browser has seen; a room with no events is simply absent.
+func (s *Store) RoomHeads() (map[string]int64, error) {
+	rows, err := s.db.Query(`SELECT room, MAX(seq) FROM envelope GROUP BY room`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var room string
+		var head int64
+		if err := rows.Scan(&room, &head); err != nil {
+			return nil, err
+		}
+		out[room] = head
+	}
+	return out, rows.Err()
+}
+
 // EventKind backs the decider's ref lookups.
 func (s *Store) EventKind(ref string) (core.Kind, bool) {
 	var k string

@@ -596,6 +596,17 @@ func (s *Server) fanout(room string, seq int64) {
 			delete(s.subs, ch)
 		}
 	}
+	// Every append also nudges the rails: pages in OTHER rooms learn this
+	// room's head moved and mark it unread. The nudge channel holds one
+	// pending signal, so a burst costs each page a single rebuild.
+	// ponytail: a rail rebuild is two small queries per subscriber per nudge;
+	// per-room dirty tracking if hubs ever grow past small-team size.
+	for ch := range s.navSubs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // navSub names the identity a nav refresher renders for.
@@ -615,15 +626,17 @@ func (s *Server) notifyNav() {
 	}
 }
 
-// navFor renders the room nav links this reader may see. It is the live
-// counterpart of the render-time nav in render.go — same anchors, same
-// membership filter — so a pushed nav can replace the served one verbatim.
-func (s *Server) navFor(readerSeat, current string) string {
+// railFor renders the room rail this reader may see. It is the live
+// counterpart of the render-time rail in render.go — same anchors, same
+// membership filter, same heads — so a pushed rail replaces the served one
+// verbatim and the browser's unread marks stay honest.
+func (s *Server) railFor(readerSeat, current string) string {
 	rooms, err := s.st.Rooms()
 	if err != nil {
 		return ""
 	}
-	return navLinks(s.visibleRooms(readerSeat, rooms), current)
+	heads, _ := s.st.RoomHeads()
+	return railLinks(s.visibleRooms(readerSeat, rooms), current, heads)
 }
 
 // bootID identifies one run of this process. A client learns a restart as a
@@ -834,8 +847,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			// A room was created. Rebuild this page's nav for this reader —
 			// the membership filter runs per subscriber, so a room the reader
 			// may not see never reaches its page.
-			if nav := s.navFor(reader(r), room); nav != "" {
-				writeNavSSE(w, nav)
+			if rail := s.railFor(reader(r), room); rail != "" {
+				writeNavSSE(w, rail)
 				flusher.Flush()
 			}
 		case <-ping.C:
@@ -845,13 +858,13 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeNavSSE pushes a replacement for the header's room nav. No id: line —
-// nav refreshes carry no seq and must not disturb Last-Event-ID resume.
-func writeNavSSE(w http.ResponseWriter, nav string) {
+// writeNavSSE pushes a replacement for the room rail. No id: line — rail
+// refreshes carry no seq and must not disturb Last-Event-ID resume.
+func writeNavSSE(w http.ResponseWriter, rail string) {
 	fmt.Fprint(w, "event: datastar-patch-elements\n")
 	fmt.Fprint(w, "data: mode replace\n")
-	fmt.Fprint(w, "data: selector header nav\n")
-	fmt.Fprintf(w, "data: elements %s\n", nav)
+	fmt.Fprint(w, "data: selector nav.rail\n")
+	fmt.Fprintf(w, "data: elements %s\n", rail)
 	fmt.Fprint(w, "\n")
 }
 

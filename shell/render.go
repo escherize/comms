@@ -72,20 +72,24 @@ func authorCell(a core.Actor) string {
 // renderRow is one ledger entry. Addressed rows break the band with an accent
 // gutter rule and drop the tick column; redactions render struck through with
 // their hash still attested.
-// navLinks renders the header's room anchors. Shared between the served page
-// and the live nav patch pushed on room creation, so the replacement is
-// byte-identical to a fresh render.
-func navLinks(rooms []string, current string) string {
-	var nav strings.Builder
+// railLinks renders the room rail: one anchor per visible room, carrying the
+// room's head seq so the browser can mark unread against what it has seen.
+// Shared between the served page and the live rail patch, so a pushed
+// replacement is byte-identical to a fresh render.
+func railLinks(rooms []string, current string, heads map[string]int64) string {
+	var rail strings.Builder
 	for _, rm := range rooms {
-		sel := ""
+		classes := ""
 		if rm == current {
-			sel = ` class="sel"`
+			classes = ` class="sel"`
 		}
-		nav.WriteString(fmt.Sprintf(`<a href="/?room=%s"%s>%s</a>`,
-			html.EscapeString(rm), sel, html.EscapeString(rm)))
+		rail.WriteString(fmt.Sprintf(
+			`<a href="/?room=%s"%s data-room="%s" data-head="%d">`+
+				`<span class="room-name">%s</span><span class="unread">●</span></a>`,
+			html.EscapeString(rm), classes, html.EscapeString(rm), heads[rm],
+			html.EscapeString(rm)))
 	}
-	return nav.String()
+	return rail.String()
 }
 
 func renderRow(r store.Record) string {
@@ -146,14 +150,21 @@ func renderRow(r store.Record) string {
 		tick = ""
 	}
 
+	// The left column is the human clock, not the folio: readers asked what
+	// time, not what sequence number. The seq stays load-bearing for refs
+	// (/answer 20014) so it rides the hover tip and data-seq. The server
+	// renders a UTC fallback; the browser rewrites it into the reader's own
+	// clock from data-ts.
 	return fmt.Sprintf(
-		`<div class="%s" data-seq="%d">`+
-			`<div class="folio">%d</div>`+
+		`<div class="%s" data-seq="%d" data-ts="%s">`+
+			`<div class="folio" data-tip="folio %d">%s</div>`+
 			`<div class="author">%s</div>`+
 			`<div class="kind">%s</div>`+
 			`<div class="body">%s</div>`+
 			`%s</div>`,
-		strings.Join(classes, " "), r.Seq, r.Seq,
+		strings.Join(classes, " "), r.Seq,
+		html.EscapeString(r.ServerTS.UTC().Format(time.RFC3339)), r.Seq,
+		r.ServerTS.UTC().Format("15:04"),
 		authorCell(r.Author), kindGlyph(r.Kind), body.String(), tick)
 }
 
@@ -261,9 +272,10 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 
 	ambient, addressed, head := tally(recs)
 
+	heads, _ := s.st.RoomHeads()
 	page := strings.NewReplacer(
 		"{{ROOM}}", html.EscapeString(room),
-		"{{NAV}}", navLinks(rooms, room),
+		"{{RAIL}}", railLinks(rooms, room, heads),
 		"{{ROWS}}", rows.String(),
 		"{{AMBIENT}}", fmt.Sprint(ambient),
 		"{{ADDRESSED}}", fmt.Sprint(addressed),

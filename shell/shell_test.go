@@ -604,3 +604,26 @@ func TestRescuePathsAreWired(t *testing.T) {
 		t.Error("unlock token input must be labelled")
 	}
 }
+
+// The brief's surface: identity chip (derived, no header picker), room rail
+// with unread marks, human time column, tall composer with markdown attach.
+func TestRoomPageCarriesTheRefinedSurface(t *testing.T) {
+	for _, want := range []string{
+		`id="me"`,                  // identity chip…
+		`aria-label="acting seat"`, // …picker demoted to settings
+		`class="rail"`,             // room rail
+		`data-head=`,               // rail carries heads for unread marks
+		`<div>when</div>`,          // human clock column
+		`<textarea id="ctext"`,     // tall composer
+		`id="cfile"`,               // markdown attach
+		"cmdObj.attachments",       // attachments ride the signed command
+		"comms.seen.",              // unread bookkeeping
+	} {
+		if !strings.Contains(roomHTML, want) {
+			t.Errorf("room page missing %q", want)
+		}
+	}
+	if strings.Contains(roomHTML, `<nav>{{NAV}}</nav>`) {
+		t.Error("the header room strip should be gone; rooms live in the rail")
+	}
+}
