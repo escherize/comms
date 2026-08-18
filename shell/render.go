@@ -178,6 +178,18 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
 	if room == "" {
 		room = "core"
+		// The bare front door must not 404 a scoped seat: "core" is only a
+		// guess, and a seat invited into eugenes-room alone would bounce off
+		// the default it never asked for. Land it in the first room it may
+		// read instead. An explicit ?room= still 404s a non-member — that is
+		// existence-hiding, and it stays.
+		if !s.canRead(reader(r), room) {
+			if all, err := s.st.Rooms(); err == nil {
+				if vis := s.visibleRooms(reader(r), all); len(vis) > 0 {
+					room = vis[0]
+				}
+			}
+		}
 	}
 	// A non-member and a nonexistent room both 404: content and existence hidden
 	// alike, so a seat cannot probe for a room it was scoped away from.

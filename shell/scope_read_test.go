@@ -291,3 +291,19 @@ func TestLoopbackWithSessionIsScoped(t *testing.T) {
 		t.Errorf("a seatless loopback read is the operator and sees every room, got %d", w2.Code)
 	}
 }
+
+// The bare front door lands a scoped seat in a room it can read. "core" is
+// only the default's guess: a seat invited into one room alone used to 404 on
+// "/" — the first thing a fresh invitee saw after enrolling. An explicit
+// ?room= for a non-member still 404s (existence-hiding is untouched).
+func TestBareFrontDoorLandsScopedSeatInItsRoom(t *testing.T) {
+	h, _, sarahTok := scopedServer(t)
+
+	w := gated(h, "GET", "/", sess(sarahTok), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("bare / must land a scoped seat in its own room, got %d", w.Code)
+	}
+	if body := w.Body.String(); !strings.Contains(body, "hi from comms") {
+		t.Errorf("expected sarah's room content on /, got %s", body)
+	}
+}
