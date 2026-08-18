@@ -113,7 +113,8 @@ Most flags below are operator actions that touch the database and exit
 	// defaults", not the no-verb client help.
 	clientForm := !serveVerb && (len(args) == 0 ||
 		!strings.HasPrefix(args[0], "-") ||
-		args[0] == "-h" || args[0] == "--help" || args[0] == "help")
+		args[0] == "-h" || args[0] == "--help" || args[0] == "help" ||
+		args[0] == "--version" || args[0] == "-version")
 	if clientForm {
 		cli.Skills = []cli.SkillDoc{{Doc: agentSkill}, {Doc: hubSkill}}
 		os.Exit(cli.Run(&cli.Env{

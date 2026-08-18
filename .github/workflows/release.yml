@@ -1,0 +1,51 @@
+name: release
+
+# Pushing a v* tag publishes binaries: one static file per platform, so a
+# client machine needs no Go toolchain — download, chmod, enrol. The sqlite
+# driver is pure Go (modernc), so CGO stays off and cross-compiling is just
+# GOOS/GOARCH.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      # The same gate as every push: a tag is not an exemption.
+      - run: ./check
+      - name: build matrix
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          VERSION="${GITHUB_REF_NAME}"
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            GOOS="${platform%/*}"; GOARCH="${platform#*/}"
+            bin="comms"
+            [ "$GOOS" = "windows" ] && bin="comms.exe"
+            GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
+              -ldflags "-s -w -X github.com/escherize/comms/cli.Version=${VERSION}" \
+              -o "$bin" .
+            name="comms_${VERSION}_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              zip -q "dist/${name}.zip" "$bin"
+            else
+              tar -czf "dist/${name}.tar.gz" "$bin"
+            fi
+            rm -f "$bin"
+          done
+          (cd dist && shasum -a 256 * > checksums.txt)
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" --generate-notes

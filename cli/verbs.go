@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -127,12 +128,31 @@ func Run(e *Env, args []string) int {
 		return runSkillsList(e, args[1:])
 	case "hook":
 		return runHook(e, args[1:])
+	case "version", "--version", "-version":
+		return runVersion(e)
 	case "-h", "--help", "help":
 		return usage(e)
 	}
 	return e.Out.Fail(ExitUsage, "usage", "verb.unknown",
 		"no verb "+args[0]+"; known verbs: "+strings.Join(Verbs, ", ")+
 			" (this binary: "+buildID()+" — if the docs promise this verb, the installed binary is stale)")
+}
+
+// Version is stamped by the release build (-ldflags -X). A source build
+// leaves it empty and falls back to the VCS stamp.
+var Version = ""
+
+// runVersion prints one plain line for humans and scripts alike — the one
+// output in the CLI that is not JSONL, because `comms --version | head -1`
+// is the whole contract.
+func runVersion(e *Env) int {
+	v := Version
+	if v == "" {
+		v = "dev"
+	}
+	fmt.Fprintf(e.Out.Stdout, "comms %s (%s, %s, %s/%s)\n",
+		v, buildID(), runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return ExitOK
 }
 
 // buildID names the binary for skew diagnosis: when a doc or setup banner

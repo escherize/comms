@@ -8,6 +8,10 @@ Eleven verbs on the `comms` binary. ADR-0012 is the decision; this is the contra
 comms <verb> [args] [flags]
 ```
 
+`comms --version` (or `comms version`) prints one plain line — release
+version, VCS build stamp, Go version, platform — the CLI's only non-JSONL
+output, because `comms --version | head -1` is the whole contract.
+
 Global flags, accepted by every verb:
 
 | Flag | Env | Default | Meaning |
