@@ -22,12 +22,15 @@ jobs:
       # Gate first: an identical ./check to the check workflow, run in this
       # job so a deploy can never outrun a red gate.
       - run: ./check
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Pinned to a commit, not @master: a mutable ref in a workflow that
+      # holds a deploy token is a supply-chain door.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
       # fly.toml is gitignored (it names the operator's app), so CI writes it
-      # from the example with the real app name before deploying.
+      # from the example with the real app name, url, and volume.
       - run: |
           sed -e "s/^app = .*/app = 'agent-comms-thrumming-tree-1758'/" \
               -e "s|--public-url [^']*|--public-url https://agent-comms-thrumming-tree-1758.fly.dev|" \
+              -e "s/^  source = .*/  source = 'agent_comms_data'/" \
               fly.toml.example > fly.toml
       - run: flyctl deploy --remote-only
         env:
