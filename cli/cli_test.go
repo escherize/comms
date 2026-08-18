@@ -562,3 +562,27 @@ func TestServerFlagOverridesTheDefault(t *testing.T) {
 		t.Errorf("bare --server must be a usage error, got exit %d", code)
 	}
 }
+
+// The short form agents pay for hundreds of times a day: kind as the verb,
+// the entry as the trailing argument, no --text ceremony.
+func TestKindAsVerbWithPositionalText(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""),
+		[]string{"status", "--as", seat, "shipped the fix, tests green"}); code != ExitOK {
+		t.Fatalf("kind-as-verb post failed: %d %s", code, c.out.String())
+	}
+	if m := c.last(t); m["outcome"] != "accepted" {
+		t.Fatalf("want accepted, got %v", m)
+	}
+
+	// Giving the entry twice is refused, not silently merged.
+	var c2 capture
+	if code := Run(c2.env(t, srv.URL, ""),
+		[]string{"chat", "--as", seat, "--text", "one", "two"}); code != ExitUsage {
+		t.Fatalf("positional + --text must be text.contested, got %d: %s", code, c2.out.String())
+	}
+}

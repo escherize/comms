@@ -89,6 +89,11 @@ func Run(e *Env, args []string) int {
 		return runEnrol(e, args[1:])
 	case "post":
 		return runPost(e, args[1:])
+	case "chat", "finding", "til", "status":
+		// Kind-as-verb: comms status --as <seat> "text" is comms post status.
+		// The ambient kinds an agent posts all day earn the short form; the
+		// addressed kinds already have their own verbs (ask, answer).
+		return runPost(e, args)
 	case "whoami":
 		return runWhoami(e, args[1:])
 	case "redact":
@@ -198,6 +203,7 @@ join a room
 
 say something
    post        one typed entry: finding, til, status, chat, pr.link
+               (the ambient kinds are verbs too: comms status --as <seat> "…")
    ask         a question, addressed to a person who can answer it
    answer      reply to a question by its seq
    attach      store long content by hash; reference it from a post
@@ -441,6 +447,16 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	kind := core.Kind(args[0])
 	if err := fs.Parse(args[1:]); err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	}
+	// The entry can just be the trailing argument — comms status --as <seat>
+	// "shipped the fix" — because --text on every post is ceremony agents pay
+	// hundreds of times a day. Flags first, prose last.
+	if rest := fs.Args(); len(rest) > 0 {
+		if *text != "" || *textFile != "" {
+			return e.Out.Fail(ExitUsage, "usage", "text.contested",
+				"the entry was given twice — positional and --text/--text-file; use one")
+		}
+		*text = strings.Join(rest, " ")
 	}
 
 	// The verb set never outruns the kind set. A verb whose event kind does not
