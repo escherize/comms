@@ -243,10 +243,34 @@ body[data-signing="false"] .composer .tok { display:none; }
 }
 .set-panels button[type=submit]:hover { border-color: var(--accent); }
 .set-note { font-size:.78rem; color: var(--ink-faint); }
-.invite-scope > summary { cursor:pointer; color: var(--ink-mute); font-size:.8rem; margin:.35rem 0; }
-.set-rooms { display:flex; flex-wrap:wrap; gap:.15rem .8rem; margin:.3rem 0; }
-.set-rooms label { display:flex; align-items:center; gap:.3rem; color: var(--ink); font-size:.82rem; cursor:pointer; }
-.invite-super-row { display:flex; align-items:center; gap:.35rem; color: var(--ink-mute); font-size:.82rem; margin:.35rem 0; cursor:pointer; }
+/* The invite form stacks: an actor input, a superuser toggle, a room-scope
+   disclosure, then the mint button — one control per line. The panel's default
+   row-flex is for the two-field room form; here each child owns its own row. */
+.invite-form { flex-direction:column; align-items:stretch; gap:.5rem; }
+.invite-form > input { flex:none; width:100%; }
+.invite-form > button[type=submit] { align-self:flex-start; }
+.invite-scope > summary { cursor:pointer; color: var(--ink-mute); font-size:.8rem; margin:.15rem 0; }
+.invite-scope[open] > summary { color: var(--ink); margin-bottom:.35rem; }
+.set-rooms { display:flex; flex-wrap:wrap; gap:.2rem 1rem; margin:.3rem 0; }
+.set-rooms label { display:flex; align-items:center; gap:.35rem; color: var(--ink); font-size:.82rem; cursor:pointer; }
+.invite-super-row { display:flex; align-items:center; gap:.4rem; color: var(--ink-mute); font-size:.82rem; cursor:pointer; }
+.invite-super-row input, .set-rooms input { flex:none; width:auto; }
+/* the seat name: a namespace picker + a bare-name input, joined as one field */
+.invite-name { display:flex; gap:0; }
+.invite-name select { flex:none; width:auto; border-right:0; border-radius:0; }
+.invite-name input { flex:1; }
+/* create a room inline from the picker */
+.invite-newroom { display:flex; gap:.3rem; margin:.4rem 0 .2rem; }
+.invite-newroom input { flex:1; }
+.invite-newroom button { background: var(--raised); color: var(--ink);
+  border:1px solid var(--rule-strong); padding:.25rem .6rem; cursor:pointer; font:inherit; font-size:.8rem; }
+.invite-newroom button:hover { border-color: var(--accent); }
+/* the copy button matches the mint button and does not resize when its label
+   changes to "copied" — an inline-block with a min-width holds its shape */
+.invite-copy { display:inline-block; margin-top:.5rem; background: var(--raised);
+  color: var(--ink); border:1px solid var(--rule-strong); padding:.3rem .7rem;
+  cursor:pointer; font:inherit; }
+.invite-copy:hover { border-color: var(--accent); }
 .set-out { display:block; margin-top:.5rem; word-break:break-all; color: var(--ok); }
 .set-out:empty { display:none; }
 .set-list { margin:.4rem 0; padding:0; list-style:none; }
@@ -337,24 +361,35 @@ const settingsModal = `
           <option value="slate">slate</option>
         </select>
         <p class="set-note">t cycles themes from the keyboard.</p>
+        <p class="set-note">comms is open source — <a href="https://github.com/escherize/comms" target="_blank" rel="noopener">github.com/escherize/comms</a></p>
       </section>
       <section data-panel="invite" hidden>
         <h2>invite a seat</h2>
         <p>Mints a one-use enrolment token, signed by your key. Hand it over
         out of band; it is the whole credential.</p>
-        <form id="invite-form">
-          <input id="invite-actor" placeholder="human:sarah, or agent:you/name" autocomplete="off">
+        <form id="invite-form" class="invite-form">
+          <div class="invite-name">
+            <select id="invite-kind" aria-label="seat kind">
+              <option value="human">human:</option>
+              <option value="agent">agent:</option>
+            </select>
+            <input id="invite-actor" placeholder="sarah, or you/claude-1" autocomplete="off">
+          </div>
           <label id="invite-super-row" class="invite-super-row"><input type="checkbox" id="invite-super"> superuser (all rooms, and can invite others)</label>
           <details id="invite-scope" class="invite-scope">
             <summary>all rooms &middot; scope to specific rooms &rarr;</summary>
             <div id="invite-rooms" class="set-rooms"></div>
+            <div id="invite-newroom" class="invite-newroom">
+              <input id="invite-newroom-name" placeholder="+ new room" autocomplete="off">
+              <button type="button" id="invite-newroom-go">create</button>
+            </div>
             <p class="set-note">Scoping to specific rooms turns on read sessions
             for the whole hub — members sign in to read.</p>
           </details>
           <button type="submit">mint token</button>
         </form>
         <output id="invite-out" class="set-out"></output>
-        <button type="button" id="invite-copy" hidden>copy prompt for the agent</button>
+        <button type="button" id="invite-copy" class="invite-copy" hidden>copy prompt for the agent</button>
       </section>
       <section data-panel="rooms" hidden>
         <h2>rooms</h2>
@@ -472,10 +507,22 @@ const settingsScript = `
     if(su&&sc) su.addEventListener('change', function(){ sc.style.display = su.checked ? 'none' : ''; });
   })();
 
+  // The seat's namespace (human:/agent:) is a picker, not something to type —
+  // it decides how the seat's posts are read, so it is a choice, not prose. If
+  // someone pastes a fully-qualified seat anyway, respect it rather than
+  // double-prefixing.
+  function chosenSeat(){
+    var name=document.getElementById('invite-actor').value.trim();
+    if(!name) return '';
+    if(name.indexOf('human:')===0 || name.indexOf('agent:')===0) return name;
+    var kind=document.getElementById('invite-kind').value;
+    return kind+':'+name;
+  }
+
   document.getElementById('invite-form').addEventListener('submit', function(e){
     e.preventDefault();
     var out=document.getElementById('invite-out');
-    var target=document.getElementById('invite-actor').value.trim();
+    var target=chosenSeat();
     if(!target){ out.textContent='name the seat to invite'; return; }
     var scope=chosenScope();
     out.textContent='minting…';
@@ -485,12 +532,14 @@ const settingsScript = `
         var granted=j.scope||scope;
         out.textContent='token for '+target+' ('+scopeLabel(granted)+'): '+j.token+'  (one use — hand it over out of band)';
         var copy=document.getElementById('invite-copy');
+        var isAgent=target.indexOf('agent:')===0;
         copy.hidden=false;
-        copy.textContent='copy prompt for the agent';
+        copy.textContent=isAgent ? 'copy prompt for the agent' : 'copy invite for the human';
         copy.onclick=function(){
-          navigator.clipboard.writeText(botPrompt(target, j.token, granted)).then(
-            function(){ copy.textContent='copied — paste it into the agent\'s session'; },
-            function(){ out.textContent=botPrompt(target, j.token, granted); });
+          var text=invitePrompt(target, j.token, granted);
+          navigator.clipboard.writeText(text).then(
+            function(){ copy.textContent=isAgent ? 'copied — paste it into the agent\'s session' : 'copied — send it to them'; },
+            function(){ out.textContent=text; });
         };
       })
       .catch(function(ex){ out.textContent=ex.message; });
@@ -498,25 +547,45 @@ const settingsScript = `
 
   // The room picker is filled from /rooms — which the server already filters to
   // the minter's own rooms — so a scoped admin can only offer rooms it holds.
-  function loadInviteRooms(){
+  // preselect keeps a set of rooms checked across a reload (creating a room
+  // mid-flow must not clear the boxes already ticked).
+  function loadInviteRooms(preselect){
     var box=document.getElementById('invite-rooms');
     if(!box) return;
+    var keep={};
+    box.querySelectorAll('input').forEach(function(b){ if(b.checked) keep[b.value]=true; });
+    (preselect||[]).forEach(function(r){ keep[r]=true; });
     fetch('/rooms',{headers:{'Accept':'application/json'}})
       .then(function(r){ return r.json(); })
       .then(function(j){
         box.innerHTML='';
         (j.rooms||[]).forEach(function(room){
-          var id='ir-'+room;
           var lbl=document.createElement('label');
-          lbl.htmlFor=id;
           var cb=document.createElement('input');
-          cb.type='checkbox'; cb.id=id; cb.value=room;
+          cb.type='checkbox'; cb.value=room; cb.checked=!!keep[room];
           lbl.appendChild(cb);
           lbl.appendChild(document.createTextNode(' '+room));
           box.appendChild(lbl);
         });
       }).catch(function(){});
   }
+
+  // Create a room without leaving the invite panel, then re-check the boxes so
+  // the new room is selected and nothing already ticked is lost.
+  (function(){
+    var btn=document.getElementById('invite-newroom-go');
+    var inp=document.getElementById('invite-newroom-name');
+    if(!btn||!inp) return;
+    function make(){
+      var name=inp.value.trim();
+      if(!name) return;
+      signedPost('/rooms',{name:name, as:me()})
+        .then(function(){ inp.value=''; loadInviteRooms([name]); })
+        .catch(function(ex){ document.getElementById('invite-out').textContent=ex.message; });
+    }
+    btn.addEventListener('click', make);
+    inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); make(); } });
+  })();
 
   // The prompt hands an agent everything between "given a token" and "posting
   // usefully". It deliberately teaches only the connection; the room's rules
@@ -552,6 +621,36 @@ const settingsScript = `
       'Every verb answers --help. A refusal names the invariant that failed and a',
       'corrected invocation that works.'
     ].join('\n');
+  }
+
+  // The human version: not CLI assembly, just the two ways a person joins —
+  // click the setup link, or one enrol command if they prefer the terminal.
+  function humanBlurb(actor, token, scope){
+    var rooms=(scope==='superuser')?'all rooms, and can invite others (superuser)':((!scope||scope==='all')?'all rooms':scope);
+    return [
+      'You\'ve been invited to a comms hub — a shared room where the team and their',
+      'AI agents post signed, permanent, typed notes.',
+      '',
+      'Seat:  '+actor,
+      'Rooms: '+rooms,
+      '',
+      'Join in your browser (easiest):',
+      '  '+location.origin+'/#setup='+token,
+      '  Open it, confirm your name, and you\'re in.',
+      '',
+      'Or from a terminal, if you use the comms CLI:',
+      '  echo "'+token+'" | comms enrol --as '+actor,
+      '',
+      'The link and the token are the same single-use credential — use either.'
+    ].join('\n');
+  }
+
+  // Pick the right prompt for the seat: agents get the harness assembly steps,
+  // humans get the join-in-a-browser blurb.
+  function invitePrompt(actor, token, scope){
+    return actor.indexOf('agent:')===0
+      ? botPrompt(actor, token, scope)
+      : humanBlurb(actor, token, scope);
   }
 
   function loadRooms(){
@@ -910,10 +1009,16 @@ const composeScript = `
   // private key is created non-extractable, so this handle is the only way to
   // use it and there is no way to read it out.
   function keyFor(actor){
-    return idbGet(actor).then(function(pair){
+    var tf=document.getElementById('enroltoken');
+    var token=tf && tf.value.trim();
+    // A token in the field means "enrol this browser now" — a #setup= link the
+    // operator just minted. That must win over any stale key a previous session
+    // left in IndexedDB (a seat re-created on a fresh hub has a new server-side
+    // key; signing with the old one is key.unknown). So when a token is present
+    // we always generate and enrol fresh; only with no token do we reuse the
+    // cached key for a seat that has already posted.
+    return (token ? Promise.resolve(null) : idbGet(actor)).then(function(pair){
       if(pair) return pair;
-      var tf=document.getElementById('enroltoken');
-      var token=tf && tf.value.trim();
       if(!token) return Promise.reject(new Error(
         'first post as '+actor+' needs an enrolment token — run: comms invite '+actor+
         ' and paste it in the token field'));
@@ -926,6 +1031,10 @@ const composeScript = `
             }).then(function(r){
               if(!r.ok) return r.json().then(function(j){
                 throw new Error(j.detail||'enrolment refused'); });
+              // The token is single-use and now spent: clear it so the next
+              // post signs with the enrolled key instead of resending a used
+              // token, which the server rejects "already used".
+              if(tf) tf.value='';
               return idbPut(actor, kp).then(function(){ return kp; });
             });
           });

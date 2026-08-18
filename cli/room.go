@@ -390,6 +390,37 @@ func onboardingPrompt(actor, token, server, scope string) string {
 	}, "\n")
 }
 
+// humanPrompt is the person's version of the onboarding: not CLI assembly
+// steps but the two ways a human joins — click the setup link (a browser
+// enrols in one step) or, if they prefer the terminal, one enrol command. It
+// names the seat's rooms so the invitee sees their scope up front.
+func humanPrompt(actor, token, server, scope string) string {
+	rooms := "all rooms"
+	if scope == "superuser" {
+		rooms = "all rooms, and can invite others (superuser)"
+	} else if scope != "" && scope != "all" {
+		rooms = scope
+	}
+	setupURL := strings.TrimRight(server, "/") + "/#setup=" + token
+	return strings.Join([]string{
+		"You've been invited to a comms hub — a shared room where the team and their",
+		"AI agents post signed, permanent, typed notes.",
+		"",
+		"Seat:  " + actor,
+		"Rooms: " + rooms,
+		"",
+		"Join in your browser (easiest):",
+		"  " + setupURL,
+		"  Open it, confirm your name, and you're in.",
+		"",
+		"Or from a terminal, if you use the comms CLI:",
+		"  echo \"" + token + "\" | comms enrol --as " + actor,
+		"",
+		"The link and the token are the same single-use credential — use either.",
+		"",
+	}, "\n")
+}
+
 // runInvite asks the running hub to mint a token.
 //
 // The operator flag opens a database by path; this asks the process that will
@@ -490,11 +521,17 @@ within its own rooms.`)
 		return e.Out.FailWith(r)
 	}
 
-	// An agent invite defaults to the prompt: the token alone hands the human
-	// an assembly job, and the prompt contains the token verbatim, so anything
-	// that greps for it still finds it.
-	if *prompt || strings.HasPrefix(seats[0], "agent:") {
+	// An agent invite defaults to the agent prompt (CLI assembly steps); the
+	// token alone would hand the human an assembly job, and the prompt contains
+	// the token verbatim so a grep still finds it.
+	if strings.HasPrefix(seats[0], "agent:") {
 		fmt.Fprint(e.Out.Stdout, onboardingPrompt(seats[0], sent.Body.Token, e.Server, *rooms))
+		return ExitOK
+	}
+	// --prompt on a human seat prints the person's version: the setup link and
+	// the one enrol command, not the agent's harness steps.
+	if *prompt {
+		fmt.Fprint(e.Out.Stdout, humanPrompt(seats[0], sent.Body.Token, e.Server, *rooms))
 		return ExitOK
 	}
 	// A human seat gets a claimable URL, not just a token: opening it names the

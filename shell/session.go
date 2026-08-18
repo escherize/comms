@@ -370,7 +370,40 @@ half never leaves this browser.</p>
 
   var err=document.getElementById('err');
   var actorField=document.getElementById('actor');
+  var tokenField=document.getElementById('token');
   var saved=localStorage.getItem(AK);
+
+  // A #setup=<token> link is the operator handing this browser an enrolment.
+  // Reads are always authenticated, so an unenrolled browser lands HERE (the
+  // unlock page), not the room page — this is the only place the setup link can
+  // be honoured. Look the token up to name its seat, then enrol FRESH through
+  // it: a setup link overrides any stale key a previous session left behind
+  // (the seat may have a new server-side key on a rebuilt hub), which is the
+  // key.unknown a reused key would otherwise cause. Take this branch before the
+  // saved-seat silent unlock, so the explicit link wins.
+  var setupMatch=location.hash.match(/^#setup=([0-9a-f]{32})$/);
+  if(setupMatch){
+    var setupToken=setupMatch[1];
+    history.replaceState(null,'',location.pathname);
+    fetch('/invites/whose',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:setupToken})})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        if(j && j.actor && j.actor!=='*'){
+          actorField.value=j.actor;
+          tokenField.value=setupToken;
+          // Enrol fresh through the link — never reuse a stale IndexedDB key.
+          return enrolThen(j.actor, setupToken);
+        }
+        // Bootstrap token, or lookup failed: fall to the form with the token in.
+        tokenField.value=setupToken;
+        err.textContent='name your seat, then unlock';
+      })
+      .catch(function(e){ err.textContent=e.message; });
+    return; // the setup path owns this load
+  }
+
   if(saved) actorField.value=saved;
 
   // A seat that has been here before unlocks silently — but only once per
