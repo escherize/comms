@@ -16,6 +16,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/escherize/comms/core"
 )
@@ -83,6 +84,11 @@ func Run(e *Env, args []string) int {
 	if len(args) == 0 {
 		return usage(e)
 	}
+
+	// ponytail: checks e.Server as resolved here (env/flag/default), not the
+	// seat's pinned hub — per-seat resolution happens inside each verb. A
+	// wrong-or-down server just means the check silently skips.
+	maybeSelfUpdate(e, args[0])
 
 	switch args[0] {
 	case "enrol":
@@ -170,13 +176,20 @@ func buildID() string {
 	if !ok {
 		return "unknown build"
 	}
-	rev, at := "", ""
+	rev, at, dirty := "", "", ""
 	for _, s := range bi.Settings {
 		switch s.Key {
 		case "vcs.revision":
 			rev = s.Value
 		case "vcs.time":
 			at = s.Value
+		case "vcs.modified":
+			// A dirty tree must say so: vcs.time is the commit's clock, and a
+			// build carrying uncommitted work stamped with yesterday's commit
+			// reads as a stale binary.
+			if s.Value == "true" {
+				dirty = "+dirty"
+			}
 		}
 	}
 	if rev == "" {
@@ -186,9 +199,9 @@ func buildID() string {
 		rev = rev[:12]
 	}
 	if at != "" {
-		return rev + " built " + at
+		return rev + dirty + ", committed " + at
 	}
-	return rev
+	return rev + dirty
 }
 
 func usage(e *Env) int {
@@ -230,7 +243,7 @@ skills
    skills      list them
    hook        wire the room into an agent harness's turn loop (--install)
 
-'comms <verb> --help' explains any verb; start with enrol.
+'comms <verb> --help' explains any verb; start with join.
 'comms --h-server' lists the operator flags (verify, rebuild, grants).`)
 	return usageOK(e)
 }
@@ -455,6 +468,9 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	}
 	kind := core.Kind(args[0])
 	if err := fs.Parse(args[1:]); err != nil {
+		if isHelp(err) {
+			return usageOK(e)
+		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
 	// The entry can just be the trailing argument — comms status --as <seat>
@@ -757,6 +773,9 @@ event; someone else's is an operator action.`)
 			"the first argument is a seq, e.g. 20014; got "+seqArg)
 	}
 	if err := fs.Parse(args[1:]); err != nil {
+		if isHelp(err) {
+			return usageOK(e)
+		}
 		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 	}
 	if *why == "" {
@@ -829,7 +848,7 @@ func runAsk(e *Env, args []string) int {
 Searches the room for what it already knows, attaches up to three hits to the
 question's refs, prints what it attached, and posts either way.
 
-  comms ask --as agent:bcm/claude-1 --to bcm \
+  comms ask --as agent:bcm/claude-1 --to human:bcm \
       --text "is migration 0031 safe to reorder ahead of 0029?"
 
 It attaches, it never gates: a human seeing the prior hits alongside the
@@ -920,7 +939,7 @@ func runAnswer(e *Env, args []string) int {
 No recipient: the server derives it from the question's author, so an answer
 always reaches whoever asked.
 
-  comms answer --as bcm --to-question 20014 --text "yes, 0029 is idempotent"`)
+  comms answer --as human:bcm --to-question 20014 --text "yes, 0029 is idempotent"`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -967,16 +986,14 @@ always reaches whoever asked.
 // ---------------------------------------------------------------- attach
 
 func runAttach(e *Env, args []string) int {
+	fs, sink := newFlags("attach")
+	title := fs.String("title", "", "what to call it where it is referenced")
+	actor := fs.String("as", "", "the seat uploading — a session hub requires one")
 	// --get is the read pair of attach: the same hash, back as the stored
 	// markdown, through the seat's read session. Without it an agent can see
 	// an attachment exists in a read and have no way to open it — the /a/
 	// route wants a session a bare curl does not carry.
-	if len(args) > 0 && (strings.HasPrefix(args[0], "--get") || strings.HasPrefix(args[0], "-get")) {
-		return runAttachGet(e, args)
-	}
-	fs, sink := newFlags("attach")
-	title := fs.String("title", "", "what to call it where it is referenced")
-	actor := fs.String("as", "", "the seat uploading — a session hub requires one")
+	get := fs.String("get", "", "fetch a stored artifact by its 64-hex hash instead of uploading")
 	fs.Usage = func() {
 		e.Out.HelpFS(fs, `comms attach <path|-> [--as <seat>]
 
@@ -995,17 +1012,27 @@ The pair verb: comms attach --get <hash> [--as <seat>] fetches a stored
 artifact back as markdown, through your read session. On a terminal it prints
 the text; piped, one JSON object with a content field.`)
 	}
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fs.Usage()
-		if len(args) == 0 {
-			return e.Out.Fail(ExitUsage, "usage", "path.required",
-				"name a file to upload, or - to read stdin")
+	positional, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
+	}
+	if *get != "" {
+		if len(positional) > 0 {
+			return e.Out.Fail(ExitUsage, "usage", "attach.contested",
+				"--get fetches; a path uploads — do one or the other")
 		}
-		return usageOK(e)
+		return runAttachGet(e, *get, *actor)
 	}
-	if err := fs.Parse(args[1:]); err != nil {
-		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+	if len(positional) == 0 {
+		fs.Usage()
+		return e.Out.Fail(ExitUsage, "usage", "path.required",
+			"name a file to upload, or - to read stdin")
 	}
+	if len(positional) > 1 {
+		return e.Out.Fail(ExitUsage, "usage", "path.one",
+			"name one file, got "+positional[0]+" and "+positional[1])
+	}
+	path := positional[0]
 	// The seat is optional on open hubs but load-bearing on session hubs: it
 	// names the read session the upload rides and lets the seat's pinned
 	// server apply, so an env-less harness reaches the right hub. Resolved
@@ -1018,10 +1045,10 @@ the text; piped, one JSON object with a content field.`)
 		applyPinnedServer(e, v)
 	}
 
-	if err := WithinTree(args[0]); err != nil {
+	if err := WithinTree(path); err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "attach.outside_tree", err.Error())
 	}
-	content, err := readContent(e, args[0])
+	content, err := readContent(e, path)
 	if err != nil {
 		return e.Out.Fail(ExitUsage, "usage", "content.unreadable", err.Error())
 	}
@@ -1040,7 +1067,7 @@ the text; piped, one JSON object with a content field.`)
 	}
 	name := *title
 	if name == "" {
-		name = defaultTitle(args[0])
+		name = defaultTitle(path)
 	}
 	e.Out.Note("stored %d bytes as %s", size, hash[:12])
 	return e.Out.Succeed(Result{
@@ -1055,34 +1082,16 @@ the text; piped, one JSON object with a content field.`)
 // uploaded. It reads through doRead, so a session hub gets the seat's session
 // and the membership gate on /a/ applies — this is the sanctioned door a bare
 // curl lacks.
-func runAttachGet(e *Env, args []string) int {
-	fs, sink := newFlags("attach")
-	hash := fs.String("get", "", "the artifact hash to fetch")
-	actor := fs.String("as", "", "the seat reading")
-	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms attach --get <hash> [--as <seat>]
-
-Fetches a stored artifact back as markdown, through your read session. On a
-terminal it prints the text; piped, one JSON object with a content field:
-
-  comms attach --get <hash> --as <seat> | jq -r .content > report.md`)
-	}
-	if err := fs.Parse(args); err != nil {
-		if isHelp(err) {
-			fs.Usage()
-			return usageOK(e)
-		}
-		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
-	}
-	if len(*hash) != 64 {
+func runAttachGet(e *Env, hash, actor string) int {
+	if len(hash) != 64 {
 		return e.Out.Fail(ExitUsage, "usage", "hash.invalid",
 			"--get wants the 64-hex artifact hash a read printed")
 	}
-	if _, code := resolveSeat(e, *actor); code != 0 {
+	if _, code := resolveSeat(e, actor); code != 0 {
 		return code
 	}
 	resp, err := doRead(e, nil, func() (*http.Request, error) {
-		req, err := http.NewRequest("GET", strings.TrimRight(e.Server, "/")+"/a/"+*hash, nil)
+		req, err := http.NewRequest("GET", strings.TrimRight(e.Server, "/")+"/a/"+hash, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1104,14 +1113,14 @@ terminal it prints the text; piped, one JSON object with a content field:
 		// The server 404s identically for unknown, unreferenced, and
 		// not-yours-to-see; say all three so the reader does not chase the wrong one.
 		return e.Out.Fail(ExitRejected, "rejected", "artifact.unknown",
-			"no artifact "+*hash+" visible to "+e.Seat+
+			"no artifact "+hash+" visible to "+e.Seat+
 				" — unknown hash, or referenced only in rooms this seat is not a member of")
 	}
 	if e.Out.Quiet {
-		return e.Out.Succeed(Result{Outcome: "fetched", Hash: *hash, Size: len(body), Content: string(body)})
+		return e.Out.Succeed(Result{Outcome: "fetched", Hash: hash, Size: len(body), Content: string(body)})
 	}
 	fmt.Fprint(e.Out.Stdout, string(body))
-	e.Out.Note("%d bytes, artifact %s", len(body), (*hash)[:12])
+	e.Out.Note("%d bytes, artifact %s", len(body), hash[:12])
 	return ExitOK
 }
 
@@ -1194,6 +1203,10 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 	}
 	events, meta, err := drain(e, o)
 	if err != nil {
+		var rr *readRefused
+		if errors.As(err, &rr) {
+			return e.Out.Fail(ExitUsage, "usage", "room.unknown", rr.Error())
+		}
 		// A transport failure is not unretryable. Exit 4 here while post on the
 		// same unreachable server returns spooled/exit 0 told an agent to stop
 		// over a condition that fixes itself.
@@ -1255,6 +1268,10 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 	}
 	events, meta, err := drain(e, o)
 	if err != nil {
+		var rr *readRefused
+		if errors.As(err, &rr) {
+			return e.Out.Fail(ExitUsage, "usage", "room.unknown", rr.Error())
+		}
 		// A drop mid-wait must leave the cursor where it was, so nothing is
 		// skipped on the next read.
 		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
@@ -1326,6 +1343,25 @@ key, and no verb, flag or environment variable does.
 	}
 
 	e.Out.Note("%s on %s → %s (room %s, key %s)", seat, e.Host, e.Server, room, status)
+	// Version drift, while whoami is already talking to the hub. Release
+	// builds self-heal on the next verb; a source build is told, not touched.
+	if exe, err := os.Executable(); err == nil {
+		if self, err := fileSHA256(exe); err == nil {
+			hc := &http.Client{Timeout: 2 * time.Second}
+			if resp, err := hc.Head(strings.TrimRight(e.Server, "/") + "/comms"); err == nil {
+				resp.Body.Close()
+				if hub := resp.Header.Get("X-Comms-Build"); hub != "" && hub != self {
+					note := "this binary differs from the hub's build"
+					if Version == "" {
+						note += " (source build — self-update leaves it alone)"
+					} else {
+						note += "; the next verb self-updates"
+					}
+					e.Out.Note("%s", note)
+				}
+			}
+		}
+	}
 	return e.Out.Succeed(Result{
 		Outcome: "whoami", Actor: seat, Host: e.Host,
 		Server: e.Server, PubKey: hex.EncodeToString(pub),

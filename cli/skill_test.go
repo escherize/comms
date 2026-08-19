@@ -79,6 +79,12 @@ func skillCommands(t *testing.T, doc string) []skillCommand {
 		if !strings.HasPrefix(full, "comms") {
 			continue
 		}
+		// watch is resident by design: it holds the stream open and never
+		// exits, so running its example would hang the suite. Its loop is
+		// exercised directly in crew_test.go.
+		if strings.HasPrefix(full, "comms watch") {
+			continue
+		}
 		// A trailing comment is prose, not an argument.
 		if idx := strings.Index(full, "  # "); idx != -1 {
 			full = strings.TrimSpace(full[:idx])
@@ -599,6 +605,10 @@ func TestTheREADMEStartsTheHubWithACommandThatExists(t *testing.T) {
 		for _, line := range strings.Split(block, "\n") {
 			line = strings.TrimSpace(line)
 			if !strings.Contains(line, "comms") {
+				continue
+			}
+			// A download line names the binary's path without running it.
+			if strings.Contains(line, "curl") {
 				continue
 			}
 			// Any line that means "run the hub" must say serve, or pass an

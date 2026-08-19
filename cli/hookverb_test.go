@@ -371,8 +371,13 @@ func TestTheTwoOnboardingPromptsAgreeOnTheSteps(t *testing.T) {
 	}
 
 	for _, step := range []string{
-		"/install | sh", // the hub serves its own installer
-		"comms join",    // one act: enrol, check in, wire the hook
+		"authorization for the steps", // agents refuse harness-touching steps without this
+		"command -v comms",            // skip install when it is already there
+		"/comms && chmod",             // download the hub's own binary; never pipe a script to sh
+		"comms join",                  // one act: enrol, check in, wire the hook
+		"--no-hook",                   // the sanctioned fallback for a harness-shy agent
+		"tokens are cheap",            // a burnt token must not paralyze
+		"permission layer",            // a classifier block ends in a handoff, not a dead end
 		"comms skill comms",
 	} {
 		if !strings.Contains(cli, step) {
@@ -380,6 +385,13 @@ func TestTheTwoOnboardingPromptsAgreeOnTheSteps(t *testing.T) {
 		}
 		if !strings.Contains(string(web), step) {
 			t.Errorf("the web page's botPrompt is missing the step %q", step)
+		}
+	}
+	// Agents (and their permission classifiers) refuse curl|sh on sight; the
+	// prompt must never regress to it.
+	for _, surface := range []string{cli, string(web)} {
+		if strings.Contains(surface, "| sh") {
+			t.Error("the onboarding prompt pipes a remote script into a shell again")
 		}
 	}
 	// The prompt stays terse by request; join's own refusals teach the
@@ -448,5 +460,82 @@ func TestProjectShimRefusesHomeDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.local.json")); !os.IsNotExist(err) {
 		t.Error("nothing may be written into the personal settings by a project install")
+	}
+}
+
+// A stack an older comms already left behind (its marker missed baked
+// commands) heals on the next install: all our entries collapse to one, and a
+// user's own hooks survive untouched.
+func TestHookInstallHealsAPreStackedSettingsFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	prev, _ := os.Getwd()
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(prev)
+
+	stacked := `{"hooks":{"UserPromptSubmit":[
+	  {"hooks":[{"type":"command","command":"/old/comms hook run --as agent:one"}]},
+	  {"hooks":[{"type":"command","command":"/old/comms hook run --as agent:one"}]},
+	  {"hooks":[{"type":"command","command":"my-own-thing.sh"}]}
+	]}}`
+	if err := os.MkdirAll(filepath.Join(project, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(project, ".claude", "settings.local.json")
+	if err := os.WriteFile(target, []byte(stacked), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var c capture
+	if code := Run(c.env(t, "http://127.0.0.1:1", ""),
+		[]string{"hook", "--install", "--seat", "agent:bcm/claude-1"}); code != ExitOK {
+		t.Fatalf("install exited %d: %s", code, c.out.String())
+	}
+	raw, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), "hook run"); n != 1 {
+		t.Fatalf("want the stack collapsed to one hook entry, found %d in: %s", n, raw)
+	}
+	if !strings.Contains(string(raw), "my-own-thing.sh") {
+		t.Fatalf("the user's own hook must survive the heal: %s", raw)
+	}
+}
+
+// A human @naming a seat in ambient chat expects that seat to notice; 30012
+// was an agent missing exactly that. The feed marks it — labeled as the
+// poster's claim, distinct from the signed-recipient marker.
+func TestHookFeedMarksMentionsOfTheSeat(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+
+	for i, txt := range []string{
+		"@" + seat + " count to 100",  // full seat name
+		"@claude-10 is not this seat", // bounded: must NOT ring claude-1
+		"plain chatter, no mention",
+	} {
+		if _, err := st.Append(core.Event{Room: "core", Author: "human:bryan",
+			Kind: core.KindChat, Body: map[string]any{"text": txt},
+			Lane: core.LaneOf(core.KindChat)}, "m"+itoa(int64(i)), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""),
+		[]string{"hook", "run", "--as", seat}); code != ExitOK {
+		t.Fatalf("hook run exited %d", code)
+	}
+	out := c.out.String()
+	if n := strings.Count(out, "→ you (mentioned):"); n != 1 {
+		t.Errorf("want exactly the one real mention marked, got %d:\n%s", n, out)
 	}
 }

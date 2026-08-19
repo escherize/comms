@@ -80,13 +80,11 @@ lists them.
   comms skill <name> --install     # install one
 
 --install writes ~/.agents/skills/<name>/SKILL.md, the path Claude Code,
-Hermes and omp all discover. New sessions load it; current ones do not.`)
+opencode and pi all discover. New sessions load it; current ones do not.`)
 	}
-	if err := fs.Parse(args); err != nil {
-		if isHelp(err) {
-			return ExitOK
-		}
-		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", sink.String())
+	positional, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
 	}
 	if len(Skills) == 0 {
 		return e.Out.Fail(ExitInternal, "internal", "skill.missing",
@@ -94,7 +92,15 @@ Hermes and omp all discover. New sessions load it; current ones do not.`)
 	}
 
 	chosen := Skills
-	if name := fs.Arg(0); name != "" {
+	var name string
+	if len(positional) > 1 {
+		return e.Out.Fail(ExitUsage, "usage", "skill.one",
+			"name one skill, got "+positional[0]+" and "+positional[1])
+	}
+	if len(positional) == 1 {
+		name = positional[0]
+	}
+	if name != "" {
 		chosen = nil
 		for _, s := range Skills {
 			if skillField(s.Doc, "name") == name {

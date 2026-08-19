@@ -53,6 +53,8 @@ func main() {
 	invite := flag.String("invite", "", "mint a one-time enrolment token for this actor and exit")
 	purge := flag.Int64("purge", 0, "erase one event's body and attachments permanently, then exit")
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
+	revoke := flag.String("revoke", "", "revoke a seat's key — future commands are refused, history stays valid — then exit")
+	compromise := flag.String("compromised-key", "", "mark a seat's key compromised (seat, or seat=RFC3339 suspected-since), then exit")
 	reembed := flag.Int64("reembed", -1, "rebuild the semantic lane from this seq, then exit")
 	digestAs := flag.String("digest-as", "", "run the digest bot under this seat (must hold the digest capability)")
 	digestTo := flag.String("digest-to", "", "who the digest is addressed to")
@@ -139,7 +141,7 @@ Most flags below are operator actions that touch the database and exit
 	// -invite from the wrong directory mints a real token into a file the hub
 	// has never opened, and the only symptom is "unknown enrolment token" much
 	// later, pointing at the token. That has cost two sessions in one day.
-	if *invite != "" || *grant != "" || *purge > 0 || *flagged != "" {
+	if *invite != "" || *grant != "" || *purge > 0 || *flagged != "" || *revoke != "" || *compromise != "" {
 		if rooms, err := st.Rooms(); err == nil && len(rooms) == 0 {
 			abs, _ := filepath.Abs(*db)
 			log.Fatalf("refusing to act on %s: it has no rooms, so no hub has ever "+
@@ -233,6 +235,37 @@ Most flags below are operator actions that touch the database and exit
 		return
 	}
 
+	if *revoke != "" {
+		if err := st.RevokeKey(*revoke, time.Now()); err != nil {
+			log.Fatalf("revoke: %v", err)
+		}
+		fmt.Printf("revoked %s: future commands are refused; history stays valid.\n"+
+			"Re-enrol with a fresh invite to rotate the key.\n", *revoke)
+		return
+	}
+
+	if *compromise != "" {
+		actor, sinceStr, _ := strings.Cut(*compromise, "=")
+		var since time.Time
+		if sinceStr != "" {
+			t, err := time.Parse(time.RFC3339, sinceStr)
+			if err != nil {
+				log.Fatalf("compromised-key: %q is not RFC3339 (e.g. 2026-08-18T00:00:00Z)", sinceStr)
+			}
+			since = t
+		} else if k, ok := st.KeyFor(actor); ok {
+			// Unknown compromise time: flag from the key's activation.
+			// Over-flagging is recoverable, under-flagging is not.
+			since = k.ActiveFrom
+		}
+		if err := st.MarkCompromised(actor, since); err != nil {
+			log.Fatalf("compromised-key: %v", err)
+		}
+		fmt.Printf("marked %s compromised as of %s; review its events with --flagged %s\n",
+			actor, since.UTC().Format(time.RFC3339), actor)
+		return
+	}
+
 	if *flagged != "" {
 		recs, err := st.FlaggedEvents(*flagged)
 		if err != nil {
@@ -255,6 +288,9 @@ Most flags below are operator actions that touch the database and exit
 	// database had never been served, which is exactly the check below needs.
 	for _, r := range strings.Split(*rooms, ",") {
 		if r = strings.TrimSpace(r); r != "" {
+			if !shell.ValidRoomName(r) {
+				log.Fatalf("--rooms %q: a room name is 1-32 of a-z 0-9 - _, starting with a letter or digit", r)
+			}
 			if err := st.EnsureRoom(r); err != nil {
 				log.Fatalf("ensure room %s: %v", r, err)
 			}
@@ -356,36 +392,51 @@ Most flags below are operator actions that touch the database and exit
 		}
 	}
 
-	// First run gets a claimable token; every run gets the four-line manual.
-	// This output is the onboarding: an agent reading it should need nothing
-	// else to join the room.
+	// The banner. One thing pops — the claim link, on a first run — and
+	// everything else is dim or gone: the verb tour lives in --help, and the
+	// two log lines above stay because the deploy docs grep for them. Color
+	// only on a terminal and never under NO_COLOR, so pipes and fly logs get
+	// plain text.
+	color := false
+	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+		_, noColor := os.LookupEnv("NO_COLOR")
+		color = !noColor
+	}
+	dim := func(s string) string {
+		if !color {
+			return s
+		}
+		return "\033[2m" + s + "\033[0m"
+	}
+	pop := func(s string) string {
+		if !color {
+			return s
+		}
+		return "\033[1;36m" + s + "\033[0m"
+	}
+	fmt.Println()
+	fmt.Println(dim("  ╭──────────────╮"))
+	fmt.Println(dim("  │") + "   ·))  comms " + dim("│"))
+	fmt.Println(dim("  ╰──────────────╯"))
+	fmt.Println()
 	if *asSeat == "" && st.EnrolledSeats() == 0 {
 		if tok, err := st.MintBootstrapInvite(time.Now()); err == nil {
 			base := "http://" + ln.Addr().String()
 			if srv.PublicURL != "" {
 				base = srv.PublicURL
 			}
-			fmt.Printf(`
-no seats enrolled yet — claim the first one:
-
-  browser   open %s/#setup=%s
-            the page asks you to name your seat and enrols this browser
-
-  terminal  echo "%s" | comms enrol --as human:<you>%s
-
-One use, expires in 24h, works only while the hub has no seats.
-`, base, tok, tok, srvHint)
+			link := base + "/#setup=" + tok
+			fmt.Println("  claim the first seat — open:")
+			fmt.Println()
+			fmt.Println("      " + pop(link))
+			fmt.Println()
+			fmt.Println(dim("  one use · expires in 24h · the first seat owns the hub"))
+			fmt.Println(dim("  terminal instead:  comms join '" + link + "' --as human:<you>"))
+			fmt.Println()
 		}
 	}
-	fmt.Printf(`
-how to use it:
-  comms invite human:<name>|agent:<name>%s   mint a one-use token (run on this box)
-  echo "<token>" | comms enrol --as <seat>%s   redeem it; the private key never leaves the machine
-  comms post chat --as <seat> --text "hi"%s   say something
-  comms skill comms                           the full guide, for humans and agents
-  browser: gear -> invite mints a token with a copy-paste prompt for an agent
-
-`, srvHint, srvHint, srvHint)
+	fmt.Println(dim("  invite:  comms invite human:<name>|agent:<name>" + srvHint + "     help:  comms --help"))
+	fmt.Println()
 	if err := http.Serve(ln, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}

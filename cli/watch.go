@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -36,8 +38,8 @@ The event is handed to the command as JSON on stdin — never in argv, never
 through a shell — because the room is untrusted input and a handoff that reads
 like a command is still a handoff.
 
-  comms watch --as agent:bcm/hermes-1 -- hermes chat --stdin
-  comms watch --as agent:bcm/omp-1 -- ./on-message.sh
+  comms watch --as agent:bcm/opencode-1 -- opencode run --stdin
+  comms watch --as agent:bcm/pi-1 -- ./on-message.sh
 
 The cursor advances only when the command exits 0, so a crashed handler is
 retried on the next wake rather than silently dropped. That makes delivery
@@ -77,6 +79,7 @@ useful for watching what a seat is being sent.`)
 
 	e.Out.Note("watching %s for %s; waking %s", inRoom, seat, describeHandler(command))
 
+	var backoff time.Duration
 	for {
 		o := readOpts{
 			Actor: seat, Room: inRoom, Lane: LaneAddressed,
@@ -88,6 +91,12 @@ useful for watching what a seat is being sent.`)
 		}
 		events, meta, err := drain(e, o)
 		if err != nil {
+			// A refused read is not a drop: reconnecting cannot make this seat
+			// a member, so looping on it is the hot loop this verb must avoid.
+			var rr *readRefused
+			if errors.As(err, &rr) {
+				return e.Out.Fail(ExitUsage, "usage", "room.unknown", rr.Error())
+			}
 			e.Out.Note("stream ended (%v); reconnecting", err)
 			time.Sleep(2 * time.Second)
 			if *once {
@@ -96,19 +105,29 @@ useful for watching what a seat is being sent.`)
 			continue
 		}
 
-		var highest int64
+		var highest, failedSeq int64
+		delivered := 0
 		for _, f := range events {
 			if len(command) == 0 {
 				e.Out.Line(f.Data)
+				delivered++
 				continue
 			}
 			if err := handOff(command, f.Data); err != nil {
+				// The failure is a JSONL fact, not just a stderr note: a piped
+				// supervisor runs with notes suppressed, which is exactly when
+				// it needs to see this.
+				e.Out.Line(map[string]any{
+					"type": "handler_failed", "seq": f.Seq, "detail": err.Error(),
+				})
 				e.Out.Note("handler failed on %d (%v); it will be delivered again", f.Seq, err)
 				// Stop advancing here: everything after this stays undelivered
 				// too, so order is preserved on the retry.
 				highest = 0
+				failedSeq = f.Seq
 				break
 			}
+			delivered++
 			e.Out.Line(map[string]any{
 				"type": "woke", "seq": f.Seq, "kind": f.Data["kind"],
 				"author": f.Data["author"],
@@ -127,7 +146,32 @@ useful for watching what a seat is being sent.`)
 		_ = meta
 
 		if *once {
-			return e.Out.Succeed(Result{Outcome: "watched", Count: len(events)})
+			// A handler crash is the handler's problem, not watch's: exit 0
+			// (the event re-delivers next run) but count only what was actually
+			// delivered, and say what was not.
+			r := Result{Outcome: "watched", Count: delivered}
+			if failedSeq > 0 {
+				r.Detail = "handler failed on seq " + strconv.FormatInt(failedSeq, 10) +
+					"; that event and everything after it will be delivered again"
+			}
+			return e.Out.Succeed(r)
+		}
+		// A failed handler re-delivers immediately on the next drain, which
+		// without a pause is a hot loop: hundreds of spawns and stream dials a
+		// second against an event that will fail the same way. Back off toward
+		// --every, and reset the moment a batch succeeds.
+		if failedSeq > 0 {
+			if backoff == 0 {
+				backoff = 2 * time.Second
+			} else {
+				backoff *= 2
+			}
+			if backoff > *every {
+				backoff = *every
+			}
+			time.Sleep(backoff)
+		} else {
+			backoff = 0
 		}
 	}
 }

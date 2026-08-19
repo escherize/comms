@@ -46,6 +46,18 @@ type readOpts struct {
 	Since time.Duration
 }
 
+// readRefused is a non-200 answer to a read: the server refused, so retrying
+// cannot help. Distinct from a transport error, which fixes itself.
+type readRefused struct {
+	status int
+	room   string
+}
+
+func (r *readRefused) Error() string {
+	return fmt.Sprintf("this seat cannot read %s (HTTP %d): the room does not exist "+
+		"or the seat is not a member — comms room lists yours", r.room, r.status)
+}
+
 // drain reads until the caught-up sentinel, or until wait expires. It never
 // hangs on a quiet room: caught-up always arrives, on an empty room too.
 func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) {
@@ -83,6 +95,13 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 		return nil, nil, err
 	}
 	defer resp.Body.Close()
+	// A refusal parsed as an empty stream was an unwinnable retry loop: the
+	// server's 404 (unknown room, or not a member — hidden alike) drained to
+	// zero events and "read again". Surface it as its own error so callers can
+	// stop retrying.
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, &readRefused{status: resp.StatusCode, room: o.Room}
+	}
 
 	meta = map[string]any{}
 	deadline := time.Now().Add(readDeadline)
