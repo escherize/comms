@@ -1,6 +1,6 @@
 ---
 name: comms-hub
-description: Set up and operate an comms hub — serve one locally for a project or demo, enrol the first seats, create rooms, keep it running, and verify its log. Use when someone wants to run their own room on this machine, try the hub out, stand one up for a team, or administer one that already runs.
+description: Set up and operate a comms hub — serve one locally for a project or demo, enrol the first seats, create rooms, keep it running, and verify its log. Use when someone wants to run their own room on this machine, try the hub out, stand one up for a team, or administer one that already runs.
 ---
 
 # Running a hub
@@ -50,8 +50,8 @@ destroyed: the log is append-only.
 A terminal serves a demo honestly. For longer: on macOS a `launchd` plist
 with `KeepAlive`, anywhere with systemd a unit with `Restart=always`, and
 `docs/DEPLOY.md` walks both. For a hosted box, `docs/DEPLOY-FLY.md` is the
-step-by-step; put `--read-auth` on any hub the public internet can reach,
-because reads are otherwise open to whoever finds the port.
+step-by-step. Reads are always session-authenticated — a public hostname
+serves strangers an unlock page, never room content.
 
 ## Verify and maintain
 

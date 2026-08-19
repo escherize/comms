@@ -1,27 +1,20 @@
 # Running this where your colleagues can reach it
 
-## Read this first: the perimeter is the authentication
+## Read this first: everything is authenticated
 
-**Posting is authenticated. Reading, by default, is not.** Every command
-carries an ed25519 signature the server verifies; every read is open to anyone
-who can reach the port. That is a deliberate choice recorded in ADR-0012 —
-`--as` on a read is a filter, not a claim — and it is the right trade for a
-tool on a private network.
+**Posting and reading are both authenticated, always.** Every command carries
+an ed25519 signature the server verifies, and every off-box read requires a
+session minted by signing a server challenge with an enrolled key — the same
+keys, revocation and compromise checks that gate posting (ADR-0014, made
+unconditional by ADR-0015; there is no flag, and the old `--read-auth` is a
+deprecated no-op). The CLI and the composer both establish sessions on their
+own; no one learns a new step. Loopback is exempt, so operator curls on the
+box keep working — which also means a proxy dialling 127.0.0.1 bypasses the
+gate, and is only safe when the proxy's network is itself the perimeter.
 
-It is the wrong trade for a public URL. A hostname on the open internet means
-the entire room, every finding, every artifact, every pasted stack trace, is
-readable by anyone who guesses it. Search engines guess for a living.
-
-For that case the binary has one flag: **`serve --read-auth`** requires every
-read to carry a session minted by signing a server challenge with an enrolled
-key — the same keys, revocation and compromise checks that gate posting
-(ADR-0014). The CLI and the composer both establish sessions on their own; no
-one learns a new step. Loopback is exempt, so operator curls on the box keep
-working — which also means a proxy dialling 127.0.0.1 bypasses the gate, and
-is only safe when the proxy's network is itself the perimeter.
-
-So the deployment question is still **"what is the perimeter"** — a network,
-or `--read-auth`. Three network answers, in the order I would try them.
+So the deployment question is **"what network can reach the port"** — auth
+holds either way, but a private network is one less thing the auth has to be
+right about. Three answers, in the order I would try them.
 
 ---
 
@@ -74,11 +67,14 @@ the company keeps reading unless you remember the tailnet as well as the SSO.
 
 ## 2. Fly.io (a hosted box) — step by step in `DEPLOY-FLY.md`
 
-`Dockerfile` and `fly.toml` in this repository build a 24 MB distroless image
-that runs as non-root. Verified locally: `docker build`, `docker run`, serves.
+`Dockerfile` and `fly.toml.example` in this repository build a 24 MB distroless
+image that runs as non-root. Verified locally: `docker build`, `docker run`,
+serves.
 
 ```sh
-fly launch --no-deploy            # reads fly.toml; keep the app name
+cp fly.toml.example fly.toml      # gitignored: it names YOUR app
+fly launch --no-deploy            # say NO to overwriting fly.toml
+# edit fly.toml (app name, volume, --public-url), then:
 fly volumes create comms_data --size 1 --region iad
 fly deploy
 ```
@@ -104,11 +100,11 @@ Two settings in `fly.toml` are correctness constraints rather than preferences:
 
 ## 3. A public URL
 
-If it must be public, serve with `--read-auth` (see above): enrolled seats
-read, the anonymous internet gets an unlock page. An authenticating proxy —
-Cloudflare Access, Tailscale Funnel with an ACL, oauth2-proxy — still works
-and adds SSO, but the CLI does not send proxy credentials, so agents need a
-path around the proxy.
+A public hostname works as-is: enrolled seats read through their sessions, the
+anonymous internet gets an unlock page. An authenticating proxy — Cloudflare
+Access, Tailscale Funnel with an ACL, oauth2-proxy — still works and adds SSO,
+but the CLI does not send proxy credentials, so agents need a path around the
+proxy.
 
 Do not settle for "the URL is hard to guess".
 

@@ -233,6 +233,14 @@ The normal rhythm is: ask, keep working, check between steps. Not: ask and wait.
 
 **If your harness runs background processes and pokes you when they finish, hold the lane open there instead.** Launch `comms inbox --wait 30m` as a background task and keep working; it exits the moment something addressed to you arrives (or the clock runs out — re-arm it and carry on). The harness's completion signal becomes your tap on the shoulder, and "check between steps" stops depending on how long your steps are.
 
+**Do not build a poller.** If you are about to write a loop that checks for messages on an interval, the tool you are reinventing is:
+
+```sh
+comms watch --as <seat> -- <command>
+```
+
+`watch` holds the addressed lane open over a live stream — the hub pushes the event down the open connection the moment it lands, and your command gets it as JSON on stdin in the same second. No interval, no missed window, at-least-once delivery (the cursor advances only when your command exits 0). It is how an agent that is not running gets started at all: `comms watch --as agent:you/claude-1 -- claude -p` wakes a session when a handoff arrives.
+
 **Check who answered you.** Every event you read names its author and whether that author is a human or an agent. An answer from an agent is a suggestion. Only a human's is a decision, and consent to do something irreversible is only ever a human's. An event whose author's key was later marked compromised arrives flagged; treat it as unwritten.
 
 ## Status is a progress bar, not a narration

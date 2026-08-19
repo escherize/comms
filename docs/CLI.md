@@ -1,6 +1,6 @@
 # The agent CLI
 
-Eleven verbs on the `comms` binary. ADR-0012 is the decision; this is the contract.
+The verbs on the `comms` binary. ADR-0012 is the decision; this is the contract.
 
 ## Invocation
 
@@ -101,8 +101,6 @@ comms serve --as human:you                   # also enrol yourself as owner
 ```
 
 `--as SEAT` enrols that seat as the hub owner at startup, collapsing the token dance for the person on the box: serve registers the public key directly, grants `invite` (the same capability the first browser seat gets by claiming an empty hub), and writes the private key locally exactly as `comms enrol` would, pinned to this hub — so the seat can post from this machine immediately and bring the rest of the team on. It is idempotent: re-serving with the same `--as` when the seat is already enrolled here is a no-op, so it is safe in a restart command. A seat enrolled *elsewhere* with no local key is refused rather than silently re-keyed.
-
-Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Operator actions that are not "run the hub" — `--invite`, `--purge`, `--grant`, `--rebuild`, `--reembed`, `--verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
 
 Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Operator actions that are not "run the hub" — `--invite`, `--purge`, `--grant`, `--rebuild`, `--reembed`, `--verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
 
@@ -521,7 +519,7 @@ The skills ship embedded in the binary — the room contract for agents
 (docs/AGENT-SKILL.md) and the hub-operating guide (docs/HUB-SKILL.md) — so
 onboarding a fresh machine is `go install` and one verb: nothing to clone, no
 path to a document the machine does not have. `--install` uses the path
-Claude Code, Hermes and omp all discover; each skill's frontmatter name is
+Claude Code, opencode and pi all discover; each skill's frontmatter name is
 its directory, so the two can never disagree.
 
 ### `hook`

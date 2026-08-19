@@ -11,17 +11,22 @@ fly auth login
 
 cp fly.toml.example fly.toml        # fly.toml is gitignored: it names YOUR app
 fly launch --no-deploy              # say NO to overwriting fly.toml
-fly volumes create comms_data --size 1 --region iad
-fly deploy
 ```
 
-Then edit `fly.toml`:
+Now edit `fly.toml` — the commands below read it, so this comes first:
 
 - `app =` the name `fly launch` gave you
-- `[[mounts]] source =` the volume name you created (must match exactly — a
+- `[[mounts]] source = "comms_data"` (must match the volume created next — a
   mismatch fails the deploy with "can't update the attached volume")
 - `--public-url https://<your-app>.fly.dev` in `[processes]` — without it,
   invite links minted over ssh print `127.0.0.1`
+
+Then:
+
+```sh
+fly volumes create comms_data --size 1 --region iad
+fly deploy
+```
 
 Confirm in `fly logs`, in order:
 

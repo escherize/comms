@@ -4,26 +4,20 @@ In a hurry: [DEPLOY-QUICKSTART.md](DEPLOY-QUICKSTART.md) is the command-only
 version. This document is the why.
 
 About $3/month for one machine and a 1 GB volume. Everything the deploy needs
-is already in this repository: `Dockerfile` and `fly.toml`, both built and run
-locally before this was written.
-
-**Read the box below before you start.** It is the part that decides whether
-this deployment is safe, and it is not about Fly.
+is already in this repository: `Dockerfile` and `fly.toml.example`, both built
+and run locally before this was written.
 
 ---
 
-> ### Reads are unauthenticated unless you turn on `--read-auth`
+> ### Reads are authenticated, always
 >
-> Posting is signed and verified. **Reading, by default, is open to anyone who
-> can reach the port.** That is deliberate — ADR-0012 — and correct for a
-> private network. On a public Fly hostname it means the entire room is
-> readable by anyone who guesses the name: every finding, every artifact,
-> every stack trace somebody pasted before thinking.
->
-> On a public hostname, serve with **`--read-auth`** (§6): reads then require a
-> session signed by an enrolled key — the same enrolment that lets a seat
-> post (ADR-0014). Or keep the app off the public internet entirely (§7). Do
-> not settle for "the URL is hard to guess".
+> Posting is signed and verified, and every off-box read requires a session
+> signed by an enrolled key — the same enrolment that lets a seat post
+> (ADR-0014, made unconditional by ADR-0015; the old `--read-auth` flag is a
+> deprecated no-op). A public Fly hostname therefore serves the anonymous
+> internet an unlock page, never room content. §6 shows what that looks like
+> and how to confirm it; §7 keeps the app off the public internet entirely,
+> which is still one less thing to be right about.
 
 ---
 
@@ -41,11 +35,12 @@ a persistent volume.
 
 ```sh
 cd ~/dv/comms
+cp fly.toml.example fly.toml   # fly.toml is gitignored: it names YOUR app
 fly launch --no-deploy
 ```
 
-Say **no** when it offers to overwrite `fly.toml` — the one in the repo carries
-two settings that are correctness constraints rather than preferences, and the
+Say **no** when it offers to overwrite `fly.toml` — the example carries two
+settings that are correctness constraints rather than preferences, and the
 generated one will not have them:
 
 - **One machine.** The ordering story is single-writer: one process assigns
@@ -94,16 +89,16 @@ loopback-only — being on the box is the operator credential. So open a shell o
 the machine:
 
 ```sh
-fly ssh console
-/comms invite human:you
+fly ssh console -C "/comms invite human:you --superuser --prompt"
 ```
 
 That works because the image is `distroless:debug-nonroot`, which is the same
 minimal image plus a busybox shell. Without it `fly ssh console` cannot open at
 all, and this is the one operation that cannot be done from outside.
 
-Paste the token into the composer on first visit. To let somebody mint without
-SSH, grant them the capability once:
+Open the printed `https://<your-app>.fly.dev/#setup=<token>` link in a
+browser: the page names your seat, enrols the browser, and unlocks reads in
+one step. To let somebody mint without SSH, grant them the capability once:
 
 ```sh
 /comms --db /data/comms.db --grant-invite human:you
@@ -111,18 +106,11 @@ SSH, grant them the capability once:
 
 Then from anywhere: `comms invite human:sarah --as human:you`.
 
-## 6. Turn on read auth
+## 6. What read auth looks like
 
-One flag, and it rides on the enrolment you already did in §5 (ADR-0014). Add
-it to the process arguments in `fly.toml`:
-
-```toml
-[processes]
-  app = "--db /data/comms.db --addr 0.0.0.0:7777 --rooms core --read-auth"
-```
-
-Then `fly deploy`. From now on a read needs a session minted by signing a
-server challenge with an enrolled key. Nobody types anything new:
+Nothing to turn on: a read needs a session minted by signing a server
+challenge with an enrolled key, and it rides on the enrolment you already did
+in §5. Nobody types anything new:
 
 - **Browsers** that have posted before unlock silently — the page signs with
   the key in IndexedDB and reloads. A first-time browser gets an unlock form

@@ -17,7 +17,7 @@ primary_region = 'iad'
 # --public-url makes printed invite links name this hostname instead of the
 # loopback address a `fly ssh console` mint sees.
 [processes]
-  app = '--db /data/comms.db --addr 0.0.0.0:7777 --rooms core --read-auth --public-url https://your-app-name.fly.dev'
+  app = '--db /data/comms.db --addr 0.0.0.0:7777 --rooms core --public-url https://your-app-name.fly.dev'
 
 [[mounts]]
   source = 'comms_data'

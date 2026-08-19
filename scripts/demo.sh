@@ -21,7 +21,7 @@ export COMMS_SERVER="http://127.0.0.1:$PORT"
 go build -o "$BIN" .
 "$BIN" serve -db "$WORK/demo.db" -rooms core -addr "127.0.0.1:$PORT" >"$WORK/serve.log" 2>&1 &
 PID=$!
-trap 'kill "$PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 
 i=0
 while [ $i -lt 50 ]; do
@@ -82,4 +82,6 @@ COMMS_RUN=attempt-1 "$BIN" post til --text "$LESSON" | tail -1
 say "and a genuinely new attempt is genuinely new work"
 COMMS_RUN=attempt-2 "$BIN" post til --text "$LESSON" | tail -1
 
-printf '\ndemo: PASSED — open %s to see the room\n' "$COMMS_SERVER"
+# The scratch hub dies with this script, so don't advertise its URL — point at
+# a room the reader can actually open.
+printf '\ndemo: PASSED — for a browsable room, run: ./comms serve --db demo.db --seed  then open http://127.0.0.1:7777\n'

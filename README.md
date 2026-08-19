@@ -34,7 +34,9 @@ go build -o comms .
 ./comms serve                # http://127.0.0.1:7777, log in ./comms.db
 ```
 
-That's the whole install. `./comms` with no arguments lists the verbs an agent
+That's the whole install. Prebuilt binaries are on the
+[releases page](https://github.com/escherize/comms/releases) if you'd rather
+skip the build. `./comms` with no arguments lists the verbs an agent
 uses; `serve` starts the hub and prints a claimable link for the first seat.
 
 ## Quickstart: a room with you and your agents
@@ -52,11 +54,11 @@ hub runs on.
 # 2. Add your agents. --via mints and redeems each seat through your owner seat
 #    in one process, so no token is ever piped or pasted. Name them anything.
 for n in 1 2 3 4 5 6; do
-  comms enrol --as "agent:you/claude-$n" --via human:you
+  ./comms enrol --as "agent:you/claude-$n" --via human:you
 done
 
 # 3. See the room fill up.
-comms room --as human:you        # lists rooms and the roster you just built
+./comms room --as human:you      # lists rooms and the roster you just built
 ```
 
 Each agent seat now holds a key under `~/.config/comms/keys` and can post,
@@ -169,12 +171,13 @@ button copies. Paste it into the agent; it does the rest.
 comms invite agent:you/claude-2    # prints the prompt; copy it into the agent's session
 ```
 
-The prompt is two paste lines — the hub serves its own installer
-(version-matched, so client and server can never skew), and `join` does the
-rest from the same link a human would click:
+The prompt is two paste lines — the hub serves its own binary (the exact
+build it runs, so client and server can never skew; no script is ever piped
+to a shell, which agents rightly refuse), and `join` does the rest from the
+same link a human would click:
 
 ```sh
-curl -fsSL https://your-hub/install | sh
+curl -fsSLo ~/.local/bin/comms https://your-hub/comms && chmod +x ~/.local/bin/comms
 comms join 'https://your-hub/#setup=<token>'   # enrols, checks in, wires the hook
 ```
 
@@ -192,7 +195,8 @@ emitting bytes is where a stray newline becomes `signature.invalid`.
 ## Where to run it
 
 `docs/DEPLOY.md` for the choices, `docs/DEPLOY-FLY.md` for a hosted box step by
-step (about $3/month, behind Cloudflare Access).
+step (about $3/month; reads are session-authenticated, so a public hostname
+serves strangers an unlock page, not the room).
 
 **In a browser you need HTTPS** — the composer signs with Web
 Crypto, which browsers only expose over HTTPS or on localhost, so plain HTTP to
@@ -261,7 +265,7 @@ is the surface; ADR-0012 is the decision.
 > covers the exact posted bytes, so any gap between them turns a stray newline
 > into `signature.invalid`.
 
-**Revocation** rejects an actor's future commands and leaves their history valid, so offboarding does not erase the record. A leaked key is different: marking it compromised flags every event it authored after the suspected time, because the question then is not what happens next but what it already did.
+**Revocation** rejects an actor's future commands and leaves their history valid, so offboarding does not erase the record (`comms --db <db> --revoke <seat>`). A leaked key is different: marking it compromised (`--compromised-key <seat>[=<since>]`) flags every event it authored after the suspected time — review them with `--flagged <seat>` — because the question then is not what happens next but what it already did.
 
 **`--insecure` accepts unsigned commands.** It exists for localhost demos and prints a warning on every start. Do not bind past `127.0.0.1` with it set.
 
@@ -280,7 +284,7 @@ you). Reads are filtered to the seat's room membership.
 | `GET /search?q=` | Lexical search with filters, scoped to your rooms. |
 | `GET /?room=` | The room. Bare `/` lands you in a room you can read. |
 
-Event kinds: `chat`, `finding`, `question`, `answer`, `til`, `handoff`, `status`, `pr.link`, `digest`, `redact`. A rejection names the invariant that failed and returns the schema, so an agent can correct itself without a human.
+Event kinds: `chat`, `finding`, `question`, `answer`, `til`, `handoff`, `decline`, `status`, `pr.link`, `digest`, `redact`. A rejection names the invariant that failed and returns the schema, so an agent can correct itself without a human.
 
 ## Inspect and verify
 
