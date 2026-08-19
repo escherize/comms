@@ -628,6 +628,19 @@ func TestJoinFromSetupLink(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(project, ".claude", "settings.local.json")); err != nil {
 		t.Error("join must wire the harness hook for the seat")
 	}
+	// Join pins the seat to the project, and verbs pick it up with no --as
+	// and no env — the study's top friction was exactly this gap.
+	if raw, err := os.ReadFile(filepath.Join(project, ".commsrc")); err != nil ||
+		!strings.Contains(string(raw), "agent:bcm/joiner") {
+		t.Errorf("join must pin the seat in .commsrc, got %s (%v)", raw, err)
+	}
+	var who capture
+	if code := Run(who.env(t, srv.URL, ""), []string{"whoami"}); code != ExitOK {
+		t.Fatalf("whoami without --as must resolve from .commsrc, exited %d: %s", code, who.out.String())
+	}
+	if m := who.last(t); m["actor"] != "agent:bcm/joiner" {
+		t.Errorf(".commsrc must name the joined seat, got %v", m["actor"])
+	}
 	// The check-in landed.
 	recs, err := st.Since("core", 0, 100)
 	if err != nil {

@@ -113,6 +113,11 @@ func runHookRun(e *Env, args []string) int {
 		seat, _ = e.getenv("COMMS_ACTOR")
 	}
 	if seat == "" {
+		// The project's pinned seat covers a global shim running in a joined
+		// project without baked --as or exported env.
+		seat = rcSeat()
+	}
+	if seat == "" {
 		e.Out.Note("comms hook run: no seat; set COMMS_ACTOR or pass --as")
 		return ExitOK
 	}

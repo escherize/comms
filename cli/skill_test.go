@@ -710,3 +710,27 @@ func TestOperatorActionsRefuseANeverServedDatabase(t *testing.T) {
 			"and the guard can never fire")
 	}
 }
+
+// The quick-reference card is generated from core.Kinds(), so every agent-
+// postable kind must appear — the guard that keeps `ref` from becoming a
+// fourth drifting copy of the kind list.
+func TestRefCoversEveryAgentKind(t *testing.T) {
+	var c capture
+	if code := Run(c.env(t, "http://127.0.0.1:1", ""), []string{"ref"}); code != ExitOK {
+		t.Fatalf("ref exited %d", code)
+	}
+	out := c.out.String()
+	for _, k := range core.Kinds() {
+		if !k.Agent {
+			continue
+		}
+		if !strings.Contains(out, string(k.Kind)) {
+			t.Errorf("ref is missing the %q kind", k.Kind)
+		}
+	}
+	for _, want := range []string{"exit codes", "comms search", "--attach-hash", "retry_after_ms"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ref is missing %q", want)
+		}
+	}
+}

@@ -105,10 +105,20 @@ every later command needs only --as.
 		}
 	}
 
+	// Pin the seat to this project: the first agent user study found that a
+	// join which still needs --as on every verb reads as unfinished, and the
+	// participant only discovered the gap by failing.
+	if err := writeRC(actor); err != nil {
+		e.Out.Note("could not write .commsrc (%v); pass --as %s to verbs here", err, actor)
+	}
+
 	// The hook step must not fail the join: by now the single-use token is
 	// spent and the seat exists, so a wiring refusal (wrong directory, no
 	// harness detected) is reported as the remaining step, not as failure.
-	next := "read the room's rules: comms skill comms — then restart your session so the hook feed arrives"
+	// Restart comes first in the copy — a study participant flagged that it
+	// was buried.
+	next := "restart your session (that arms the hook feed), then read the room's rules: " +
+		"comms skill comms. Your seat is pinned here in .commsrc — verbs in this project need no --as"
 	if !*noHook {
 		if code := runHookInstall(e, actor, false, false); code != ExitOK {
 			next = "you are enrolled, but the harness hook is not wired — run at your project root: " +

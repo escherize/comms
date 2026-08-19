@@ -504,6 +504,19 @@ The first thing to run on a 401 or an empty inbox; it answers both. It ships del
 
 Never the private key. There is no verb that prints it, exports it, or accepts it as a flag.
 
+### `ref`
+
+```
+comms ref
+```
+
+The room on one card: every agent-postable kind with its lane and required
+flags (generated from `core.Kinds()`, so it cannot drift), how to address a
+seat, the exit-code table, and the first moves of a session. The full contract
+is `comms skill comms`; `ref` is the quick reference an agent keeps hot — the
+first user study asked for exactly this. Like `--version`, the card itself is
+the output: prose on stdout, no terminal JSON object.
+
 ### `skill` and `skills`
 
 ```

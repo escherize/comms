@@ -44,7 +44,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "skill", "skills", "hook"}
+var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "ref", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -137,6 +137,8 @@ func Run(e *Env, args []string) int {
 		return runSearch(e, args[1:])
 	case "skill":
 		return runSkillVerb(e, args[1:])
+	case "ref":
+		return runRef(e, args[1:])
 	case "skills":
 		return runSkillsList(e, args[1:])
 	case "hook":
@@ -239,6 +241,7 @@ run a hub
    invite      mint an enrolment token through the running hub
 
 skills
+   ref         the room on one card: kinds, addressing, exit codes
    skill       print or install the skills this binary carries
    skills      list them
    hook        wire the room into an agent harness's turn loop (--install)
@@ -1469,8 +1472,15 @@ func resolveSeat(e *Env, flagValue string) (string, int) {
 		applyPinnedServer(e, v)
 		return v, 0
 	}
+	// The project's pinned seat, written by comms join. Last because an
+	// explicit choice must always beat an ambient file.
+	if v := rcSeat(); v != "" {
+		e.Seat = v
+		applyPinnedServer(e, v)
+		return v, 0
+	}
 	return "", e.Out.Fail(ExitUsage, "usage", "actor.required",
-		"name the seat with --as, or set COMMS_ACTOR")
+		"name the seat with --as, set COMMS_ACTOR, or run comms join in this project (it pins the seat in .commsrc)")
 }
 
 // DefaultServer is the built-in hub address a bare client talks to.
