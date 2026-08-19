@@ -33,6 +33,11 @@ func (s *Server) getCaps(w http.ResponseWriter, r *http.Request) {
 // trusts the operator's shell; this route takes names from a browser field.
 var roomName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
+// ValidRoomName is the same rule for callers outside this package — the
+// startup --rooms flag applies it so a shell-quoted "my room" cannot create a
+// room the browser route could never have accepted.
+func ValidRoomName(s string) bool { return roomName.MatchString(s) }
+
 // postRoom creates a room. Creation is guarded by the same trust as minting an
 // invite — loopback, or a seat holding the invite capability and proving it —
 // because both acts shape who works where. There is no delete and never will

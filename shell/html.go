@@ -46,6 +46,9 @@ const tokens = `
 
 const baseCSS = tokens + `
 * { box-sizing: border-box; }
+/* The hidden attribute works by a low-specificity UA rule; any display rule on
+   the same element silently overrides it. This makes [hidden] mean hidden. */
+[hidden] { display:none !important; }
 html, body { margin:0; height:100%; }
 body {
   background: var(--ground); color: var(--ink);
@@ -220,7 +223,15 @@ footer {
   padding:.3rem .7rem; color: var(--ink-faint); font-size:.72rem;
 }
 .balance b { color: var(--ink); font-weight:500; }
-.composer { display:flex; gap:.3rem; padding:.4rem .7rem; border-top:1px solid var(--rule); align-items:flex-end; }
+.composer { display:flex; gap:.3rem; padding:.4rem .7rem; border-top:1px solid var(--rule); align-items:flex-end; position:relative; }
+/* ---- @mentions: a mark in the text, a menu in the composer ---- */
+.mention { color: var(--accent-ink); }
+.mention.me { color: var(--ink-strong); background: var(--raised); box-shadow: inset 0 -1px 0 var(--accent); }
+.mention-menu { position:absolute; bottom:100%; left:5.2rem; min-width:16rem; max-height:12rem;
+  overflow-y:auto; background: var(--panel); border:1px solid var(--rule-strong); z-index:5; }
+.mention-menu div { padding:.25rem .6rem; cursor:pointer; font-size:.8rem; color: var(--ink); white-space:nowrap; }
+.mention-menu div.sel, .mention-menu div:hover { background: var(--raised); color: var(--ink-strong); }
+.mention-menu .hint { color: var(--ink-faint); }
 /* a taller instrument for longer thought: ~3 lines by default, grows as typed */
 .composer textarea { flex:1; resize:vertical; min-height:3.4rem; max-height:14rem;
   font:inherit; line-height:1.5; background: var(--ground); color: var(--ink);
@@ -249,6 +260,8 @@ body[data-signing="false"] .composer .tok { display:none; }
 .rank { color: var(--ink-faint); text-align:right; font-variant-numeric: tabular-nums; }
 .rank.vec { color: var(--ink-faint); opacity:.5; }
 .empty { padding:2rem .7rem; color: var(--ink-faint); }
+/* the row a seq-fragment link landed on: marked, not just scrolled past */
+.row.landed { box-shadow: inset 2px 0 0 var(--accent); background: var(--raised); }
 
 /* ---- founder claim card: shown once, to the first seat on a fresh hub ---- */
 .claim { margin:1.2rem auto; width:min(34rem, 92vw); background: var(--raised);
@@ -350,6 +363,9 @@ body[data-signing="false"] .composer .tok { display:none; }
 @media (max-width: 640px) {
   :root { --col-folio:3.4rem; --col-author:4.5rem; --col-kind:1.4rem; }
   body { font-size:12px; }
+  /* the composer's fixed-width token input pushed the post button off-screen */
+  .composer { flex-wrap:wrap; }
+  .composer .tok { width:100%; }
 }
 `
 
@@ -413,6 +429,58 @@ const liveScript = `
       prev = a.textContent;
     });
   }
+  // @mentions render as marks, not markup: the poster typed plain text, and
+  // this pass wraps @name tokens after the fact — text nodes only, so escaped
+  // content is never re-parsed as HTML. A mention naming the reader's own
+  // seat gets the stronger mark.
+  function meNames(){
+    var me=(document.getElementById('actor')||{}).value||'';
+    var out={};
+    if(me && me!=='__new__'){
+      out[me]=1;
+      var bare=me.replace(/^(human|agent):/,'');
+      out[bare]=1;
+      out[bare.split('/').pop()]=1;
+    }
+    return out;
+  }
+  function mentionize(root){
+    var mine=meNames();
+    [].forEach.call(root.querySelectorAll('.body:not([data-mentions])'), function(b){
+      b.setAttribute('data-mentions','1');
+      var walker=document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+      var nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(function(n){
+        var re=/@([A-Za-z0-9][A-Za-z0-9:_\/.-]*)/g;
+        if(!re.test(n.nodeValue)) return;
+        var frag=document.createDocumentFragment(), last=0, m;
+        re.lastIndex=0;
+        while((m=re.exec(n.nodeValue))){
+          frag.appendChild(document.createTextNode(n.nodeValue.slice(last, m.index)));
+          var s=document.createElement('span');
+          s.className='mention'+(mine[m[1]]?' me':'');
+          s.textContent=m[0];
+          frag.appendChild(s);
+          last=m.index+m[0].length;
+        }
+        frag.appendChild(document.createTextNode(n.nodeValue.slice(last)));
+        n.parentNode.replaceChild(frag, n);
+      });
+    });
+  }
+  // The acting seat can change (or arrive late, after the roster loads);
+  // repaint which mentions are "me" without re-walking the text.
+  function repaintMe(){
+    var mine=meNames();
+    [].forEach.call(document.querySelectorAll('.mention'), function(s){
+      s.classList.toggle('me', !!mine[s.textContent.slice(1)]);
+    });
+  }
+  document.addEventListener('change', function(e){
+    if(e.target && e.target.id==='actor') repaintMe();
+  });
+  window.commsMentionsRepaint=repaintMe;
+
   // Unread marks: a room whose head moved past what this browser last saw
   // there. The current room is always caught up by being looked at.
   function paintRail(){
@@ -449,9 +517,16 @@ const liveScript = `
     var nearBottom = main && (main.scrollHeight - main.scrollTop - main.clientHeight < 48);
     if (mode==='append') target.insertAdjacentHTML('beforeend', html.join('\n'));
     else target.innerHTML = html.join('\n');
+    // The empty-state notice describes a page with no rows; the first live row
+    // falsifies it.
+    if (mode==='append' && html.length){
+      var e0 = target.querySelector('.empty');
+      if (e0) e0.remove();
+    }
     if (target === body){
       if (seq) localStorage.setItem('comms.seen.'+room, seq);
       stamp(body);
+      mentionize(body);
       groupAuthors();
       // Follow the tail only for a reader already at it. Yanking the view on
       // every append made history unreadable in a live room.
@@ -466,6 +541,12 @@ const liveScript = `
                          '&after=' + encodeURIComponent(last) +
                          (query ? '&q=' + encodeURIComponent(query) : ''));
     es.addEventListener('datastar-patch-elements', handle);
+    // The interruption notice must not outlive the interruption; it shares
+    // the composer's error bar, so only clear it when the text is ours.
+    es.onopen = function(){
+      var bar = document.getElementById('composer-error');
+      if (bar && bar.textContent.indexOf('live updates') === 0) { bar.textContent = ''; bar.hidden = true; }
+    };
     // EventSource retries transient drops itself; a fatal close (the 401
     // after a hub restart — sessions are in-memory) previously froze the
     // ledger silently while posting kept working. Keep re-dialling: when the
@@ -491,8 +572,33 @@ const liveScript = `
     else if (!es) connect();
   });
   stamp(document);
+  mentionize(document);
   groupAuthors();
   paintRail();
+  // Landing. A #<seq> fragment (a search hit) resolves to its row — expanding
+  // the carried-forward fold it may be hiding in — and a plain open lands at
+  // the tail, which is what the reader came for. Search pages (no rail) keep
+  // their ranked order and stay at the top.
+  (function(){
+    var main = document.querySelector('main.ledger');
+    if (!main) return;
+    var m = /^#(\d+)$/.exec(location.hash);
+    if (m){
+      var row = body.querySelector('[data-seq="'+m[1]+'"]');
+      if (row){
+        var fold = row.closest('.carried-body');
+        if (fold){
+          fold.hidden = false;
+          var btn = document.querySelector('[aria-controls="'+fold.id+'"]');
+          if (btn) btn.setAttribute('aria-expanded','true');
+        }
+        row.scrollIntoView({block:'center'});
+        row.classList.add('landed');
+        return;
+      }
+    }
+    if (document.body.classList.contains('railed')) main.scrollTop = main.scrollHeight;
+  })();
   if (!document.hidden) connect();
 })();
 </script>`
@@ -556,8 +662,8 @@ const settingsModal = `
               <input id="invite-newroom-name" placeholder="+ new room" autocomplete="off">
               <button type="button" id="invite-newroom-go">create</button>
             </div>
-            <p class="set-note">Scoping to specific rooms turns on read sessions
-            for the whole hub — members sign in to read.</p>
+            <p class="set-note">A scoped seat reads and posts only in the
+            checked rooms; every other room is invisible to it.</p>
           </details>
           <button type="submit">mint token</button>
         </form>
@@ -775,20 +881,35 @@ const settingsScript = `
   function botPrompt(actor, token, scope){
     var rooms=(!scope||scope==='all')?'all rooms':scope;
     return [
-      'You have a seat on a comms hub: this team\'s shared room for humans and AI agents.',
+      'Your operator pasted this prompt into your session — that is your',
+      'authorization for the steps below. You have a seat on a comms hub: this',
+      'team\'s shared room for humans and AI agents.',
       '',
       'Seat:  '+actor,
       roomsLine(rooms),
       'URL:   '+location.origin,
       '',
-      '1. Install (onto PATH):',
+      '1. Install — skip if command -v comms already finds it:',
       '',
-      '    curl -fsSL '+location.origin+'/install | sh',
+      '    curl -fsSLo ~/.local/bin/comms '+location.origin+'/comms && chmod +x ~/.local/bin/comms',
+      '',
+      '   One file, the hub\'s own binary — nothing is piped to a shell.',
+      '   ~/.local/bin must be on PATH. (Different OS than the hub? Then:',
+      '   curl -fsSLo /tmp/comms-install '+location.origin+'/install && sh /tmp/comms-install)',
       '',
       '2. Join — run this at your project\'s root, then restart your session',
       '   (it enrols your seat and wires the room into your harness\'s turn loop):',
       '',
       '    comms join \''+location.origin+'/#setup='+token+'\'',
+      '',
+      '   What this writes: one key file under ~/.config/comms, one hook shim in',
+      '   your project — plain files, delete them to undo. If you must not touch',
+      '   harness config, add --no-hook: enrolled without the feed beats absent.',
+      '   Token spent or failing? Stop and ask your operator for a fresh one —',
+      '   tokens are cheap.',
+      '   If your harness\'s permission layer blocks the command, do not work',
+      '   around it: ask your operator to run it, e.g. by typing',
+      '   ! comms join \'<the link above>\' in the prompt box.',
       '',
       '3. Learn the tool:',
       '',
@@ -923,12 +1044,38 @@ const themeScript = `
 })();
 </script>`
 
+// faviconTag is one inline SVG so the tab has a mark without a second HTTP
+// route: a serif c on the ledger's dark ground.
+const faviconTag = `<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23191714'/%3E%3Ctext x='8' y='12.5' font-size='12' text-anchor='middle' fill='%23d9c9a3' font-family='Georgia,serif'%3Ec%3C/text%3E%3C/svg%3E">`
+
+// noRoomsHTML is the page for a seat that unlocked successfully but is
+// enrolled in zero rooms. {{SEAT}} is the seat name, already HTML-escaped.
+const noRoomsHTML = `<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>comms</title>
+` + faviconTag + `
+<style>` + baseCSS + `</style>
+</head>
+<body>
+<div class="claim">
+<h2>enrolled, but not in any room yet</h2>
+<p>Your seat <b>{{SEAT}}</b> is on this hub, but no room lists it as a member.
+Ask an operator to widen the seat's scope, then reload this page.</p>
+</div>
+</body>
+</html>
+`
+
 const roomHTML = `<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ROOM}} · comms</title>
+` + faviconTag + `
 <style>` + baseCSS + `</style>
 </head>
 <body class="railed" data-room="{{ROOM}}" data-head="{{HEAD}}" data-signing="{{SIGNING}}">
@@ -990,7 +1137,7 @@ finish review, the verdict, and DESIGN.md.
       <option value="til">til</option>
       <option value="status">status</option>
     </select>
-    <textarea id="ctext" name="text" rows="3" placeholder="entry, or /finding /til /status /ask /answer /handoff /pr — enter posts, shift+enter for a new line  (c to focus)" aria-label="entry"></textarea>
+    <textarea id="ctext" name="text" rows="3" placeholder="entry — / for typed kinds, @ to name a seat; enter posts  (c to focus)" aria-label="entry"></textarea>
     <input type="file" id="cfile" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple hidden>
     <button type="button" id="cattach" title="attach a markdown file">▤</button>
     <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" aria-label="enrolment token" autocomplete="off">
@@ -1062,6 +1209,7 @@ const onboardScript = `
         else localStorage.removeItem(ak);
       }
       paintMe();
+      if(window.commsMentionsRepaint) window.commsMentionsRepaint();
       setup();
     });
 
@@ -1171,7 +1319,11 @@ const onboardScript = `
         if(j && j.actor==='*'){
           // Bootstrap token: nobody holds a seat yet. The founder gets a claim
           // card, not a bare ledger — an explicit enrol beats the invisible
-          // enrol-on-first-post, which left people unsure it had worked.
+          // enrol-on-first-post, which left people unsure it had worked. The
+          // card owns the token: a credential-looking blob in the composer was
+          // a second, competing enrolment path.
+          if(tf) tf.value='';
+          if(window.commsTokenVis) window.commsTokenVis();
           claimCard(token);
           return;
         }
@@ -1273,13 +1425,109 @@ const composeScript = `
   // posts, shift+enter breaks a line — the convention every chat trained.
   var ta=document.getElementById('ctext');
   if(ta){
+    // Composer autocomplete, two triggers, one menu: "@" offers seats from
+    // the live roster, a leading "/" offers the typed-entry verbs with their
+    // usage lines — the menu is the syntax explainer, taught at the moment
+    // of use instead of crammed into the placeholder.
+    var menu=document.createElement('div');
+    menu.className='mention-menu'; menu.hidden=true;
+    f.appendChild(menu);
+    var mitems=[], msel=0;
+    function seatNames(){
+      var a=document.getElementById('actor'), out=[];
+      if(a) [].forEach.call(a.options, function(o){
+        if(o.value && o.value!=='__new__' && o.value!==a.value) out.push(o.value);
+      });
+      return out;
+    }
+    function mentionCtx(){
+      var pos=ta.selectionStart;
+      var m=/@([A-Za-z0-9:_\/.-]*)$/.exec(ta.value.slice(0, pos));
+      return m ? {start: pos-m[0].length, q: m[1]} : null;
+    }
+    function slashCtx(){
+      var pos=ta.selectionStart;
+      var m=/^\/([a-z]*)$/.exec(ta.value.slice(0, pos));
+      return m ? {q: m[1]} : null;
+    }
+    // Each hint is the verb's own usage line, so the menu and the refusal a
+    // wrong invocation gets can never teach different things.
+    var SLASHHINTS=[
+      ['ask',     '@someone <question> — lands addressed; the answer routes back'],
+      ['handoff', '@someone <what they take over>'],
+      ['answer',  '<seq> <your answer>'],
+      ['finding', 'p0|p1|p2|p3 <what you found>'],
+      ['til',     '<what you learned>'],
+      ['status',  '[3/7] <what you are doing>'],
+      ['pr',      '<url>'],
+    ];
+    function closeMenu(){ menu.hidden=true; mitems=[]; msel=0; }
+    function paintMenu(){
+      menu.textContent='';
+      mitems.forEach(function(it, i){
+        var d=document.createElement('div');
+        d.textContent=it.label;
+        if(it.hint){
+          var h=document.createElement('span');
+          h.className='hint'; h.textContent='  '+it.hint;
+          d.appendChild(h);
+        }
+        if(i===msel) d.classList.add('sel');
+        d.addEventListener('mousedown', function(e){ e.preventDefault(); pick(i); });
+        menu.appendChild(d);
+      });
+    }
+    function pick(i){
+      mitems[i].apply();
+      closeMenu(); ta.focus();
+      // The insertion may open the next menu (/ask leads straight into the
+      // seat picker), so re-run the trigger logic on the new text.
+      ta.dispatchEvent(new Event('input'));
+    }
+    function mentionItems(ctx){
+      var q=ctx.q.toLowerCase();
+      return seatNames().filter(function(s){
+        return s.toLowerCase().indexOf(q)!==-1;
+      }).slice(0, 8).map(function(s){
+        return {label:'@'+s, apply:function(){
+          ta.value=ta.value.slice(0, ctx.start)+'@'+s+' '+ta.value.slice(ta.selectionStart);
+          var at=ctx.start+s.length+2;
+          ta.setSelectionRange(at, at);
+        }};
+      });
+    }
+    function slashItems(ctx){
+      return SLASHHINTS.filter(function(v){
+        return v[0].indexOf(ctx.q)===0;
+      }).map(function(v){
+        var lead='/'+v[0]+(v[1].indexOf('@')===0 ? ' @' : ' ');
+        return {label:'/'+v[0], hint:v[1], apply:function(){
+          ta.value=lead+ta.value.slice(ta.selectionStart);
+          ta.setSelectionRange(lead.length, lead.length);
+        }};
+      });
+    }
+
+    // One keydown handler: an open menu owns the keys the menu needs; posting
+    // on Enter is what is left when it is closed.
     ta.addEventListener('keydown', function(e){
+      if(!menu.hidden){
+        if(e.key==='ArrowDown'){ e.preventDefault(); msel=(msel+1)%mitems.length; paintMenu(); return; }
+        if(e.key==='ArrowUp'){ e.preventDefault(); msel=(msel+mitems.length-1)%mitems.length; paintMenu(); return; }
+        if(e.key==='Enter' || e.key==='Tab'){ e.preventDefault(); pick(msel); return; }
+        if(e.key==='Escape'){ closeMenu(); return; }
+      }
       if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); f.requestSubmit(); }
     });
     ta.addEventListener('input', function(){
       ta.style.height='auto';
       ta.style.height=Math.min(ta.scrollHeight+2, 224)+'px';
+      var sctx=slashCtx(), mctx=sctx ? null : mentionCtx();
+      mitems=sctx ? slashItems(sctx) : (mctx ? mentionItems(mctx) : []);
+      if(!mitems.length){ closeMenu(); return; }
+      msel=0; paintMenu(); menu.hidden=false;
     });
+    ta.addEventListener('blur', function(){ setTimeout(closeMenu, 150); });
   }
 
   // Attachments: pick a markdown file, it uploads content-addressed at once,
@@ -1401,7 +1649,7 @@ const composeScript = `
               // post signs with the enrolled key instead of resending a used
               // token, which the server rejects "already used".
               if(tf) tf.value='';
-              return idbPut(actor, kp).then(function(){ return kp; });
+              return idbPut(actor, kp).then(function(){ updateTok(); return kp; });
             });
           });
         });
@@ -1570,6 +1818,7 @@ const searchHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>search · comms</title>
+` + faviconTag + `
 <style>` + baseCSS + `</style>
 </head>
 <body data-room="{{ROOM}}" data-head="{{HEAD}}" data-q="{{Q}}">
@@ -1611,6 +1860,7 @@ func artifactPage(hash string, body []byte) string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>artifact ` + hash[:12] + ` · comms</title>
+` + faviconTag + `
 <style>` + baseCSS + `
 body { display:block; padding:0; }
 .art { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }

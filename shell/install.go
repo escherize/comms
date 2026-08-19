@@ -1,8 +1,14 @@
 package shell
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"runtime"
+	"sync"
 )
 
 // InstallVersion is the client version this hub matches — main copies the
@@ -20,6 +26,52 @@ func (s *Server) getInstall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	fmt.Fprintf(w, installScript, InstallVersion)
+}
+
+// getBinary serves the hub's own executable. This exists because agents
+// (correctly) refuse to pipe a remote script into a shell: downloading one
+// file to a user directory is an act their safety rules allow, and the bytes
+// are the exact build the hub runs, so version skew cannot happen through
+// this door. Public for the same reason /install is. A client on a different
+// OS/arch gets a binary that fails loudly at exec; the header names the
+// platform so a careful caller can check first.
+func (s *Server) getBinary(w http.ResponseWriter, r *http.Request) {
+	exe, err := os.Executable()
+	if err != nil {
+		http.Error(w, "the hub cannot find its own binary", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("X-Comms-Platform", runtime.GOOS+"/"+runtime.GOARCH)
+	// The build hash is what lets a client answer "am I this hub's build?"
+	// with one HEAD — the self-update check rides on it.
+	if h := binarySHA(exe); h != "" {
+		w.Header().Set("X-Comms-Build", h)
+	}
+	http.ServeFile(w, r, exe)
+}
+
+// binarySHA hashes the served executable once per process. The binary cannot
+// change under a running hub (an upgrade is a new process), so once is right.
+var (
+	binaryHashOnce sync.Once
+	binaryHash     string
+)
+
+func binarySHA(exe string) string {
+	binaryHashOnce.Do(func() {
+		f, err := os.Open(exe)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			return
+		}
+		binaryHash = hex.EncodeToString(h.Sum(nil))
+	})
+	return binaryHash
 }
 
 // No %% anywhere below except the one %s: the script goes through Sprintf.
@@ -61,6 +113,8 @@ install -m 0755 "$TMP/comms" "$DEST/comms"
 "$DEST/comms" --version
 case ":$PATH:" in
   *":$DEST:"*) ;;
-  *) echo "note: $DEST is not on your PATH — add it, or move the binary" >&2 ;;
+  *) echo "note: $DEST is not on your PATH. For this session:" >&2
+     echo "  export PATH=\"$DEST:\$PATH\"" >&2
+     echo "add that line to your shell rc to make it stick" >&2 ;;
 esac
 `

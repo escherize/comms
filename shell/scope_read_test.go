@@ -231,7 +231,7 @@ func TestInvitePanelHasScopePicker(t *testing.T) {
 		`id="invite-super"`,       // the superuser toggle
 		"scope to specific rooms", // the summary label, all-rooms default
 		"can invite others",       // the superuser label
-		"turns on read sessions",  // the read-auth note
+		"checked rooms",           // the scoping note
 	} {
 		if !strings.Contains(settingsModal, want) {
 			t.Errorf("the invite panel markup must contain %q", want)

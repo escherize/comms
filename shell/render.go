@@ -186,6 +186,12 @@ func shortActor(a core.Actor) string {
 }
 
 func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
+	// Go 1.22's "GET /" is a catch-all: without this guard, /favicon.ico and
+	// every other stray path got the full room page instead of a 404.
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
 	room := r.URL.Query().Get("room")
 	if room == "" {
 		room = "core"
@@ -205,6 +211,16 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 	// A non-member and a nonexistent room both 404: content and existence hidden
 	// alike, so a seat cannot probe for a room it was scoped away from.
 	if !s.canRead(reader(r), room) || !s.st.RoomExists(room) {
+		// One exception: a seat that unlocked successfully but is enrolled in
+		// zero rooms. A bare 404 as its first session read as a broken hub;
+		// say what happened and who can fix it.
+		if who := reader(r); who != "" && r.URL.Query().Get("room") == "" {
+			if all, err := s.st.Rooms(); err == nil && len(s.visibleRooms(who, all)) == 0 {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				fmt.Fprint(w, strings.ReplaceAll(noRoomsHTML, "{{SEAT}}", html.EscapeString(who)))
+				return
+			}
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -262,12 +278,20 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		}
 		rows.WriteString(renderRow(rec))
 	}
-	if run >= carryThreshold {
-		flush(pending)
-	} else {
-		for _, p := range pending {
-			rows.WriteString(renderRow(p))
-		}
+	// The trailing run half-collapses: the newest rows stay visible — they are
+	// what the reader opened the room for, and folding all of them left the
+	// page looking dead under one carried-forward line — while the older
+	// remainder folds as usual.
+	if cut := len(pending) - (carryThreshold - 1); cut >= carryThreshold {
+		run = cut
+		flush(pending[:cut])
+		pending = pending[cut:]
+	}
+	for _, p := range pending {
+		rows.WriteString(renderRow(p))
+	}
+	if len(recs) == 0 {
+		rows.WriteString(`<div class="empty">no entries yet — the first post starts the record</div>`)
 	}
 
 	ambient, addressed, head := tally(recs)
@@ -438,6 +462,12 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		n = len(fused)
+		if n == 0 && err == nil {
+			rows.WriteString(`<div class="empty">no matches for &ldquo;` +
+				html.EscapeString(q) + `&rdquo; — try fewer words, or filter with the kind/author boxes</div>`)
+		}
+	} else {
+		rows.WriteString(`<div class="empty">type a query above — every room this seat can read is searchable</div>`)
 	}
 
 	// The live stream resumes after the highest hit already rendered, so nothing

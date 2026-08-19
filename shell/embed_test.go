@@ -414,3 +414,43 @@ func TestAPurgedBodyIsNotAPendingEmbed(t *testing.T) {
 		t.Error("the rebuild skipped events it should have embedded")
 	}
 }
+
+// The lexical lane filters in SQL; the vector lane must apply the same
+// predicates, or --kind/--author/--since silently leak excluded events back in
+// through fusion.
+func TestVectorLaneHonoursTheSearchFilters(t *testing.T) {
+	_, st, sv := newServerFull(t, time.Millisecond)
+	seedCounter++
+	finding, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
+		Kind: core.KindFinding, Body: map[string]any{"text": "the auth suite flakes on a cold cache", "severity": "p2"},
+		Lane: core.LaneOf(core.KindFinding)}, "vf-"+itoa(seedCounter), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedCounter++
+	til, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
+		Kind: core.KindTIL, Body: map[string]any{"text": "the auth suite flakes on a cold cache runner"},
+		Lane: core.LaneOf(core.KindTIL)}, "vt-"+itoa(seedCounter), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for sv.embed.step(context.Background(), 32) > 0 {
+	}
+
+	fused, _, err := sv.searchBoth(context.Background(), "cold cache", "core", "finding", "", "", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawFinding bool
+	for _, f := range fused {
+		if f.Rec.Seq == til {
+			t.Errorf("a til leaked through --kind finding via the vector lane (seq %d)", til)
+		}
+		if f.Rec.Seq == finding {
+			sawFinding = true
+		}
+	}
+	if !sawFinding {
+		t.Error("the filter must not drop the event it selects for")
+	}
+}

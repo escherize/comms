@@ -303,6 +303,31 @@ func (s *Server) searchBoth(ctx context.Context, q, room, kind, author, since st
 		}
 	}
 
+	// The lexical lane honoured kind/author/since in SQL; the vector lane got
+	// only (room, allow, limit). Its hits must pass the same predicates, or
+	// every documented filter silently leaks excluded events back in.
+	if kind != "" || author != "" || since != "" {
+		kept := hits[:0]
+		for _, h := range hits {
+			rec, ok := byseq[h.Seq]
+			if !ok {
+				continue
+			}
+			if kind != "" && string(rec.Kind) != kind {
+				continue
+			}
+			if author != "" && string(rec.Author) != author {
+				continue
+			}
+			// Same lexical RFC3339 comparison Search uses in SQL.
+			if since != "" && rec.ServerTS.UTC().Format(time.RFC3339) < since {
+				continue
+			}
+			kept = append(kept, h)
+		}
+		hits = kept
+	}
+
 	watermark, at, stale := s.lagFor()
 	vec := store.LaneStatus{Name: "vector", State: "searched",
 		Detail: "index current to " + at.UTC().Format("15:04:05")}

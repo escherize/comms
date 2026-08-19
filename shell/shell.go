@@ -100,6 +100,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /escalate", s.postEscalation)
 	mux.HandleFunc("GET /index", s.indexStatus)
 	mux.HandleFunc("GET /install", s.getInstall)
+	mux.HandleFunc("GET /comms", s.getBinary)
 	mux.HandleFunc("POST /delivered", s.postDelivered)
 	mux.HandleFunc("POST /invite", s.postInvite)
 	mux.HandleFunc("POST /invites/whose", s.whoseInvite)
@@ -748,7 +749,9 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	// equivalent of the room page 404, and existence-hiding for the same reason:
 	// a 403 would confirm the room. This covers both the SSE and JSON lanes,
 	// since both flow through here.
-	if !s.canRead(reader(r), room) {
+	if !s.canRead(reader(r), room) || !s.st.RoomExists(room) {
+		// The exists check matters as much as the membership one: without it a
+		// misspelled --room was a healthy, eternally empty stream.
 		http.NotFound(w, r)
 		return
 	}
@@ -987,7 +990,13 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 }
 
 func (s *Server) matchesFilter(rec store.Record, recipient, kind, query string) bool {
-	if recipient != "" && string(rec.Recipient) != recipient {
+	// The recipient filter also passes @mentions of that seat. A mention is
+	// text anyone can type — weaker than the signed recipient — but a human
+	// who @names a seat in ambient chat expects that seat's watch to ring,
+	// and 30012 is what it looks like when it does not. The event still says
+	// which it was: its recipient field stays empty, so a consumer can rank
+	// the two.
+	if recipient != "" && string(rec.Recipient) != recipient && !mentions(rec, recipient) {
 		return false
 	}
 	if kind != "" && string(rec.Kind) != kind {
@@ -1001,6 +1010,39 @@ func (s *Server) matchesFilter(rec store.Record, recipient, kind, query string) 
 		return false
 	}
 	return true
+}
+
+// mentions reports whether an event's text @names the seat — by full name,
+// bare name, or last path segment, bounded so @claude-10 does not ring
+// @claude-1.
+func mentions(rec store.Record, seat string) bool {
+	txt, _ := rec.Body["text"].(string)
+	if txt == "" || !strings.Contains(txt, "@") {
+		return false
+	}
+	bare := strings.TrimPrefix(strings.TrimPrefix(seat, "agent:"), "human:")
+	names := []string{seat, bare}
+	if i := strings.LastIndex(bare, "/"); i != -1 {
+		names = append(names, bare[i+1:])
+	}
+	isSeatChar := func(c byte) bool {
+		return c == ':' || c == '_' || c == '/' || c == '.' || c == '-' ||
+			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+	}
+	for _, n := range names {
+		for from := 0; ; {
+			i := strings.Index(txt[from:], "@"+n)
+			if i == -1 {
+				break
+			}
+			end := from + i + 1 + len(n)
+			if end == len(txt) || !isSeatChar(txt[end]) {
+				return true
+			}
+			from = end
+		}
+	}
+	return false
 }
 
 // eventFrame adds the key status the read lane owes its reader.
