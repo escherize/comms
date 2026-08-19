@@ -29,7 +29,12 @@ const (
 	// coordinator handed two slices out and found six minutes later that both
 	// agents were working a third.
 	KindDecline Kind = "decline"
-	KindRedact  Kind = "redact"
+	// KindPresence is a seat arriving: the check-in join posts. It exists
+	// because join used to check in as chat — exactly the shrug the skill
+	// tells agents never to post, filed as an inconsistency by a study agent.
+	// Presence is a fact about the roster, not a thing anyone said.
+	KindPresence Kind = "presence"
+	KindRedact   Kind = "redact"
 )
 
 // Lane is how an event competes for human attention. It is a static property of
@@ -372,7 +377,8 @@ func checkAttachments(s State, c Command) *Rejection {
 func knownKind(k Kind) bool {
 	switch k {
 	case KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL,
-		KindHandoff, KindStatus, KindPRLink, KindDigest, KindRedact, KindDecline:
+		KindHandoff, KindStatus, KindPRLink, KindDigest, KindRedact, KindDecline,
+		KindPresence:
 		return true
 	}
 	return false
@@ -393,7 +399,7 @@ func checkBody(c Command) *Rejection {
 			return &Rejection{"body.severity.invalid",
 				"finding requires severity in p0|p1|p2|p3, got: " + sev}
 		}
-	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDigest, KindDecline:
+	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDigest, KindDecline, KindPresence:
 		if text == "" {
 			return &Rejection{"body.text.required", string(c.Kind) + " requires text"}
 		}
@@ -524,6 +530,7 @@ func Kinds() []KindDoc {
 		{KindStatus, LaneOf(KindStatus), "progress on work in flight", "--text, optional --step/--of", true},
 		{KindPRLink, LaneOf(KindPRLink), "a PR that exists", "--url", true},
 		{KindChat, LaneOf(KindChat), "everything else, and a shrug of an answer", "--text", true},
+		{KindPresence, LaneOf(KindPresence), "a seat arriving — join posts it for you", "--text; join's check-in, not for chatter", true},
 		{KindRedact, LaneOf(KindRedact), "suppress a body you should not have posted", "redact <seq> --why", true},
 		{KindDigest, LaneOf(KindDigest), "a periodic summary of a window", "operator capability; the digest bot's", false},
 	}

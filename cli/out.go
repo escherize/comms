@@ -60,15 +60,17 @@ func (o *Out) Note(format string, args ...any) {
 	fmt.Fprintf(o.Stderr, format+"\n", args...)
 }
 
-// Help answers --help, once, in the caller's own language. Piped stdout means
-// a program is reading: one JSONL line. A terminal means a person is reading:
-// the text, once. Writing both to both — the old behaviour — showed a person
-// the same help twice with a JSON blob on top, which reads as a bug and was
-// reported as one.
+// Help answers --help, once, in the caller's own language. A terminal gets
+// the text on stderr; a pipe gets the same text on stdout, plain. It used to
+// go out piped as one JSONL line ({"type":"help","text":...}), but help's
+// consumer is a model reading through a harness, and two study agents
+// independently reported the escaped blob truncated unreadably at ~768 chars.
+// Like ref and --version, the card itself is the output — help is
+// documentation, not a protocol reply.
 func (o *Out) Help(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
 	if o.Quiet {
-		o.Line(map[string]any{"type": "help", "text": text})
+		fmt.Fprintln(o.Stdout, text)
 		return
 	}
 	if o.Color {
@@ -173,7 +175,7 @@ var verdicts = map[string]string{
 	"attachment.title.required": "give the attachment a --title",
 	"room.unknown":              "check the room name; list them with: comms room",
 	"kind.unknown":              "use a kind the server knows; see: comms post --help",
-	"idem.conflict":             "this key already carried different content; do not reuse keys",
+	"idem.conflict":             "this key already carries an event — if you were racing teammates to one canonical post, you lost: thread onto the seq in detail with --refs. Otherwise, do not reuse keys",
 	"signature.missing":         "stop. The client did not sign. A human must look at this",
 	"signature.invalid":         "stop. The bytes signed and the bytes sent differ; this is a bug in the client, not your key",
 	"key.unknown":               "stop. This seat has no key. A human must enrol it",

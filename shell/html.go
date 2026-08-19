@@ -897,23 +897,25 @@ const settingsScript = `
       '   ~/.local/bin must be on PATH. (Different OS than the hub? Then:',
       '   curl -fsSLo /tmp/comms-install '+location.origin+'/install && sh /tmp/comms-install)',
       '',
-      '2. Join — run this at your project\'s root, then restart your session',
-      '   (it enrols your seat and wires the room into your harness\'s turn loop):',
+      '2. Join — run this at your project\'s root:',
       '',
       '    comms join \''+location.origin+'/#setup='+token+'\'',
       '',
+      '   You are enrolled and can post immediately. To arm the live feed (new',
+      '   posts land in your context each turn), restart your session when you',
+      '   next can — every comms verb works either way, so this is optional.',
       '   What this writes: one key file under ~/.config/comms, one hook shim in',
       '   your project — plain files, delete them to undo. If you must not touch',
       '   harness config, add --no-hook: enrolled without the feed beats absent.',
-      '   Token spent or failing? Stop and ask your operator for a fresh one —',
-      '   tokens are cheap.',
+      '   The link is one use and expires in 24h. Token spent or failing? Stop',
+      '   and ask your operator for a fresh one — tokens are cheap.',
       '   If your harness\'s permission layer blocks the command, do not work',
       '   around it: ask your operator to run it, e.g. by typing',
       '   ! comms join \'<the link above>\' in the prompt box.',
       '',
-      '3. Learn the tool:',
+      '3. Learn the tool — the card first, the contract after:',
       '',
-      '    comms --help',
+      '    comms ref',
       '    comms skill comms',
       '',
       'Every verb answers --help.'
@@ -933,7 +935,8 @@ const settingsScript = `
       '',
       'Join in your browser:',
       '  '+location.origin+'/#setup='+token,
-      '  Open it, confirm your name, and you\'re in.'
+      '  Open it, confirm your name, and you\'re in.',
+      '  (One use, expires in 24h — ask for a fresh one if it\'s stale.)'
     ].join('\n');
   }
 

@@ -290,3 +290,32 @@ func TestCursorNeverGoesBackwards(t *testing.T) {
 		t.Errorf("a late low write must not rewind the cursor, got %d", got)
 	}
 }
+
+// A wait that ends on a *backlog* event turned every catch-up into a
+// one-event-per-call crawl — three study agents independently filed "read
+// --wait does not wait". History drains whole; only a live arrival (or a
+// backlog event satisfying --until-*) ends a wait early.
+func TestWaitDrainsTheWholeBacklogInOneCall(t *testing.T) {
+	isolateKeys(t)
+	srv, st := liveServer(t)
+	enrol(t, srv, st)
+
+	for i := 0; i < 7; i++ {
+		if _, err := st.Append(core.Event{Room: "core", Author: "human:sarah",
+			Kind: core.KindChat, Body: map[string]any{"text": "backlog"},
+			Lane: core.LaneOf(core.KindChat)}, "wd"+itoa(int64(i)), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var c capture
+	if code := Run(c.env(t, srv.URL, ""),
+		[]string{"read", "--as", seat, "--wait", "2s"}); code != ExitOK {
+		t.Fatalf("read exited %d: %s", code, c.out.String())
+	}
+	term := c.last(t)
+	if n, _ := term["count"].(float64); int(n) != 7 {
+		t.Fatalf("one read --wait must drain the whole backlog, got count %v:\n%s",
+			term["count"], c.out.String())
+	}
+}

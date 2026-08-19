@@ -377,6 +377,9 @@ func TestTheTwoOnboardingPromptsAgreeOnTheSteps(t *testing.T) {
 		"comms join",                  // one act: enrol, check in, wire the hook
 		"--no-hook",                   // the sanctioned fallback for a harness-shy agent
 		"tokens are cheap",            // a burnt token must not paralyze
+		"expires in 24h",              // an unstated lifespan was four seats' hesitation
+		"comms ref",                   // the card is the entry point, the skill the contract
+		"this is optional",            // restart must not read as a required step
 		"permission layer",            // a classifier block ends in a handoff, not a dead end
 		"comms skill comms",
 	} {
@@ -537,5 +540,44 @@ func TestHookFeedMarksMentionsOfTheSeat(t *testing.T) {
 	out := c.out.String()
 	if n := strings.Count(out, "→ you (mentioned):"); n != 1 {
 		t.Errorf("want exactly the one real mention marked, got %d:\n%s", n, out)
+	}
+}
+
+// When the running harness announces itself (CLAUDECODE, OMPCODE, OPENCODE),
+// install wires only that harness — five study seats called three shims for
+// one session noise. No marker keeps the old wire-everything behavior.
+func TestHookInstallScopesToTheRunningHarness(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, d := range []string{".claude", filepath.Join(".config", "opencode"), ".pi"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := t.TempDir()
+	prev, _ := os.Getwd()
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(prev)
+
+	var c capture
+	env := c.env(t, "http://127.0.0.1:1", "")
+	env.LookupEnv = func(k string) (string, bool) {
+		if k == "CLAUDECODE" {
+			return "1", true
+		}
+		return "", false
+	}
+	if code := Run(env, []string{"hook", "--install", "--seat", "agent:bcm/claude-1"}); code != ExitOK {
+		t.Fatalf("install exited %d: %s", code, c.out.String())
+	}
+	if _, err := os.Stat(filepath.Join(project, ".claude", "settings.local.json")); err != nil {
+		t.Error("the running harness's shim must be written")
+	}
+	for _, absent := range []string{".opencode", ".pi"} {
+		if _, err := os.Stat(filepath.Join(project, absent)); err == nil {
+			t.Errorf("%s shim written despite CLAUDECODE naming the running harness", absent)
+		}
 	}
 }

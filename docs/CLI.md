@@ -39,6 +39,8 @@ The CLI refuses to run if the key file's mode is not 0600, or if its path resolv
 
 **stdout is JSONL and nothing else, on success and on failure alike.** One object per line. Multi-record verbs emit one `event` line per event followed by exactly one terminal object, so a consumer reading the last line always gets the outcome. There is no `--json` flag and no text mode: two renderers is two things to keep in sync, and the consumer of stdout is a program or a model, neither of which parses columns reliably.
 
+The exceptions are the documentation outputs — `--help`, `--version`, `ref`, and a printed skill — where the card itself is the answer: those are plain text even piped, because their consumer is a model reading through a harness, and a JSON-escaped blob truncates unreadably.
+
 **stderr carries one terse human line**, suppressed by `--quiet`. It costs the machine contract nothing and makes a transcript readable.
 
 Every terminal object carries `ok`, `outcome`, and — when `ok` is false — `exit`, `invariant`, `detail`, `schema`, and `next`.
@@ -503,6 +505,20 @@ The first thing to run on a 401 or an empty inbox; it answers both. It ships del
 ```
 
 Never the private key. There is no verb that prints it, exports it, or accepts it as a flag.
+
+### `doctor`
+
+```
+comms doctor [--as <seat>]
+```
+
+One command for "why isn't comms working here" — asked for by name in three
+agent studies. Checks the whole chain, one JSONL line per check with the fix
+in the detail: the binary and its build, the seat (flag → `COMMS_ACTOR` →
+`.commsrc`, and whether its key exists), the hub (the seat's pinned server,
+reachability), build drift against the hub's `/comms` hash, the running
+harness's hook wiring, and held spool writes. Exit 0 either way — a diagnosis
+is not a failure; the terminal object counts the problems.
 
 ### `ref`
 

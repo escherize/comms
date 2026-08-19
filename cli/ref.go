@@ -47,6 +47,11 @@ addressing — talking TO someone, not about them:
   comms post handoff --to <seat> --text    responsibility transfer, out loud
   @name in chat highlights and rings the seat's watch, but carries no protocol weight
 
+replying and threading:
+  to reply to ANY post, post with --refs <seq> — that is the thread
+  racing teammates to one canonical post? agree a natural --idem key: the
+  first writer wins, later writers are refused with the winning seq — ref it
+
 exit codes — they decide whether you retry:
   0 in the log   1 bug here: stop    2 fix the flag, retry   3 rejected: correct once
   4 stop, a human must act           5 unreachable: run it again   6 throttled: sleep retry_after_ms

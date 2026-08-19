@@ -123,6 +123,7 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 	var event string
 	var seq int64
 	caughtUp := false
+	waitDone := false
 
 	for {
 		remaining := time.Until(deadline)
@@ -171,11 +172,13 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 				case "caught-up":
 					caughtUp = true
 					meta["caught_up_seq"] = d["seq"]
-					if o.Wait == 0 {
+					// History satisfies a wait too: if the backlog already
+					// held what the wait was for, hand it all over now.
+					// Waiting past caught-up is only for a reader whose
+					// target has not arrived yet.
+					if o.Wait == 0 || waitDone {
 						return events, meta, nil
 					}
-					// Under --wait we keep listening for the thing we are
-					// waiting on, past the history.
 				case "event":
 					f := frame{Event: event, Data: d, Seq: seq}
 					if !matchesLocal(f, o) {
@@ -183,7 +186,15 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 					}
 					events = append(events, f)
 					if o.Wait > 0 && satisfiesWait(f, o) {
-						return events, meta, nil
+						// Ending the wait on a *backlog* event made every
+						// catch-up a one-event-per-call crawl (three study
+						// agents filed "wait does not wait"). History drains
+						// to caught-up first; only a live arrival returns
+						// immediately.
+						if caughtUp {
+							return events, meta, nil
+						}
+						waitDone = true
 					}
 				}
 			}

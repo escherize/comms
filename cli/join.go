@@ -94,14 +94,14 @@ every later command needs only --as.
 	priv, err := LoadSeat(actor)
 	if err == nil {
 		cmd := map[string]any{
-			"room": resolveRoom(actor, ""), "author": actor, "kind": "chat",
+			"room": resolveRoom(actor, ""), "author": actor, "kind": "presence",
 			"body": map[string]any{"text": actor + " online"},
 		}
 		applyIdem(e, cmd, "")
 		if posted, perr := NewClient(e.Server, actor, priv).Post(cmd); perr == nil && posted.Status == 200 {
 			e.Out.Line(map[string]any{"type": "join", "step": "check-in", "seq": posted.Body.Seq})
 		} else {
-			e.Out.Note("check-in did not land; post one yourself: comms chat --as %s \"%s online\"", actor, actor)
+			e.Out.Note("check-in did not land; post one yourself: comms post presence --as %s --text \"%s online\"", actor, actor)
 		}
 	}
 
@@ -117,8 +117,9 @@ every later command needs only --as.
 	// harness detected) is reported as the remaining step, not as failure.
 	// Restart comes first in the copy — a study participant flagged that it
 	// was buried.
-	next := "restart your session (that arms the hook feed), then read the room's rules: " +
-		"comms skill comms. Your seat is pinned here in .commsrc — verbs in this project need no --as"
+	next := "you are enrolled and can post now; your seat is pinned here in .commsrc, so verbs " +
+		"in this project need no --as. Restart your session when you next can — that arms the " +
+		"live feed; every verb works either way. Learn the room: comms ref, then comms skill comms"
 	if !*noHook {
 		if code := runHookInstall(e, actor, false, false); code != ExitOK {
 			next = "you are enrolled, but the harness hook is not wired — run at your project root: " +

@@ -254,6 +254,27 @@ func hookRender(seat, room string, events, shown []frame) string {
 	return b.String()
 }
 
+// activeHarness names the harness this process is running under, from the
+// marker each exports into its shells: CLAUDECODE (Claude Code), OMPCODE
+// (omp, which loads the pi extension dir), OPENCODE. Empty means unknown —
+// the caller falls back to wiring every harness present. COMMS_HARNESS
+// overrides for a harness whose marker we do not know.
+func activeHarness(e *Env) string {
+	if v, _ := e.getenv("COMMS_HARNESS"); v != "" {
+		return v
+	}
+	if v, _ := e.getenv("CLAUDECODE"); v != "" {
+		return "claude-code"
+	}
+	if v, _ := e.getenv("OPENCODE"); v != "" {
+		return "opencode"
+	}
+	if v, _ := e.getenv("OMPCODE"); v != "" {
+		return "pi"
+	}
+	return ""
+}
+
 // seatMentionRe matches @mentions of a seat by any of its names — full
 // (@agent:bcm/claude-1), bare (@bcm/claude-1), or last segment (@claude-1) —
 // bounded so @claude-10 does not ring @claude-1.
@@ -362,8 +383,19 @@ func runHookInstall(e *Env, seatFlag string, global, dry bool) int {
 		}
 	}
 
+	// Study finding, five seats: three harnesses' worth of shims for one
+	// active session reads as noise and "a mild security-surface smell". When
+	// the running harness announces itself in the environment, wire only it;
+	// with no marker (a bare terminal, an unknown harness) keep the old
+	// behavior — every harness whose config dir exists.
+	only := activeHarness(e)
 	installed := 0
 	for _, s := range hookShims() {
+		if only != "" && s.Name != only {
+			e.Out.Line(map[string]any{"type": "shim", "harness": s.Name,
+				"outcome": "skipped", "detail": "not the running harness (" + only + ")"})
+			continue
+		}
 		rel := s.Project
 		if global {
 			rel = s.Global

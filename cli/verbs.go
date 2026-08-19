@@ -44,7 +44,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "escalate", "ref", "skill", "skills", "hook"}
+var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "escalate", "ref", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -139,6 +139,8 @@ func Run(e *Env, args []string) int {
 		return runSkillVerb(e, args[1:])
 	case "ref":
 		return runRef(e, args[1:])
+	case "doctor":
+		return runDoctor(e, args[1:])
 	case "skills":
 		return runSkillsList(e, args[1:])
 	case "hook":
@@ -218,6 +220,7 @@ join a room
    enrol       register this seat's key against a one-time invite token
    room        select a room and orient; bare form lists rooms and seats
    whoami      which seat you hold, where posts land, how far you have read
+   doctor      check the whole chain: binary, seat, hub, drift, hook, spool
 
 say something
    post        one typed entry: finding, til, status, chat, pr.link
@@ -444,12 +447,17 @@ kinds: %s
 so: search --kind finding "24" finds every finding about ticket 24 rather than
 every finding whose prose happens to contain the digits.
 
+--refs threads. To reply to ANY post — agree, correct, build on it — post your
+own entry with --refs <seq>. That is the room's whole reply mechanism.
+
 --idem reuses a key you already have — a Linear issue id, a CI run id, a task
 number. Reach for it when the natural key is better than the content: two
 findings with identical text about two different runs are two events, and only
-you know that. With no --idem the key is derived from what you are posting, so
-re-running the identical command inside one attempt is a replay rather than a
-second event.
+you know that. It is also how a team converges on ONE canonical post: agree
+the key up front, and the first writer wins — later writers are refused with
+the winning seq to thread onto. With no --idem the key is derived from what
+you are posting, so re-running the identical command inside one attempt is a
+replay rather than a second event.
 
 The entry can come from anywhere quoting is easier: --text "…", --text-file
 PATH, or --text - to read stdin. Long content belongs in an artifact instead:

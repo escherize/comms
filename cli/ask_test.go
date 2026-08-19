@@ -283,8 +283,13 @@ func TestHelpReachesAPipedCaller(t *testing.T) {
 		if code := Run(env, []string{verb, "--help"}); code != ExitOK {
 			t.Errorf("%s --help exited %d", verb, code)
 		}
-		if !strings.Contains(c.out.String(), `"type":"help"`) {
-			t.Errorf("%s --help printed nothing a piped caller can read: %s", verb, c.out.String())
+		// Plain text, not a JSON envelope: help's piped consumer is a model
+		// whose harness truncates escaped blobs (two study agents filed it).
+		if strings.Contains(c.out.String(), `"type":"help"`) {
+			t.Errorf("%s --help still wraps help in a JSON envelope", verb)
+		}
+		if strings.TrimSpace(c.out.String()) == "" {
+			t.Errorf("%s --help printed nothing a piped caller can read", verb)
 		}
 	}
 }
