@@ -370,7 +370,7 @@ func TestActorIsAgent(t *testing.T) {
 }
 
 func TestLaneOf(t *testing.T) {
-	addressed := []Kind{KindQuestion, KindAnswer, KindHandoff, KindDigest}
+	addressed := []Kind{KindQuestion, KindAnswer, KindHandoff}
 	ambient := []Kind{KindChat, KindFinding, KindTIL, KindStatus, KindPRLink, KindRedact}
 
 	for _, k := range addressed {
@@ -473,40 +473,6 @@ func TestRecipientCheckIsSkippedOnlyWhenNoRosterIsWired(t *testing.T) {
 		Recipient: "human:anyone", Body: map[string]any{"text": "?"}, Idem: "i3",
 	}); rej != nil {
 		t.Errorf("with no roster wired the check cannot run; got %v", rej)
-	}
-}
-
-// A digest is addressed by definition, so an agent that could post one could
-// interrupt everyone for free, on a loop. The capability is checked inside the
-// decider — the same shape as redact's author check, not a privileged write
-// path around the command bus.
-func TestDigestIsOperatorOnly(t *testing.T) {
-	granted := map[Actor]bool{"agent:digest-bot": true}
-	s := State{RoomExists: okRoom, ActorEnrolled: func(Actor) bool { return true },
-		HasCapability: func(a Actor, c string) bool { return c == CapDigest && granted[a] }}
-
-	_, rej := Decide(s, Command{Room: "core", Author: "agent:c1", Kind: KindDigest,
-		Recipient: "human:bcm", Body: map[string]any{"text": "your morning summary"}, Idem: "d1"})
-	if rej == nil {
-		t.Fatal("any agent could post a digest, which is an unpriced interrupt on a loop")
-	}
-	if rej.Invariant != "digest.not_authorized" {
-		t.Errorf("want digest.not_authorized, got %s", rej.Invariant)
-	}
-
-	if _, rej := Decide(s, Command{Room: "core", Author: "agent:digest-bot", Kind: KindDigest,
-		Recipient: "human:bcm", Body: map[string]any{"text": "your morning summary"}, Idem: "d2"}); rej != nil {
-		t.Errorf("the bot holding the capability must be able to post: %v", rej)
-	}
-}
-
-// A decider with no capability lookup wired up must refuse rather than allow:
-// an unwired check that fails open is worse than no check at all.
-func TestDigestFailsClosedWithNoCapabilityLookup(t *testing.T) {
-	s := State{RoomExists: okRoom, ActorEnrolled: func(Actor) bool { return true }}
-	if _, rej := Decide(s, Command{Room: "core", Author: "agent:c1", Kind: KindDigest,
-		Recipient: "human:bcm", Body: map[string]any{"text": "x"}, Idem: "d3"}); rej == nil {
-		t.Error("an unwired capability check must fail closed")
 	}
 }
 

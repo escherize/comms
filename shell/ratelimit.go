@@ -126,87 +126,6 @@ func (c *corrections) accepted(actor core.Actor) {
 // is not what the agent thinks it is, and no further attempt will discover that.
 const maxSelfCorrections = 2
 
-// EscalationBudget is how many ambient entries one seat may pull into a human's
-// attention per window. Small and fixed: ADR-0008 prices interruption because
-// fifteen agents share a room with five people, and a budget nobody can exhaust
-// is not a price.
-const (
-	EscalationBudget = 3
-	EscalationWindow = time.Hour
-)
-
-// escalations is the spend ledger, per seat. It is in the shell, not the core:
-// a budget is a fact about a window of wall-clock time, and the decider has no
-// clock (ADR-0006).
-type escalations struct {
-	mu    sync.Mutex
-	spent map[core.Actor][]time.Time
-	now   func() time.Time
-}
-
-func newEscalations(now func() time.Time) *escalations {
-	return &escalations{spent: map[core.Actor][]time.Time{}, now: now}
-}
-
-// canSpend reports whether there is budget without taking it. The check and the
-// take are separate because a replay must not be charged: escalating the same
-// entry with the same words twice is one act, and the second one interrupts
-// nobody.
-// reserve charges one slot up-front, atomically. The old check-then-act pair
-// (canSpend, then an append, then spend under a fresh lock) let two
-// concurrent escalations from one seat both pass the check and spend N+1
-// against a budget of N. A path that ends up interrupting nobody — replay,
-// rejection, failed append — hands the slot back with release.
-func (e *escalations) reserve(actor core.Actor) (retryAfter time.Duration, ok bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	now := e.now()
-	cutoff := now.Add(-EscalationWindow)
-	var live []time.Time
-	for _, at := range e.spent[actor] {
-		if at.After(cutoff) {
-			live = append(live, at)
-		}
-	}
-	if len(live) >= EscalationBudget {
-		e.spent[actor] = live
-		// The window is a sliding one, so the next slot opens when the oldest
-		// spend ages out, not at a fixed boundary.
-		return live[0].Add(EscalationWindow).Sub(now), false
-	}
-	e.spent[actor] = append(live, now)
-	return 0, true
-}
-
-// release gives back the newest reserved slot.
-func (e *escalations) release(actor core.Actor) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if n := len(e.spent[actor]); n > 0 {
-		e.spent[actor] = e.spent[actor][:n-1]
-	}
-}
-
-// spend records one escalation and reports what is left. It returns ok=false
-// when the budget is exhausted, along with when the oldest spend expires — an
-// agent told "no" without being told "until when" will simply ask again.
-// left reports the remaining budget without spending it.
-func (e *escalations) left(actor core.Actor) int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	cutoff := e.now().Add(-EscalationWindow)
-	n := 0
-	for _, at := range e.spent[actor] {
-		if at.After(cutoff) {
-			n++
-		}
-	}
-	if n > EscalationBudget {
-		return 0
-	}
-	return EscalationBudget - n
-}
-
 // PostingBudget is how many ambient entries one seat may add to a room per
 // window before it has to start summarizing.
 //
@@ -242,8 +161,8 @@ func newPosting(now func() time.Time) *posting {
 }
 
 // charge records an ambient post and reports what is left. Addressed kinds are
-// not charged here: they are priced by the escalation budget and by the fact
-// that a person is named, which is a cost the author already feels.
+// not charged here: they are priced by the rate limit and by the fact that a
+// person is named, which is a cost the author already feels.
 func (p *posting) charge(actor core.Actor, room string, kind core.Kind) (remaining int, oldest time.Duration, ok bool) {
 	if exemptFromBudget(kind) || core.LaneOf(kind) == core.Addressed {
 		return PostingBudget, 0, true

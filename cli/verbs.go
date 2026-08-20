@@ -44,7 +44,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "escalate", "ref", "skill", "skills", "hook"}
+var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "ref", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -106,8 +106,6 @@ func Run(e *Env, args []string) int {
 		return runWhoami(e, args[1:])
 	case "redact":
 		return runRedact(e, args[1:])
-	case "escalate":
-		return runEscalate(e, args[1:])
 	case "read":
 		return runRead(e, args[1:])
 	case "inbox":
@@ -230,7 +228,6 @@ say something
    attach      store long content by hash; reference it from a post
    decline     refuse a handoff, out loud
    redact      suppress a body you posted (the record remains)
-   escalate    pull an entry into a person's attention — priced, 3/hour
 
 read the room
    read        everything new since you last read, then exit
@@ -1379,100 +1376,6 @@ key, and no verb, flag or environment variable does.
 		Outcome: "whoami", Actor: seat, Host: e.Host,
 		Server: e.Server, PubKey: hex.EncodeToString(pub),
 		Room: room, KeyStatus: status, Cursors: cursors,
-	})
-}
-
-// ---------------------------------------------------------------- escalate
-
-func runEscalate(e *Env, args []string) int {
-	fs, sink := newFlags("escalate")
-	idem := fs.String("idem", "", "reuse a natural key you already have")
-	actor := fs.String("as", "", "the seat escalating")
-	room := fs.String("room", "", "the room the entry is in")
-	to := fs.String("to", "", "the person who should look")
-	text := fs.String("text", "", "why this needs them now")
-	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms escalate <seq> --as <seat> --to <human> --text "<why now>"
-
-Pulls one entry already in the room into a person's attention. It states no new
-fact — the finding already says what it says — so what lands in the log is an
-ordinary addressed question referencing it, signed by you like anything else.
-
-  comms escalate 20014 --as agent:bcm/claude-1 --to human:sarah \
-      --text "this blocks Thursday's migration; postpone or batch the rebuild?"
-
-You get %d of these an hour. That is the whole point: severity routes nothing, a
-p0 finding sits in the same ambient lane as a p3, and this is the one lever that
-spends someone's afternoon. When it is gone the finding is still in the room and
-still searchable — what you have run out of is the right to interrupt, not the
-right to record.`, 3)
-	}
-
-	seqs, code, done := parsePositional(e, fs, sink, args)
-	if done {
-		return code
-	}
-	if len(seqs) != 1 {
-		return e.Out.Fail(ExitUsage, "usage", "refs.exactly_one",
-			"name the one entry a person should look at: comms escalate <seq>")
-	}
-	seat, code := resolveSeat(e, *actor)
-	if code != 0 {
-		return code
-	}
-	if code := CheckServer(e, seat); code != 0 {
-		return code
-	}
-	if *to == "" {
-		return e.Out.Fail(ExitUsage, "usage", "recipient.required",
-			"escalate names the person who should look: --to <human>")
-	}
-	if *text == "" {
-		return e.Out.Fail(ExitUsage, "usage", "body.text.required",
-			"say why it needs them now; the entry itself already says what it is")
-	}
-
-	priv, err := LoadSeat(seat)
-	if err != nil {
-		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
-	}
-	c := NewClient(e.Server, seat, priv)
-	body := map[string]any{
-		"room": resolveRoom(seat, *room), "author": seat,
-		"refs": seqs[0], "to": *to, "text": *text,
-	}
-	applyIdem(e, body, *idem)
-	sent, err := c.PostTo("/escalate", body)
-	if err != nil {
-		// Not spooled, and the reply must say so: an escalation describes a
-		// now ("someone should look at this NOW"), so holding one to deliver
-		// minutes late is wrong the way a stale status is wrong. Exit 5 with
-		// no caveat read as the write-spool promise and the escalation was
-		// silently dropped.
-		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed",
-			"nothing was held — an escalation is not spooled, it describes now. "+
-				"When the hub is back, run this escalate again: "+err.Error())
-	}
-	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
-	if exit != ExitOK {
-		if sent.Body.Exit != 0 && stricter(sent.Body.Exit, exit) {
-			exit, outcome = sent.Body.Exit, "refused"
-		}
-		r := Result{
-			Outcome: outcome, Exit: exit,
-			Invariant: sent.Body.Invariant, Detail: sent.Body.Detail,
-			RetryAfterMS: sent.Body.RetryAfterMS,
-		}
-		if sent.Body.Next != "" {
-			r.Next = sent.Body.Next
-		}
-		return e.Out.FailWith(r)
-	}
-	e.Out.Note("escalated at %d; %d left this hour", sent.Body.Seq, sent.Body.Remaining)
-	applied := sent.Body.Applied
-	return e.Out.Succeed(Result{
-		Outcome: "escalated", Seq: sent.Body.Seq, Applied: &applied,
-		Remaining: sent.Body.Remaining, Detail: sent.Body.Detail,
 	})
 }
 

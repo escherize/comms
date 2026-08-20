@@ -49,8 +49,6 @@ func kindCode(k core.Kind) string {
 		return "🛠️"
 	case core.KindPRLink:
 		return "🔗"
-	case core.KindDigest:
-		return "📰"
 	case core.KindRedact:
 		return "✂️"
 	}

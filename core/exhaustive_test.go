@@ -18,7 +18,7 @@ func TestEveryKindHasADeliberateLane(t *testing.T) {
 	// against the implementation instead of the implementation against itself.
 	addressed := map[Kind]bool{
 		KindQuestion: true, KindAnswer: true, KindHandoff: true,
-		KindDigest: true, KindDecline: true,
+		KindDecline: true,
 	}
 	for _, k := range AllKinds {
 		want := Ambient
@@ -96,7 +96,7 @@ func TestKnownKindAcceptsExactlyTheDocumentedSet(t *testing.T) {
 	// Every constant declared in this package must be in the documented set.
 	for _, k := range []Kind{
 		KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL, KindHandoff,
-		KindStatus, KindPRLink, KindDigest, KindRedact, KindDecline,
+		KindStatus, KindPRLink, KindRedact, KindDecline,
 	} {
 		if !documented[k] {
 			t.Errorf("kind %q exists and Kinds() does not describe it, so no document "+

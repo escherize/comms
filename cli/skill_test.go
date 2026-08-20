@@ -277,7 +277,7 @@ func TestEverySkillCommandRuns(t *testing.T) {
 // run as written.
 func withSeat(args []string) []string {
 	needsSeat := map[string]bool{
-		"post": true, "ask": true, "answer": true, "decline": true, "escalate": true,
+		"post": true, "ask": true, "answer": true, "decline": true,
 		"read": true, "inbox": true, "redact": true, "whoami": true,
 		"room": true, "search": true,
 	}
@@ -331,7 +331,7 @@ func TestSkillNamesOnlyRealInvariants(t *testing.T) {
 
 func knownInvariantPrefix(s string) bool {
 	for _, p := range []string{"recipient.", "body.", "refs.", "attachment.", "redact.",
-		"room.", "key.", "rate.", "digest.", "server.", "attach.", "stdin.", "text."} {
+		"room.", "key.", "rate.", "server.", "attach.", "stdin.", "text."} {
 		if strings.HasPrefix(s, p) {
 			return true
 		}
@@ -376,17 +376,6 @@ func TestSkillKindTableMatchesTheKindSet(t *testing.T) {
 
 	for _, m := range all {
 		kind := m[1]
-		if kind == "digest" {
-			// Operator-only, and the skill says so in prose rather than offering
-			// it as a row an agent would reach for.
-			if inTable[kind] {
-				t.Error("digest is in the kind table; an agent that tries it is refused")
-			}
-			if !strings.Contains(doc, "digest") {
-				t.Error("the skill must say digest exists and is not the agent's")
-			}
-			continue
-		}
 		if !inTable[kind] {
 			t.Errorf("kind %q is postable and is not in the skill's table, so no agent will use it", kind)
 		}

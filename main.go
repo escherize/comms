@@ -3,13 +3,11 @@
 package main
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	_ "embed"
 	"flag"
 	"fmt"
-	"github.com/escherize/comms/core"
 	"log"
 	"net"
 	"net/http"
@@ -55,10 +53,6 @@ func main() {
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
 	revoke := flag.String("revoke", "", "revoke a seat's key — future commands are refused, history stays valid — then exit")
 	compromise := flag.String("compromised-key", "", "mark a seat's key compromised (seat, or seat=RFC3339 suspected-since), then exit")
-	digestAs := flag.String("digest-as", "", "run the digest bot under this seat (must hold the digest capability)")
-	digestTo := flag.String("digest-to", "", "who the digest is addressed to")
-	digestEvery := flag.Duration("digest-every", time.Hour, "how often the digest bot considers posting")
-	grant := flag.String("grant", "", "grant the digest capability to a seat, then exit")
 	grantInvite := flag.String("grant-invite", "", "let a seat mint enrolment tokens remotely, then exit")
 	rebuild := flag.Bool("rebuild", false, "recompute every log-derived projection from the log, then exit")
 	verify := flag.Bool("verify", false, "check the log chain end to end, then exit")
@@ -100,7 +94,7 @@ usage: comms serve [--db <path>] [--rooms <list>] [flags]
   comms serve --addr 0.0.0.0:7777              # reachable from the tailnet
 
 Most flags below are operator actions that touch the database and exit
-(--invite, --verify, --rebuild, --grant, --purge) rather than serve.
+(--invite, --verify, --rebuild, --purge) rather than serve.
 
 %s`, cli.FlagsHelp(flag.CommandLine))
 	}
@@ -140,7 +134,7 @@ Most flags below are operator actions that touch the database and exit
 	// -invite from the wrong directory mints a real token into a file the hub
 	// has never opened, and the only symptom is "unknown enrolment token" much
 	// later, pointing at the token. That has cost two sessions in one day.
-	if *invite != "" || *grant != "" || *purge > 0 || *flagged != "" || *revoke != "" || *compromise != "" {
+	if *invite != "" || *purge > 0 || *flagged != "" || *revoke != "" || *compromise != "" {
 		if rooms, err := st.Rooms(); err == nil && len(rooms) == 0 {
 			abs, _ := filepath.Abs(*db)
 			log.Fatalf("refusing to act on %s: it has no rooms, so no hub has ever "+
@@ -201,16 +195,6 @@ Most flags below are operator actions that touch the database and exit
 		}
 		fmt.Printf("granted %q the right to mint enrolment tokens without being on the hub\n",
 			*grantInvite)
-		return
-	}
-
-	if *grant != "" {
-		// Granting is an operator act with no verb, by construction: a
-		// capability an agent could give itself is not a capability.
-		if err := st.Grant(*grant, core.CapDigest, "operator", time.Now()); err != nil {
-			log.Fatalf("grant: %v", err)
-		}
-		fmt.Printf("granted %q the digest capability\n", *grant)
 		return
 	}
 
@@ -311,24 +295,6 @@ Most flags below are operator actions that touch the database and exit
 		log.Printf("note: --read-auth is deprecated and now a no-op — reads are always " +
 			"authenticated. You can drop the flag.")
 	}
-	if *digestAs != "" {
-		if *digestTo == "" {
-			log.Fatal("-digest-as needs -digest-to: a digest with no recipient is ambient, " +
-				"which is a summary that interrupts nobody and is therefore a second copy of the room")
-		}
-		for _, room := range strings.Split(*rooms, ",") {
-			room = strings.TrimSpace(room)
-			if room == "" {
-				continue
-			}
-			go srv.RunDigest(context.Background(), shell.DigestBot{
-				Actor: core.Actor(*digestAs), Room: room,
-				To: core.Actor(*digestTo), Every: *digestEvery,
-			})
-		}
-		log.Printf("digest bot running as %s every %s", *digestAs, *digestEvery)
-	}
-
 	if abs, err := filepath.Abs(*db); err == nil {
 		log.Printf("serving %s", abs)
 	}

@@ -141,8 +141,8 @@ func (s *Store) RoomBrief(room string, now time.Time) (Brief, error) {
 	}
 
 	// The redacted check rides the query: this was the one read path that
-	// served a suppressed body (the brief, and the digest restating it) — a
-	// leak three reviewers corroborated independently.
+	// served a suppressed body (the brief) — a leak three reviewers
+	// corroborated independently.
 	qrows, err := s.db.Query(
 		`SELECT q.seq, q.author, q.recipient, q.asked_at, q.answer_seq,
 		        CASE WHEN r.seq IS NULL

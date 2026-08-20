@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
-	"github.com/escherize/comms/core"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -285,83 +284,6 @@ func TestWhoamiReportsIdentityNotTheKey(t *testing.T) {
 	priv, _ := LoadSeat(seat)
 	if strings.Contains(strings.ToLower(c.out.String()+c.err.String()), strings.ToLower(hexOf(priv))) {
 		t.Error("whoami leaked the private key")
-	}
-}
-
-// escalate is priced. It works, three times an hour, and then it does not —
-// and when it does not, the entry is still in the room.
-func TestEscalateSpendsItsBudgetThenRefuses(t *testing.T) {
-	isolateKeys(t)
-	srv, st := liveServer(t)
-	enrol(t, srv, st)
-	seedActor(t, st, "human:sarah")
-	claimed = stdinClaim{}
-
-	var f capture
-	if code := Run(f.env(t, srv.URL, ""), []string{"post", "finding", "--as", seat,
-		"--severity", "p1", "--text", "the migration will time out"}); code != ExitOK {
-		t.Fatalf("setup finding failed: %s", f.out.String())
-	}
-	target := itoa(int64(lines(t, &f)[0]["seq"].(float64)))
-
-	// Three different reasons: identical ones are one act, and the client's
-	// content-derived key correctly makes the repeat a replay.
-	for i := 1; i <= 3; i++ {
-		var c capture
-		code := Run(c.env(t, srv.URL, ""), []string{"escalate", target, "--as", seat,
-			"--to", "human:sarah", "--text", "reason " + itoa(int64(i))})
-		if code != ExitOK {
-			t.Fatalf("escalation %d should be affordable: %d %s", i, code, c.out.String())
-		}
-		last := lines(t, &c)[0]
-		if want := float64(3 - i); last["remaining"] != want && last["remaining"] != nil {
-			t.Errorf("after %d spends want %v left, got %v", i, want, last["remaining"])
-		}
-	}
-
-	var over capture
-	code := Run(over.env(t, srv.URL, ""), []string{"escalate", target, "--as", seat,
-		"--to", "human:sarah", "--text", "a fourth reason"})
-	// Exit 6, not 4: an escalation budget refills, so this is wait-and-retry
-	// rather than stop-and-ask. The retry_after is what makes that actionable.
-	if code != ExitThrottled {
-		t.Fatalf("an exhausted budget must exit 6, got %d: %s", code, over.out.String())
-	}
-	last := lines(t, &over)[0]
-	if last["invariant"] != "escalation.exhausted" {
-		t.Errorf("want escalation.exhausted, got %v", last["invariant"])
-	}
-	if last["retry_after_ms"] == nil {
-		t.Error("the refusal must say when the next slot opens")
-	}
-
-	// Three interrupts, and the finding that prompted them, and nothing else.
-	recs, _ := st.Since("core", 0, 200)
-	var questions int
-	for _, r := range recs {
-		if r.Kind == core.KindQuestion {
-			questions++
-		}
-	}
-	if questions != 3 {
-		t.Errorf("want 3 escalations in the log, got %d", questions)
-	}
-}
-
-// escalate names one entry. Escalating "everything I just said" is the flood
-// the budget exists to price.
-func TestEscalateNeedsExactlyOneEntry(t *testing.T) {
-	isolateKeys(t)
-	srv, st := liveServer(t)
-	enrol(t, srv, st)
-
-	var c capture
-	if code := Run(c.env(t, srv.URL, ""), []string{"escalate", "--as", seat,
-		"--to", "human:sarah", "--text", "look"}); code != ExitUsage {
-		t.Fatalf("escalate with no seq must exit 2, got %d", code)
-	}
-	if m := c.last(t); m["invariant"] != "refs.exactly_one" {
-		t.Errorf("want refs.exactly_one, got %v", m["invariant"])
 	}
 }
 

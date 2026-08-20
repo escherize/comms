@@ -636,7 +636,7 @@ func (s *Store) ResolveActor(name string) []string {
 
 // capability is granted by the operator, never by an agent. It is a table
 // rather than a flag on actor_key because a capability is a grant with a
-// grantor, and "who gave the digest bot this" is the question asked during an
+// grantor, and "who granted this seat this" is the question asked during an
 // incident.
 const capabilitySchema = `
 CREATE TABLE IF NOT EXISTS capability (

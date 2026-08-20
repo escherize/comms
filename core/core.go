@@ -22,7 +22,6 @@ const (
 	KindHandoff  Kind = "handoff"
 	KindStatus   Kind = "status"
 	KindPRLink   Kind = "pr.link"
-	KindDigest   Kind = "digest"
 	// KindDecline answers a handoff with "not me". Without it, an agent that
 	// will not take the work has no way to say so, and divergence is
 	// indistinguishable from silence — which is what happened when a
@@ -49,10 +48,10 @@ const (
 )
 
 // LaneOf is the whole attention classification. Kind decides; author opinion
-// never does. Escalation (priced separately, in the shell) is the only crossing.
+// never does.
 func LaneOf(k Kind) Lane {
 	switch k {
-	case KindQuestion, KindAnswer, KindHandoff, KindDigest, KindDecline:
+	case KindQuestion, KindAnswer, KindHandoff, KindDecline:
 		return Addressed
 	default:
 		return Ambient
@@ -102,10 +101,6 @@ type Event struct {
 	Lane        Lane
 	Attachments []Attachment
 }
-
-// CapDigest is the one capability today: the right to post an addressed
-// summary nobody asked for.
-const CapDigest = "digest"
 
 // Rejection names the invariant that failed. An agent self-corrects against
 // Invariant; a human reads Detail.
@@ -249,19 +244,6 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, &Rejection{"recipient.required",
 			"kind " + string(c.Kind) + " is addressed and must name a recipient"}
 	}
-	// A digest is addressed by definition (ADR-0008), so an agent that could
-	// post one could interrupt everyone, for free, on a loop. The capability
-	// lives with the digest bot, which authenticates with its own key and whose
-	// commands travel this same path.
-	if c.Kind == KindDigest {
-		if s.HasCapability == nil || !s.HasCapability(c.Author, CapDigest) {
-			return nil, &Rejection{"digest.not_authorized",
-				"digest is addressed by definition, so posting one interrupts everyone " +
-					"without spending a budget. The capability belongs to the digest bot; " +
-					"post a til or a finding instead"}
-		}
-	}
-
 	// A recipient nobody enrolled as is a typo the log keeps forever. The check
 	// is here rather than in the shell because it decides whether an event is
 	// admissible, and both clients must get the same answer.
@@ -385,7 +367,7 @@ func checkAttachments(s State, c Command) *Rejection {
 func knownKind(k Kind) bool {
 	switch k {
 	case KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL,
-		KindHandoff, KindStatus, KindPRLink, KindDigest, KindRedact, KindDecline,
+		KindHandoff, KindStatus, KindPRLink, KindRedact, KindDecline,
 		KindPresence:
 		return true
 	}
@@ -407,7 +389,7 @@ func checkBody(c Command) *Rejection {
 			return &Rejection{"body.severity.invalid",
 				"finding requires severity in p0|p1|p2|p3, got: " + sev}
 		}
-	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDigest, KindDecline, KindPresence:
+	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDecline, KindPresence:
 		if text == "" {
 			return &Rejection{"body.text.required", string(c.Kind) + " requires text"}
 		}
@@ -566,6 +548,5 @@ func Kinds() []KindDoc {
 		{KindChat, LaneOf(KindChat), "everything else, and a shrug of an answer", "--text", true},
 		{KindPresence, LaneOf(KindPresence), "a seat arriving — join posts it for you", "--text; join's check-in, not for chatter", true},
 		{KindRedact, LaneOf(KindRedact), "suppress a body you should not have posted", "redact <seq> --why", true},
-		{KindDigest, LaneOf(KindDigest), "a periodic summary of a window", "operator capability; the digest bot's", false},
 	}
 }

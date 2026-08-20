@@ -489,22 +489,22 @@ func TestActorMismatchRefusalNamesBothActors(t *testing.T) {
 	}
 }
 
-// The digest capability is an operator grant. No verb reaches it.
+// A capability is an operator grant. No verb reaches it.
 func TestCapabilitiesAreGrantedNotClaimed(t *testing.T) {
 	s, _, _ := keyStore(t)
-	if s.HasCapability("agent:c1", core.CapDigest) {
+	if s.HasCapability("agent:c1", "invite") {
 		t.Error("no seat holds a capability by default")
 	}
-	if err := s.Grant("agent:digest-bot", core.CapDigest, "human:bcm", kt0); err != nil {
+	if err := s.Grant("agent:admin-bot", "invite", "human:bcm", kt0); err != nil {
 		t.Fatal(err)
 	}
-	if !s.HasCapability("agent:digest-bot", core.CapDigest) {
+	if !s.HasCapability("agent:admin-bot", "invite") {
 		t.Error("a granted capability must be visible to the decider")
 	}
-	if s.HasCapability("agent:digest-bot", "purge") {
+	if s.HasCapability("agent:admin-bot", "purge") {
 		t.Error("a grant is per capability, not a blanket")
 	}
-	if err := s.Grant("digest-bot", core.CapDigest, "human:bcm", kt0); err == nil {
+	if err := s.Grant("admin-bot", "invite", "human:bcm", kt0); err == nil {
 		t.Error("a grant to an un-namespaced seat must be refused")
 	}
 }

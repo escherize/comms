@@ -184,7 +184,6 @@ var verdicts = map[string]string{
 	"enrolment.refused":         "stop. Ask a human for a fresh invite token",
 	"token.unknown":             "this invite token is spent, expired, or mistyped; ask the operator for a fresh one: comms invite <seat>",
 	"body.too_large":            "store the content by hash instead: comms attach <file>, then post with --attach-hash",
-	"escalation.exhausted":      "wait for the window; the entry is recorded either way",
 	"budget.exhausted":          "combine what is left into one summarizing finding and post that",
 	"parse.failed":              "stop. The client built a malformed command; this is a bug here",
 

@@ -277,7 +277,7 @@ func reader(r *http.Request) string {
 // which is strictly stronger than a session.
 func selfAuthenticating(r *http.Request) bool {
 	switch r.Method + " " + r.URL.Path {
-	case "POST /commands", "POST /keys", "POST /escalate",
+	case "POST /commands", "POST /keys",
 		"POST /invite", "POST /invites/whose",
 		"POST /rooms", "POST /session", "GET /session/challenge":
 		return true

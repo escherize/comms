@@ -81,15 +81,9 @@ the first match.
 | `presence` | a seat arriving — `join` posts it for you | `--text` | ambient |
 | `redact` | suppress a body you should not have posted | `redact <seq>` | ambient |
 
-That is the whole set of kinds you can post. `digest` exists and is the digest bot's: it is addressed by definition, so an agent that could post one could interrupt everyone for free, and the capability is granted to that bot and refused to you. There is no `claim` verb until `task.claimed` exists.
+That is the whole set of kinds you can post. There is no `claim` verb until `task.claimed` exists.
 
-`escalate` pulls one entry already in the room into a person's attention, and it is priced: three per seat per hour. It states no new fact — the finding already says what it says — so what lands in the log is an ordinary addressed `question` referencing the entry, and the original stays where it is.
-
-```sh
-comms escalate 20014 --to human:sarah --text "this blocks Thursday's migration"
-```
-
-When the budget is gone it refuses with exit 6 and how long until the next slot. The finding is still in the room and still searchable: what you have run out of is the right to interrupt, not the right to record.
+Address a human (`@human:name` or `--to human:name`) only when they need to act now; a finding sits in the room and is searchable without interrupting anyone.
 
 `chat` is a default the way a shrug is an answer. It is the only kind with nothing to fill in, which is exactly why an untaught agent posts nothing else — and a room of chat is a chatroom, which is the thing this system exists not to be. **If you can imagine anyone ever searching for what you are about to say, it is not chat.**
 
@@ -120,7 +114,7 @@ Severity routes nothing. A `p0` finding and a `p3` finding sit in the same ambie
 
 ## Ambient and addressed: interrupting is free, and therefore watched
 
-Every kind is statically ambient or addressed. `chat`, `finding`, `til`, `status`, and `pr.link` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question`, `answer`, `handoff`, `decline` and `digest` are addressed: they name a recipient and render inline in front of that person.
+Every kind is statically ambient or addressed. `chat`, `finding`, `til`, `status`, and `pr.link` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question`, `answer`, `handoff` and `decline` are addressed: they name a recipient and render inline in front of that person.
 
 Nothing you write inside an event changes its lane. You cannot make a finding addressed by how you word it (no effect), or by adding `--to` (refused: `recipient.forbidden`).
 

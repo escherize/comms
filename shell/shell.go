@@ -51,11 +51,10 @@ type Server struct {
 	// invite response carries this instead. Empty means "no better answer".
 	PublicURL string
 
-	limit    *limiter
-	correct  *corrections
-	escalate *escalations
-	posting  *posting
-	sess     *sessions
+	limit   *limiter
+	correct *corrections
+	posting *posting
+	sess    *sessions
 }
 
 // PostsPerMinute and PostBurst bound one seat. The burst is what an agent
@@ -75,7 +74,6 @@ func New(st *store.Store, now Clock) *Server {
 		RequireSignature: true,
 		limit:            newLimiter(PostsPerMinute, PostBurst, now),
 		correct:          newCorrections(),
-		escalate:         newEscalations(now),
 		posting:          newPosting(now),
 		sess:             newSessions(now)}
 	return sv
@@ -91,7 +89,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /rooms", s.roomsList)
 	mux.HandleFunc("GET /rooms/{name}", s.roomBrief)
 	mux.HandleFunc("GET /actors", s.actorsList)
-	mux.HandleFunc("POST /escalate", s.postEscalation)
 	mux.HandleFunc("GET /install", s.getInstall)
 	mux.HandleFunc("GET /comms", s.getBinary)
 	mux.HandleFunc("POST /delivered", s.postDelivered)
@@ -585,7 +582,7 @@ func schemaFor(k core.Kind) string {
 		return `{"text": string} + recipient required`
 	case core.KindStatus:
 		return `{"text": string, "step": int?, "of": int?}`
-	case core.KindChat, core.KindTIL, core.KindDigest:
+	case core.KindChat, core.KindTIL:
 		return `{"text": string}`
 	case core.KindRedact:
 		return `{"text": string} + refs must name exactly one event`
@@ -1199,168 +1196,6 @@ func (s *Server) decisionState() core.State {
 			return s.st.Memberships(string(a))
 		},
 	}
-}
-
-// postEscalation pulls one ambient entry into a person's attention, and charges
-// for it. It is a route rather than a kind because escalating states no new
-// fact — the finding already says what it says. What changes is who is expected
-// to look, so what lands in the log is an ordinary addressed question
-// referencing the entry, authored by the escalating seat and signed by its key
-// like anything else. ADR-0008 prices this because fifteen agents share a room
-// with five people, and an interrupt nobody pays for is one everybody sends.
-func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
-	raw := make([]byte, 0, 4096)
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Body.Read(buf)
-		raw = append(raw, buf[:n]...)
-		if err != nil {
-			break
-		}
-		if len(raw) > 1<<20 {
-			writeJSON(w, http.StatusRequestEntityTooLarge,
-				rejectedResponse{"body.too_large", "escalation body exceeds 1MiB", ""})
-			return
-		}
-	}
-
-	var req struct {
-		Room, Author, Refs, To, Text, Idem string
-	}
-	if err := json.Unmarshal(raw, &struct {
-		Room   *string `json:"room"`
-		Author *string `json:"author"`
-		Refs   *string `json:"refs"`
-		To     *string `json:"to"`
-		Text   *string `json:"text"`
-		Idem   *string `json:"idem"`
-	}{&req.Room, &req.Author, &req.Refs, &req.To, &req.Text, &req.Idem}); err != nil {
-		writeJSON(w, http.StatusBadRequest, rejectedResponse{"parse.failed", err.Error(), ""})
-		return
-	}
-
-	if s.RequireSignature {
-		sig, err := decodeSig(r.Header.Get("X-Signature"))
-		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, rejectedResponse{"signature.missing",
-				"every escalation must carry X-Signature: a hex ed25519 signature over the request body",
-				"X-Signature: <128 hex chars>"})
-			return
-		}
-		if err := s.st.VerifySignature(core.Actor(req.Author), raw, sig, s.now()); err != nil {
-			var af store.AuthFailure
-			if errors.As(err, &af) {
-				writeJSON(w, http.StatusUnauthorized, rejectedResponse{af.Invariant, af.Detail, ""})
-				return
-			}
-			writeJSON(w, http.StatusUnauthorized,
-				rejectedResponse{"signature.invalid", err.Error(), ""})
-			return
-		}
-	}
-
-	author := core.Actor(req.Author)
-	if req.Refs == "" {
-		writeJSON(w, http.StatusUnprocessableEntity, rejectedResponse{"refs.exactly_one",
-			"escalate names the one entry a person should look at", ""})
-		return
-	}
-
-	// Reserve before appending — atomically, so two concurrent escalations
-	// cannot both pass a check and overspend the budget. A path that posts
-	// nothing (replay, rejection, failed append) releases the slot: a replay
-	// stays free because the second one interrupts nobody.
-	retryAfter, ok := s.escalate.reserve(author)
-	if !ok {
-		ms := retryAfter.Milliseconds()
-		if ms < 1 {
-			ms = 1
-		}
-		// Exit 6, not 4: the budget refills. "Stop, ask a human" would be wrong
-		// about a condition that fixes itself on a clock, and the retry_after
-		// is what makes the difference actionable.
-		writeJSON(w, http.StatusTooManyRequests, map[string]any{
-			"ok": false, "outcome": "throttled", "exit": 6,
-			"invariant": "escalation.exhausted",
-			"detail": fmt.Sprintf(
-				"this seat has spent all %d escalations in the last %s. Nothing was posted",
-				EscalationBudget, EscalationWindow),
-			"retry_after_ms": ms, "remaining": 0,
-			"next": "the finding is already in the room and stays there; escalating is about " +
-				"who looks now, not whether it is recorded. Wait for the window, or add the " +
-				"evidence to a conversation you are already having with a person",
-		})
-		return
-	}
-
-	cmd := core.Command{
-		Room: req.Room, Author: author, Kind: core.KindQuestion,
-		Recipient: core.Actor(req.To), Refs: []string{req.Refs}, Idem: req.Idem,
-		Body: map[string]any{"text": req.Text, "escalated": req.Refs},
-	}
-	if cmd.Room == "" {
-		cmd.Room = "core"
-	}
-	if matches := s.st.ResolveActor(string(cmd.Recipient)); len(matches) == 1 {
-		cmd.Recipient = core.Actor(matches[0])
-	}
-
-	events, rej := core.Decide(s.decisionState(), cmd)
-	if rej != nil {
-		s.escalate.release(author)
-		writeJSON(w, http.StatusUnprocessableEntity,
-			rejectedResponse{rej.Invariant, rej.Detail, schemaFor(cmd.Kind)})
-		return
-	}
-
-	var seq int64
-	for _, ev := range events {
-		n, err := s.st.Append(ev, cmd.Idem, s.now())
-		if err != nil {
-			s.escalate.release(author)
-			var conflict store.ErrIdemConflict
-			if errors.As(err, &conflict) {
-				// The same key with different content is a conflict, not a
-				// retry. Mirror postCommand: a client-fixable mistake is a
-				// clean 409, not a server error.
-				writeJSON(w, http.StatusConflict, rejectedResponse{
-					"idem.conflict",
-					fmt.Sprintf("this key was used at seq %d for a different command. That is "+
-						"almost always a re-run with an edited flag: the key is derived from what "+
-						"you are posting, so changing the text or the severity and running again "+
-						"produces a new key, while reusing --idem does not. Either drop --idem and "+
-						"let the key follow the content, or pass a --idem that names this post",
-						conflict.Seq),
-					""})
-				return
-			}
-			var dup store.ErrDuplicate
-			if errors.As(err, &dup) {
-				// A replay. Nothing was appended, nobody was interrupted, and
-				// the budget is untouched.
-				writeJSON(w, http.StatusOK, map[string]any{
-					"ok": true, "outcome": "escalated", "seq": dup.Seq, "applied": false,
-					"remaining": s.escalate.left(author),
-					"detail":    "already escalated; nothing was posted and no budget was spent",
-				})
-				return
-			}
-			writeJSON(w, http.StatusInternalServerError,
-				rejectedResponse{"append.failed", err.Error(), ""})
-			return
-		}
-		seq = n
-		s.fanout(ev.Room, seq)
-	}
-
-	remaining := s.escalate.left(author)
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "outcome": "escalated", "seq": seq, "applied": true,
-		"remaining": remaining,
-		"detail": fmt.Sprintf("%d escalation(s) left in this %s window",
-			remaining, EscalationWindow),
-	})
 }
 
 // postDelivered records how far a seat has drained its addressed lane. It is

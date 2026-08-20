@@ -261,7 +261,7 @@ func TestWorkCoordinationIsExemptFromTheBudget(t *testing.T) {
 			t.Errorf("%s must be exempt from the posting budget", k)
 		}
 	}
-	for _, k := range []string{"chat", "finding", "til", "question", "digest"} {
+	for _, k := range []string{"chat", "finding", "til", "question"} {
 		if exemptFromBudget(core.Kind(k)) {
 			t.Errorf("%s is chatter and must be budgeted", k)
 		}
@@ -388,104 +388,6 @@ func TestLatestReturnsTheTailInOrder(t *testing.T) {
 	}
 	if recs[0].Seq > recs[2].Seq {
 		t.Error("Latest must return oldest-first so a renderer can walk it")
-	}
-}
-
-// Escalation is priced because fifteen agents share a room with five people.
-// A budget nobody can exhaust is not a price.
-func TestEscalationSpendsABudgetAndThenRefuses(t *testing.T) {
-	srv, st := newServer(t)
-	seedActor(t, st, "human:sarah")
-	code, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
-		`"body":{"text":"the migration will time out","severity":"p2"},"idem":"e1"}`)
-	if code != http.StatusOK {
-		t.Fatalf("setup finding: %v", out)
-	}
-	target := itoa(int64(out["seq"].(float64)))
-
-	esc := func(idem string) (int, map[string]any) {
-		t.Helper()
-		return postTo(t, srv, "/escalate", `{"room":"core","author":"agent:c1","refs":"`+target+
-			`","to":"human:sarah","text":"this blocks Thursday","idem":"`+idem+`"}`)
-	}
-
-	for i := 1; i <= EscalationBudget; i++ {
-		code, out := esc("esc" + itoa(int64(i)))
-		if code != http.StatusOK {
-			t.Fatalf("escalation %d should be affordable: %v", i, out)
-		}
-		if want := float64(EscalationBudget - i); out["remaining"] != want {
-			t.Errorf("after %d spends want %v remaining, got %v", i, want, out["remaining"])
-		}
-	}
-
-	code, out = esc("esc-over")
-	if code != http.StatusTooManyRequests {
-		t.Fatalf("the budget must run out, got %d", code)
-	}
-	if out["invariant"] != "escalation.exhausted" {
-		t.Errorf("want escalation.exhausted, got %v", out["invariant"])
-	}
-	if out["exit"].(float64) != 6 {
-		t.Errorf("an exhausted budget refills, so it is exit 6 not 4; got %v", out["exit"])
-	}
-	if ms, ok := out["retry_after_ms"].(float64); !ok || ms <= 0 {
-		t.Error(`"no" without "until when" is an invitation to ask again immediately`)
-	}
-	if !strings.Contains(fmt.Sprint(out["next"]), "already in the room") {
-		t.Errorf("the refusal must say the finding is still recorded: %v", out["next"])
-	}
-
-	// Nothing was posted by the refused attempt.
-	recs, err := st.Since("core", 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var questions int
-	for _, r := range recs {
-		if r.Kind == core.KindQuestion {
-			questions++
-		}
-	}
-	if questions != EscalationBudget {
-		t.Errorf("want %d escalations in the log, got %d", EscalationBudget, questions)
-	}
-}
-
-// What lands is an ordinary addressed question referencing the entry. Escalating
-// states no new fact, so it must not invent a kind.
-func TestAnEscalationIsAnOrdinaryAddressedQuestion(t *testing.T) {
-	srv, st := newServer(t)
-	seedActor(t, st, "human:sarah")
-	_, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
-		`"body":{"text":"cold cache flake","severity":"p2"},"idem":"e9"}`)
-	target := itoa(int64(out["seq"].(float64)))
-
-	code, _ := postTo(t, srv, "/escalate", `{"room":"core","author":"agent:c1","refs":"`+target+
-		`","to":"sarah","text":"blocks the release","idem":"esc-x"}`)
-	if code != http.StatusOK {
-		t.Fatalf("escalation failed: %d", code)
-	}
-
-	recs, _ := st.Since("core", 0, 50)
-	var found bool
-	for _, r := range recs {
-		if r.Kind != core.KindQuestion {
-			continue
-		}
-		found = true
-		if r.Lane != core.Addressed {
-			t.Error("an escalation must be addressed; that is the whole point")
-		}
-		if string(r.Recipient) != "human:sarah" {
-			t.Errorf("the shorthand recipient must resolve here too, got %q", r.Recipient)
-		}
-		if len(r.Refs) != 1 || r.Refs[0] != target {
-			t.Errorf("the escalation must reference the entry, got %v", r.Refs)
-		}
-	}
-	if !found {
-		t.Error("nothing was appended")
 	}
 }
 
@@ -657,8 +559,8 @@ func TestThePostingBudgetIsPerRoom(t *testing.T) {
 	}
 }
 
-// Addressed kinds are not charged here. They are priced by the escalation
-// budget and by naming a person, which is a cost the author already feels.
+// Addressed kinds are not charged here. They are priced by the rate limit and
+// by naming a person, which is a cost the author already feels.
 func TestAddressedKindsAreNotChargedToThePostingBudget(t *testing.T) {
 	srv, st := newServerEvery(t, 5*time.Second)
 	seedActor(t, st, "human:bcm")
@@ -821,49 +723,6 @@ func TestTheHTMLStreamStillSendsRoomRowsWithoutAQuery(t *testing.T) {
 	}
 	if strings.Contains(body, "srow") {
 		t.Error("a room row must not be search-shaped")
-	}
-}
-
-// A replayed escalation costs nothing. Escalating the same entry with the same
-// words twice is one act, and the second one interrupts nobody — so charging it
-// would spend a budget on an interrupt that did not happen.
-func TestAReplayedEscalationIsFree(t *testing.T) {
-	srv, st := newServer(t)
-	seedActor(t, st, "human:sarah")
-	_, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
-		`"body":{"text":"blocks the migration","severity":"p1"},"idem":"rf"}`)
-	target := itoa(int64(out["seq"].(float64)))
-
-	body := `{"room":"core","author":"agent:c1","refs":"` + target +
-		`","to":"human:sarah","text":"this blocks Thursday","idem":"same-key"}`
-
-	code, first := postTo(t, srv, "/escalate", body)
-	if code != http.StatusOK || first["applied"] != true {
-		t.Fatalf("setup: %d %v", code, first)
-	}
-	afterFirst := first["remaining"].(float64)
-
-	code, second := postTo(t, srv, "/escalate", body)
-	if code != http.StatusOK {
-		t.Fatalf("a replay must not fail, got %d", code)
-	}
-	if second["applied"] != false {
-		t.Error("the second identical escalation must be a replay")
-	}
-	if second["remaining"].(float64) != afterFirst {
-		t.Errorf("a replay spent budget: %v then %v", afterFirst, second["remaining"])
-	}
-
-	// And exactly one interruption is in the log.
-	recs, _ := st.Since("core", 0, 100)
-	var questions int
-	for _, r := range recs {
-		if r.Kind == core.KindQuestion {
-			questions++
-		}
-	}
-	if questions != 1 {
-		t.Errorf("one escalation, run twice, must interrupt once; got %d", questions)
 	}
 }
 

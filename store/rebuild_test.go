@@ -154,7 +154,7 @@ func TestRebuildDoesNotTouchWhatTheLogDoesNotDetermine(t *testing.T) {
 	if err := s.RegisterKey("agent:kept", pub, kt0); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Grant("agent:kept", core.CapDigest, "human:bcm", kt0); err != nil {
+	if err := s.Grant("agent:kept", "invite", "human:bcm", kt0); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddMembership("agent:kept", "core", "human:bcm", kt0); err != nil {
@@ -173,7 +173,7 @@ func TestRebuildDoesNotTouchWhatTheLogDoesNotDetermine(t *testing.T) {
 	if st, _ := s.KeyStatus("agent:kept", kt0); st != "active" {
 		t.Errorf("a rebuild erased a registered key: status %q", st)
 	}
-	if !s.HasCapability("agent:kept", core.CapDigest) {
+	if !s.HasCapability("agent:kept", "invite") {
 		t.Error("a rebuild erased a capability grant")
 	}
 	if err := s.RedeemInvite(token, "agent:pending", pub, kt0.Add(time.Minute)); err != nil {
