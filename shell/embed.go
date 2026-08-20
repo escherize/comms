@@ -319,8 +319,12 @@ func (s *Server) searchBoth(ctx context.Context, q, room, kind, author, since st
 			if author != "" && string(rec.Author) != author {
 				continue
 			}
-			// Same lexical RFC3339 comparison Search uses in SQL.
-			if since != "" && rec.ServerTS.UTC().Format(time.RFC3339) < since {
+			// Mirror Search's SQL boundary exactly: it compares the stored
+			// server_ts (RFC3339Nano) against the caller's since with the
+			// trailing Z stripped, so the boundary second's sub-second events
+			// are kept rather than dropped. Formatting as RFC3339 (or comparing
+			// the un-stripped since) leaked ~1s of events past the lexical lane.
+			if since != "" && rec.ServerTS.UTC().Format(time.RFC3339Nano) < strings.TrimSuffix(since, "Z") {
 				continue
 			}
 			kept = append(kept, h)

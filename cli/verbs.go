@@ -1541,9 +1541,20 @@ func knownKind(k core.Kind) bool {
 	return false
 }
 
+// knownKindNames is the client-side gate on `comms post <kind>`. It is derived
+// from core.Kinds() — the server's own kind table — rather than kept as a hand
+// list, because the two drifted: the list omitted presence and decline, so
+// `comms post presence` (join's documented check-in fallback) and
+// `comms post decline` were refused before the request ever left the client,
+// even though the server accepts both. Deriving it means adding a kind to core
+// is one edit and cannot silently strand a verb here.
 func knownKindNames() []string {
-	return []string{"chat", "finding", "question", "answer", "til",
-		"handoff", "status", "pr.link", "digest", "redact"}
+	kinds := core.Kinds()
+	out := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		out = append(out, string(k.Kind))
+	}
+	return out
 }
 
 // ---------------------------------------------------------------- decline

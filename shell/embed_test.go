@@ -454,3 +454,46 @@ func TestVectorLaneHonoursTheSearchFilters(t *testing.T) {
 		t.Error("the filter must not drop the event it selects for")
 	}
 }
+
+// A sub-second --since must draw the SAME boundary in the vector lane as the
+// lexical lane draws in SQL. store.Search strips the trailing Z and compares
+// stored server_ts (RFC3339Nano) >= that prefix; the vector lane used to format
+// as RFC3339 (dropping the fraction) and compare against the un-stripped since,
+// so an event just before the boundary — excluded by SQL — leaked back through
+// fusion. Regression: stamp at ...05.100Z, ask for since ...05.300Z; both lanes
+// must exclude it.
+func TestVectorLaneSinceBoundaryMatchesTheLexicalLane(t *testing.T) {
+	_, st, sv := newServerFull(t, time.Millisecond)
+	base := time.Date(2026, 1, 1, 0, 0, 5, 100*int(time.Millisecond), time.UTC)
+	seedCounter++
+	before, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
+		Kind: core.KindFinding, Body: map[string]any{"text": "the auth suite flakes on a cold cache", "severity": "p2"},
+		Lane: core.LaneOf(core.KindFinding)}, "sb-"+itoa(seedCounter), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for sv.embed.step(context.Background(), 32) > 0 {
+	}
+
+	since := "2026-01-01T00:00:05.300Z"
+	// The lexical lane is the source of truth: confirm SQL excludes the event.
+	lex, err := st.Search("cold cache", "core", "", "", since, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range lex {
+		if r.Seq == before {
+			t.Fatalf("test premise broke: SQL kept the pre-boundary event (seq %d)", before)
+		}
+	}
+
+	fused, _, err := sv.searchBoth(context.Background(), "cold cache", "core", "", "", since, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fused {
+		if f.Rec.Seq == before {
+			t.Errorf("a pre-boundary event leaked through the vector lane's --since (seq %d)", before)
+		}
+	}
+}

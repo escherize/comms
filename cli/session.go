@@ -1,10 +1,11 @@
 package cli
 
-// Read sessions (ADR-0014). A hub running -read-auth answers reads with 401
+// Read sessions (ADR-0014, narrowed by ADR-0015). Reads are always
+// authenticated, so a hub answers an off-box, sessionless read with 401
 // session.required until the seat proves itself by signing a challenge. The
 // client does that here, invisibly: on the first refusal it signs, caches the
-// token, and retries — so "the hub requires read auth now" is a change nobody
-// has to relearn a workflow for.
+// token, and retries — so read auth is a change nobody has to relearn a
+// workflow for.
 
 import (
 	"bytes"

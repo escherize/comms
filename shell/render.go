@@ -515,22 +515,14 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, page)
 }
 
-// searchRow shows the lexical rank as its own column — the bm25 score, not the
-// row's position, so a reader can see how much better the first hit is than the
-// second. The vector rank column ships with ticket 07; the grammar has its slot.
+// searchRow is the live-append path for the search page. A live hit arrives via
+// the substring filter on one lane, not the fused lexical+vector search, so it
+// carries no rank position from either lane — both rank columns render as em
+// dashes, the same lane-absence information the static path shows. It renders
+// through fusedRow so an appended row is byte-for-byte the shape the page was
+// served with, data-seq included.
 func searchRow(r store.Record) string {
-	// data-seq is the live-lane dedupe hook: without it a resume overlap
-	// appends duplicate hit rows on the search page with nothing to catch it.
-	return fmt.Sprintf(
-		`<div class="row srow" data-seq="%d">`+
-			`<div class="folio">%d</div>`+
-			`<div class="rank">%.1f</div>`+
-			`<div class="rank vec">—</div>`+
-			`<div class="author">%s</div>`+
-			`<div class="kind">%s</div>`+
-			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
-		r.Seq, r.Seq, r.Rank, authorCell(r.Author), kindGlyph(r.Kind),
-		html.EscapeString(r.Room), r.Seq, html.EscapeString(r.Text()))
+	return fusedRow(Fused{Rec: r})
 }
 
 // entryLineCeiling is how much of a body a row shows before it folds. A ledger
@@ -574,15 +566,17 @@ func fusedRow(f Fused) string {
 		vec = fmt.Sprintf("%d", f.VecRank)
 	}
 	r := f.Rec
+	// data-seq is the live-lane dedupe hook: without it a resume overlap
+	// appends duplicate hit rows on the search page with nothing to catch it.
 	return fmt.Sprintf(
-		`<div class="row srow">`+
+		`<div class="row srow" data-seq="%d">`+
 			`<div class="folio">%d</div>`+
 			`<div class="rank">%s</div>`+
 			`<div class="rank vec">%s</div>`+
 			`<div class="author">%s</div>`+
 			`<div class="kind">%s</div>`+
 			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
-		r.Seq, lex, vec,
+		r.Seq, r.Seq, lex, vec,
 		authorCell(r.Author), kindGlyph(r.Kind),
 		html.EscapeString(r.Room), r.Seq,
 		html.EscapeString(truncate(r.Text(), 160)))

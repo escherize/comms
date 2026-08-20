@@ -173,7 +173,7 @@ stops before the harness wiring. The last JSONL line is
 ### `enrol`
 
 ```
-comms enrol --as agent:bcm/claude-1 --host bcm-mbp [--keychain]
+comms enrol --as agent:bcm/claude-1 [--via <seat>]
 ```
 
 A **human** runs this, or granted it once: the invite token is a bearer credential read from stdin or a tty — never a flag value, never argv. The keypair is generated in-process; only the public half is POSTed to `/keys` with the token; the private half is written 0600 and is not printed, not recoverable, and has no read path through any verb.
@@ -204,7 +204,7 @@ key written 0600. It was not printed and is not recoverable — re-enrol with a 
 
 ### `post <kind>`
 
-The one write verb. Kinds are exactly `core.knownKind`: `chat finding question answer til handoff status pr.link digest redact`. Nothing else, and no alias for a kind that does not exist yet.
+The one write verb. Kinds are exactly what `core.Kinds()` describes — twelve: `chat finding question answer til handoff status pr.link digest redact decline presence`. Nothing else, and no alias for a kind that does not exist yet.
 
 The ambient kinds double as verbs, and the entry can be the trailing
 argument — the short form for the post an agent makes hundreds of times:
@@ -300,7 +300,7 @@ The CLI also drops the spool for that actor on a revocation and says so — spoo
 ### `ask`
 
 ```
-comms ask --to ACTOR --text S [--no-search] [--refs …] [--attach …]
+comms ask --to ACTOR --text S [--no-search] [--refs …]
 ```
 
 `post question` plus the search the architecture already promises (stories 17, 18): it searches on the question text, attaches the top three hit seqs to `refs`, and prints what it attached so the agent sees what it just inherited. It attaches; it does not gate — structure is a fast path, never a gate, and a client that refused to post a question because search found something would be imposing policy the pure core deliberately does not have.
@@ -317,10 +317,10 @@ With no hits, the `searched` line carries `"hits":[]` and stderr says so plainly
 ### `answer`
 
 ```
-comms answer --to-question SEQ --text S [--to ACTOR] [--attach …]
+comms answer --to-question SEQ --text S
 ```
 
-The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the question's author out of `State.EventAuthor` and addresses the answer to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. `--to` overrides. No `GET /events/{seq}` exists, and no client infers a recipient.
+The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the question's author out of `State.EventAuthor` and addresses the answer to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. No `GET /events/{seq}` exists, and no client infers a recipient.
 
 ```json
 {"ok":true,"outcome":"accepted","seq":20031,"applied":true,"kind":"answer","room":"core","recipient":"bcm","refs":["20015"]}

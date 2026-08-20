@@ -1325,6 +1325,22 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		n, err := s.st.Append(ev, cmd.Idem, s.now())
 		if err != nil {
 			s.escalate.release(author)
+			var conflict store.ErrIdemConflict
+			if errors.As(err, &conflict) {
+				// The same key with different content is a conflict, not a
+				// retry. Mirror postCommand: a client-fixable mistake is a
+				// clean 409, not a server error.
+				writeJSON(w, http.StatusConflict, rejectedResponse{
+					"idem.conflict",
+					fmt.Sprintf("this key was used at seq %d for a different command. That is "+
+						"almost always a re-run with an edited flag: the key is derived from what "+
+						"you are posting, so changing the text or the severity and running again "+
+						"produces a new key, while reusing --idem does not. Either drop --idem and "+
+						"let the key follow the content, or pass a --idem that names this post",
+						conflict.Seq),
+					""})
+				return
+			}
 			var dup store.ErrDuplicate
 			if errors.As(err, &dup) {
 				// A replay. Nothing was appended, nobody was interrupted, and

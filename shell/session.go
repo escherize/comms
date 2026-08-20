@@ -207,8 +207,9 @@ func (s *Server) postSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// readGate is the whole of read auth: with -read-auth on, every request is
-// loopback, self-authenticating, or carries a live session.
+// readGate is the whole of read auth: reads are always authenticated (ADR-0015;
+// --read-auth is a deprecated no-op), so every request is loopback,
+// self-authenticating, or carries a live session.
 //
 // Loopback bypasses for the same reason invite minting trusts it — being on
 // the box is holding the database. Note what that implies for proxies that
