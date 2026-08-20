@@ -7,7 +7,6 @@
 package shell
 
 import (
-	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -56,7 +55,6 @@ type Server struct {
 	correct  *corrections
 	escalate *escalations
 	posting  *posting
-	embed    *embedder
 	sess     *sessions
 }
 
@@ -80,10 +78,6 @@ func New(st *store.Store, now Clock) *Server {
 		escalate:         newEscalations(now),
 		posting:          newPosting(now),
 		sess:             newSessions(now)}
-	// The lane ships wired to a stand-in rather than dark. An adapter seam
-	// nobody runs is a seam nobody knows is broken, and the watermark, the
-	// retries and the fusion are all real whatever produces the numbers.
-	sv.embed = newEmbedder(st, HashEmbedder{}, sv.now)
 	return sv
 }
 
@@ -98,7 +92,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /rooms/{name}", s.roomBrief)
 	mux.HandleFunc("GET /actors", s.actorsList)
 	mux.HandleFunc("POST /escalate", s.postEscalation)
-	mux.HandleFunc("GET /index", s.indexStatus)
 	mux.HandleFunc("GET /install", s.getInstall)
 	mux.HandleFunc("GET /comms", s.getBinary)
 	mux.HandleFunc("POST /delivered", s.postDelivered)
@@ -1109,7 +1102,7 @@ func lastEventID(r *http.Request) int64 {
 // writeSSE emits a datastar element patch: the row's HTML appended to the
 // ledger body. id: is the seq, which is what makes Last-Event-ID resume work.
 // writeSSE appends one row. asSearchHit picks the row shape: a search page
-// renders folio, ranks, author, kind, entry, and a room row dropped into it
+// renders folio, rank, author, kind, entry, and a room row dropped into it
 // lands in the wrong columns — the live rows would not line up with the ones
 // the page was served with.
 func writeSSE(w http.ResponseWriter, rec store.Record, asSearchHit bool) {
@@ -1367,49 +1360,6 @@ func (s *Server) postEscalation(w http.ResponseWriter, r *http.Request) {
 		"remaining": remaining,
 		"detail": fmt.Sprintf("%d escalation(s) left in this %s window",
 			remaining, EscalationWindow),
-	})
-}
-
-// StartEmbedder runs the semantic lane in the background until ctx ends. It is
-// started by the operator surface rather than by New, so a test drives step()
-// deterministically instead of racing a ticker.
-func (s *Server) StartEmbedder(ctx context.Context, every time.Duration) {
-	if s.embed == nil {
-		return
-	}
-	go s.embed.run(ctx, every)
-}
-
-// Reembed rebuilds the semantic lane from a seq.
-func (s *Server) Reembed(ctx context.Context, from int64) (int, error) {
-	if s.embed == nil {
-		return 0, errors.New("no embedder is configured")
-	}
-	return s.embed.Reembed(ctx, from)
-}
-
-// indexStatus is the lane's own page: how far behind it is, and everything it
-// gave up on. A dead-letter list nobody can read is a list that does not exist.
-func (s *Server) indexStatus(w http.ResponseWriter, r *http.Request) {
-	watermark, at, stale := s.lagFor()
-	dead, err := s.st.DeadLettered()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError,
-			rejectedResponse{"index.failed", err.Error(), ""})
-		return
-	}
-	if dead == nil {
-		dead = []store.DeadLetter{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "outcome": "read",
-		"embedded_through_seq": watermark,
-		"current_to":           at.UTC().Format(time.RFC3339),
-		"head":                 s.st.Head(),
-		"stale":                stale,
-		"dead_lettered":        dead,
-		"detail": "events on the dead-letter list are absent from the semantic lane " +
-			"and present in the lexical one; rebuild with: comms --reembed <seq>",
 	})
 }
 

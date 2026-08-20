@@ -203,10 +203,6 @@ func TestSearchIsBuiltNotDocumentedOnly(t *testing.T) {
 	if term["hits"].(float64) < 1 {
 		t.Errorf("search found nothing it should have: %v", term)
 	}
-	if term["lanes"] == nil && term["vector"] == nil {
-		t.Error("the reply must say which lanes were searched; a lexical-only result " +
-			"over an absent semantic lane is a true result read as a false conclusion")
-	}
 
 	var empty capture
 	if code := Run(empty.env(t, srv.URL, ""), []string{"search", "--as", seat}); code != ExitUsage {

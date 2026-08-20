@@ -228,10 +228,6 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("delivery schema: %w", err)
 	}
-	if _, err := db.Exec(vectorSchema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("vector schema: %w", err)
-	}
 	if _, err := db.Exec(capabilitySchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("capability schema: %w", err)
@@ -719,15 +715,7 @@ func ftsQuery(raw string) string {
 // SearchResult carries the hits plus what was actually searched, so an empty
 // result cannot be read as "the room does not know this".
 type SearchResult struct {
-	Hits  []Record
-	Lanes []LaneStatus
-}
-
-// LaneStatus reports one search lane's state.
-type LaneStatus struct {
-	Name   string `json:"name"`
-	State  string `json:"state"`
-	Detail string `json:"detail,omitempty"`
+	Hits []Record
 }
 
 // Search runs the lexical lane. Filters are applied after the FTS match.
@@ -857,17 +845,12 @@ func (s *Store) markRedactions(recs []Record) []Record {
 // Purge erases a body permanently. The envelope, its hash, and the chain
 // survive, so the log still verifies and now attests: a body with this hash was
 // here and is gone.
-// Purge erases a body permanently: the blob, its attachments, its lexical index
-// row and its embedding, all in one transaction.
+// Purge erases a body permanently: the blob, its attachments, and its lexical
+// index row, all in one transaction.
 //
 // One transaction because a partial erasure is worse than none — it reports
 // success while the secret survives in whichever table the failure came after,
 // and nobody looks again.
-//
-// The embedding is not an afterthought. It is derived from the body, so it is
-// the secret in a form nobody thinks to look at, and it outlives every surface
-// that suppression covers: a semantic search would still return the event that
-// lexical search had stopped returning.
 func (s *Store) Purge(seq int64) error {
 	// Read the attachments before opening the transaction. The pool is one
 	// connection by design, so a query issued while a transaction is open waits
@@ -908,7 +891,6 @@ func (s *Store) Purge(seq int64) error {
 	for _, stmt := range []string{
 		`DELETE FROM body WHERE seq = ?`,
 		`DELETE FROM search WHERE seq = ?`,
-		`DELETE FROM vector WHERE seq = ?`,
 		// The read grant dies with the body too. Redaction deletes this row;
 		// purge did not, so a purged event kept granting /a/<hash> to its
 		// rooms via ArtifactRooms — a stale scoping hole in an append-only log.
@@ -917,16 +899,6 @@ func (s *Store) Purge(seq int64) error {
 		if _, err := tx.Exec(stmt, seq); err != nil {
 			return err
 		}
-	}
-	// Record the erasure so a rebuild does not try to embed a body that is gone
-	// by design, and so a missing hit is a fact rather than a gap.
-	if _, err := tx.Exec(
-		`INSERT INTO embed_failure(seq, attempts, last, at) VALUES(?,?,?,?)
-		 ON CONFLICT(seq) DO UPDATE SET attempts = excluded.attempts,
-		   last = excluded.last, at = excluded.at`,
-		seq, EmbedAttempts, "body purged; there is nothing to embed",
-		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		return err
 	}
 	return tx.Commit()
 }
@@ -1023,9 +995,8 @@ func scanRanked(rows *sql.Rows) ([]Record, error) {
 	return out, rows.Err()
 }
 
-// RecordAt loads one event by seq, with redaction applied. The semantic lane
-// finds seqs the lexical one did not, and a hit whose body cannot be loaded is
-// a row that says nothing.
+// RecordAt loads one event by seq, with redaction applied. A hit whose body
+// cannot be loaded is a row that says nothing.
 func (s *Store) RecordAt(seq int64) (Record, bool) {
 	rows, err := s.db.Query(`
 		SELECT e.seq, e.server_ts, e.room, e.author, e.kind, e.recipient, e.lane,
@@ -1041,4 +1012,38 @@ func (s *Store) RecordAt(seq int64) (Record, bool) {
 		return Record{}, false
 	}
 	return s.markRedactions(recs)[0], true
+}
+
+// Head is the highest seq in the log, across every room. The watermark is
+// compared against it, so it must not be per-room: a lane that is current in
+// core and an hour behind in bash is behind.
+func (s *Store) Head() int64 {
+	var head sql.NullInt64
+	if err := s.db.QueryRow(`SELECT MAX(seq) FROM envelope`).Scan(&head); err != nil {
+		return 0
+	}
+	return head.Int64
+}
+
+// ServerTSOf is when an event was appended, which is what turns a watermark
+// into a sentence: "current to 14:32" rather than "behind by 812", since seq is
+// gappy by design and a count of them means nothing to a reader.
+func (s *Store) ServerTSOf(seq int64) (time.Time, bool) {
+	var ts string
+	if err := s.db.QueryRow(`SELECT server_ts FROM envelope WHERE seq = ?`, seq).Scan(&ts); err != nil {
+		return time.Time{}, false
+	}
+	at, err := time.Parse(time.RFC3339Nano, ts)
+	return at, err == nil
+}
+
+// NextSeq is the seq the next append will take. A drill prints it beside the
+// head to show the gap a restart opened: the jump is what makes a fencing
+// token issued before a restore unissuable after one.
+func (s *Store) NextSeq() int64 {
+	var next int64
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'next_seq'`).Scan(&next); err != nil {
+		return 0
+	}
+	return next
 }

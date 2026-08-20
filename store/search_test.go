@@ -166,13 +166,6 @@ func TestResultsOrderByRankNotSeq(t *testing.T) {
 	}
 }
 
-// The lane story moved to the shell when the vector lane was built: only the
-// server knows whether the embedder is configured, how far behind it is, and
-// whether the query itself could be embedded. store.Lanes() was a constant
-// claiming "vector unbuilt — ships in ticket 07" long after ticket 07 shipped,
-// and a reader checking the docs against the source found the stale doc
-// confirmed by stale code. See TestTheSearchPageIsLive and searchBoth.
-
 func seqList(rs []Record) []int64 {
 	out := make([]int64, 0, len(rs))
 	for _, r := range rs {

@@ -306,9 +306,9 @@ can draw a false conclusion from.`)
 		"searched": scope,
 	}
 	if terminal != nil {
-		// The server owns the lane story; a client that invented it would go
-		// stale the day the vector lane lands.
-		for _, k := range []string{"lanes", "vector", "note"} {
+		// The server owns any trailing note; a client that invented it would go
+		// stale.
+		for _, k := range []string{"note"} {
 			if v, ok := terminal[k]; ok {
 				term[k] = v
 			}

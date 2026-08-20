@@ -428,7 +428,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if wantsJSON(r) {
-		fused, lanes, err := s.searchBoth(r.Context(), q, r.URL.Query().Get("room"),
+		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
 			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
 			r.URL.Query().Get("since"), s.readerRooms(reader(r)), 100)
 		if err != nil {
@@ -438,29 +438,8 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		hits := make([]store.Record, 0, len(fused))
-		ranks := map[int64]map[string]any{}
-		for _, f := range fused {
-			hits = append(hits, f.Rec)
-			// Both ranks, per hit. A result that ranked 1st lexically and 40th
-			// semantically is a different fact than one that ranked 20th in
-			// each, and a single fused number throws that away.
-			ranks[f.Rec.Seq] = map[string]any{
-				"lexical": f.LexRank, "vector": f.VecRank,
-				"similarity": f.VecScore, "fused": f.Score,
-			}
-		}
-		watermark, at, stale := s.lagFor()
-		dead, _ := s.st.DeadLettered()
 		writeJSONL(w, http.StatusOK, hits, map[string]any{
-			"ok": true, "outcome": "read", "count": len(hits),
-			"lanes": lanes, "query": q, "ranks": ranks,
-			"vector_index": map[string]any{
-				"embedded_through_seq": watermark,
-				"current_to":           at.UTC().Format(time.RFC3339),
-				"stale":                stale,
-				"dead_lettered":        len(dead),
-			},
+			"ok": true, "outcome": "read", "count": len(hits), "query": q,
 		})
 		return
 	}
@@ -468,24 +447,22 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	var rows strings.Builder
 	var n int
 	var highest int64
-	var lanes []store.LaneStatus
 	if q != "" {
-		fused, laneStatus, err := s.searchBoth(r.Context(), q, r.URL.Query().Get("room"),
+		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
 			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
 			r.URL.Query().Get("since"), s.readerRooms(reader(r)), 100)
-		lanes = laneStatus
 		if err != nil {
 			rows.WriteString(`<div class="row"><div class="folio">!</div>` +
 				`<div class="author">—</div><div class="kind">ERR</div>` +
 				`<div class="body">` + html.EscapeString(err.Error()) + `</div></div>`)
 		}
-		for _, f := range fused {
-			rows.WriteString(fusedRow(f))
-			if f.Rec.Seq > highest {
-				highest = f.Rec.Seq
+		for i, rec := range hits {
+			rows.WriteString(searchHitRow(rec, i+1))
+			if rec.Seq > highest {
+				highest = rec.Seq
 			}
 		}
-		n = len(fused)
+		n = len(hits)
 		if n == 0 && err == nil {
 			rows.WriteString(`<div class="empty">no matches for &ldquo;` +
 				html.EscapeString(q) + `&rdquo; — try fewer words, or filter with the kind/author boxes</div>`)
@@ -508,7 +485,6 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		"{{N}}", fmt.Sprint(n),
 		"{{ROOM}}", html.EscapeString(room),
 		"{{HEAD}}", fmt.Sprint(head),
-		"{{LANES}}", laneFoot(lanes),
 	).Replace(searchHTML)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -516,13 +492,12 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // searchRow is the live-append path for the search page. A live hit arrives via
-// the substring filter on one lane, not the fused lexical+vector search, so it
-// carries no rank position from either lane — both rank columns render as em
-// dashes, the same lane-absence information the static path shows. It renders
-// through fusedRow so an appended row is byte-for-byte the shape the page was
-// served with, data-seq included.
+// the substring filter on the lexical index, not a ranked query, so it carries
+// no rank position — the rank column renders as an em dash. It renders through
+// searchHitRow so an appended row is byte-for-byte the shape the page was served
+// with, data-seq included.
 func searchRow(r store.Record) string {
-	return fusedRow(Fused{Rec: r})
+	return searchHitRow(r, 0)
 }
 
 // entryLineCeiling is how much of a body a row shows before it folds. A ledger
@@ -553,50 +528,25 @@ func renderEntryText(txt string, seq int64) string {
 		html.EscapeString("\n"+rest) + `</span>`
 }
 
-// fusedRow renders one hit with both ranks. An em dash in a rank column means
-// that lane did not return this event, which is information: it is how a reader
-// sees that a hit is lexical-only, or that the semantic lane found something
-// the words did not.
-func fusedRow(f Fused) string {
-	lex, vec := "—", "—"
-	if f.LexRank > 0 {
-		lex = fmt.Sprintf("%d", f.LexRank)
+// searchHitRow renders one search hit with its rank — the lexical position, one
+// column. rank is 1-based; 0 means the row arrived live off the index filter
+// rather than a ranked query, and the rank column renders as an em dash.
+func searchHitRow(r store.Record, rank int) string {
+	pos := "—"
+	if rank > 0 {
+		pos = fmt.Sprintf("%d", rank)
 	}
-	if f.VecRank > 0 {
-		vec = fmt.Sprintf("%d", f.VecRank)
-	}
-	r := f.Rec
 	// data-seq is the live-lane dedupe hook: without it a resume overlap
 	// appends duplicate hit rows on the search page with nothing to catch it.
 	return fmt.Sprintf(
 		`<div class="row srow" data-seq="%d">`+
 			`<div class="folio">%d</div>`+
 			`<div class="rank">%s</div>`+
-			`<div class="rank vec">%s</div>`+
 			`<div class="author">%s</div>`+
 			`<div class="kind">%s</div>`+
 			`<div class="body"><a href="/?room=%s#%d">%s</a></div></div>`,
-		r.Seq, r.Seq, lex, vec,
+		r.Seq, r.Seq, pos,
 		authorCell(r.Author), kindGlyph(r.Kind),
 		html.EscapeString(r.Room), r.Seq,
 		html.EscapeString(truncate(r.Text(), 160)))
-}
-
-// laneFoot states what each lane actually did. A lexical-only result over an
-// absent or stale semantic lane is a true result an agent draws a false
-// conclusion from, so the page says which it is rather than implying both ran.
-func laneFoot(lanes []store.LaneStatus) string {
-	if len(lanes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, l := range lanes {
-		b.WriteString(`<span>` + html.EscapeString(l.Name) + ` <b>` +
-			html.EscapeString(l.State) + `</b>`)
-		if l.Detail != "" {
-			b.WriteString(` — ` + html.EscapeString(l.Detail))
-		}
-		b.WriteString(`</span>`)
-	}
-	return b.String()
 }

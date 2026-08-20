@@ -163,14 +163,6 @@ func (s *Store) ArtifactSize(hash string) int {
 	return n
 }
 
-// PurgeArtifact drops a blob permanently. Callers reach it through Purge, so a
-// redaction takes the event's attachments with its body: a secret pasted into a
-// report must not outlive the redaction that erased the message.
-func (s *Store) PurgeArtifact(hash string) error {
-	_, err := s.db.Exec(`DELETE FROM artifact WHERE hash = ?`, hash)
-	return err
-}
-
 // Progress is the current state of one working actor, folded from its status
 // events rather than replayed from them.
 type Progress struct {
@@ -190,17 +182,6 @@ const StallWindow = 15 * time.Minute
 // is evaluated against the server clock, never a client timestamp.
 func (p Progress) Stalled(now time.Time, window time.Duration) bool {
 	return now.Sub(p.Updated) > window
-}
-
-// RecordProgress folds one status event into the projection.
-func (s *Store) RecordProgress(room, author string, step, of int, note string, now time.Time) error {
-	_, err := s.db.Exec(
-		`INSERT INTO progress(room, author, step, of, note, server_ts) VALUES(?,?,?,?,?,?)
-		 ON CONFLICT(room, author) DO UPDATE SET
-		   step = excluded.step, of = excluded.of,
-		   note = excluded.note, server_ts = excluded.server_ts`,
-		room, author, step, of, note, now.UTC().Format(time.RFC3339Nano))
-	return err
 }
 
 // ProgressFor returns every actor with recorded progress in a room, oldest
@@ -268,14 +249,6 @@ func applyRedactionTx(tx *sql.Tx, targetSeq, bySeq int64, byActor string, now ti
 		`INSERT INTO redacted(seq, by_actor, by_seq, server_ts) VALUES(?,?,?,?)
 		 ON CONFLICT(seq) DO NOTHING`,
 		targetSeq, byActor, bySeq, now.UTC().Format(time.RFC3339Nano)); err != nil {
-		return err
-	}
-	// The embedding dies with the body, in the same transaction. It is derived
-	// from the secret; an embedding that outlives a redaction is the secret in
-	// a form nobody thinks to look at. This is ticket 08's remaining criterion,
-	// satisfied here because the transaction that suppresses is the only place
-	// it can be satisfied.
-	if _, err := tx.Exec(`DELETE FROM vector WHERE seq = ?`, targetSeq); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM search WHERE seq = ?`, targetSeq); err != nil {

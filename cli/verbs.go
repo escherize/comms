@@ -1621,8 +1621,7 @@ worked on, and the difference is discovered when the work is due.`)
 func runServeHelp(e *Env, args []string) int {
 	e.Out.Help(`comms serve [--addr ADDR] [--db PATH] [--rooms A,B] [--seed] [--insecure]
 
-Starts the hub: the room, the command API, the SSE stream, and the background
-embedder that fills the semantic lane.
+Starts the hub: the room, the command API, and the SSE stream.
 
   comms serve                                  # 127.0.0.1:7777, ./comms.db
   comms serve --db demo.db --seed --rooms core,bash

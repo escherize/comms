@@ -55,7 +55,6 @@ func main() {
 	flagged := flag.String("flagged", "", "list events authored by a compromised key, then exit")
 	revoke := flag.String("revoke", "", "revoke a seat's key — future commands are refused, history stays valid — then exit")
 	compromise := flag.String("compromised-key", "", "mark a seat's key compromised (seat, or seat=RFC3339 suspected-since), then exit")
-	reembed := flag.Int64("reembed", -1, "rebuild the semantic lane from this seq, then exit")
 	digestAs := flag.String("digest-as", "", "run the digest bot under this seat (must hold the digest capability)")
 	digestTo := flag.String("digest-to", "", "who the digest is addressed to")
 	digestEvery := flag.Duration("digest-every", time.Hour, "how often the digest bot considers posting")
@@ -215,18 +214,6 @@ Most flags below are operator actions that touch the database and exit
 		return
 	}
 
-	if *reembed >= 0 {
-		// The rebuild runs on the operator surface, not as a verb: it rewrites a
-		// projection for the whole hub, which is not an agent's to do.
-		sv := shell.New(st, time.Now)
-		n, err := sv.Reembed(context.Background(), *reembed)
-		if err != nil {
-			log.Fatalf("reembed: %v", err)
-		}
-		fmt.Printf("rebuilt the semantic lane from %d: %d event(s) embedded\n", *reembed, n)
-		return
-	}
-
 	if *purge > 0 {
 		if err := st.Purge(*purge); err != nil {
 			log.Fatalf("purge: %v", err)
@@ -324,10 +311,6 @@ Most flags below are operator actions that touch the database and exit
 		log.Printf("note: --read-auth is deprecated and now a no-op — reads are always " +
 			"authenticated. You can drop the flag.")
 	}
-	// The semantic lane fills in the background. It is eventually consistent by
-	// design; /index and the search foot both publish how far behind it is.
-	srv.StartEmbedder(context.Background(), time.Second)
-
 	if *digestAs != "" {
 		if *digestTo == "" {
 			log.Fatal("-digest-as needs -digest-to: a digest with no recipient is ambient, " +

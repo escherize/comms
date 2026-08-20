@@ -256,9 +256,8 @@ footer {
 body[data-signing="false"] .composer .tok { display:none; }
 
 /* ---- search ---- */
-.srow { grid-template-columns: var(--col-folio) 3rem 3rem var(--col-author) var(--col-kind) 1fr; }
+.srow { grid-template-columns: var(--col-folio) 3rem var(--col-author) var(--col-kind) 1fr; }
 .rank { color: var(--ink-faint); text-align:right; font-variant-numeric: tabular-nums; }
-.rank.vec { color: var(--ink-faint); opacity:.5; }
 .empty { padding:2rem .7rem; color: var(--ink-faint); }
 /* the row a seq-fragment link landed on: marked, not just scrolled past */
 .row.landed { box-shadow: inset 2px 0 0 var(--accent); background: var(--raised); }
@@ -1837,7 +1836,7 @@ const searchHTML = `<!doctype html>
 
 <main class="ledger">
   <div class="head srow">
-    <div>folio</div><div>lex</div><div>vec</div><div>author</div><div>kind</div><div>entry</div>
+    <div>folio</div><div>rank</div><div>author</div><div>kind</div><div>entry</div>
   </div>
   <div id="ledger-body">{{ROWS}}</div>
 </main>
@@ -1845,7 +1844,6 @@ const searchHTML = `<!doctype html>
 <footer>
   <div class="balance">
     <span>hits <b>{{N}}</b></span>
-    {{LANES}}
     <span>new matches arrive <b>live</b></span>
   </div>
 </footer>

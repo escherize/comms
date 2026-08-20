@@ -142,7 +142,7 @@ func TestAnEnrolledKeyMintsASessionThatUnlocksReads(t *testing.T) {
 		t.Fatal("a granted session carries a token")
 	}
 
-	if w := gated(h, "GET", "/index", map[string]string{SessionHeader: token}, ""); w.Code != http.StatusOK {
+	if w := gated(h, "GET", "/rooms?format=json", map[string]string{SessionHeader: token}, ""); w.Code != http.StatusOK {
 		t.Errorf("the header transport must unlock reads, got %d: %s", w.Code, w.Body.String())
 	}
 
@@ -157,7 +157,7 @@ func TestAnEnrolledKeyMintsASessionThatUnlocksReads(t *testing.T) {
 	if cookie == "" {
 		t.Fatal("granting a session must also set the cookie")
 	}
-	if w := gated(h, "GET", "/index", map[string]string{"Cookie": cookie}, ""); w.Code != http.StatusOK {
+	if w := gated(h, "GET", "/rooms?format=json", map[string]string{"Cookie": cookie}, ""); w.Code != http.StatusOK {
 		t.Errorf("the cookie transport must unlock reads, got %d", w.Code)
 	}
 }
@@ -241,7 +241,7 @@ func TestAnExpiredChallengeIsRefused(t *testing.T) {
 // box is holding the database.
 func TestLoopbackBypassesReadAuth(t *testing.T) {
 	h, _, _, _ := gatedServer(t)
-	r := httptest.NewRequest("GET", "/index", nil)
+	r := httptest.NewRequest("GET", "/rooms?format=json", nil)
 	r.RemoteAddr = "127.0.0.1:54321"
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)

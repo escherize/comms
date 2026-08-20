@@ -286,10 +286,6 @@ func TestSearchJSONLane(t *testing.T) {
 	if last["ok"] != true || last["outcome"] != "read" {
 		t.Errorf("terminal object should report the outcome, got %v", last)
 	}
-	lanes, _ := last["lanes"].([]any)
-	if len(lanes) != 2 {
-		t.Errorf("the response must name the lanes searched, got %v", last["lanes"])
-	}
 }
 
 // An empty query is a rejection. Returning zero hits would read as "the room
@@ -316,8 +312,8 @@ func TestEmptyQueryIsRejected(t *testing.T) {
 	}
 }
 
-// The HTML page is unchanged by the JSON lane, and states what it searched.
-func TestSearchPageStillRendersAndNamesLanes(t *testing.T) {
+// The HTML page is unchanged by the JSON lane, and renders lexical hits.
+func TestSearchPageStillRenders(t *testing.T) {
 	srv, _ := newServer(t)
 	post(t, srv, cmd("til", "sqlite-vec rejects long bodies", "h1"))
 
@@ -325,21 +321,4 @@ func TestSearchPageStillRendersAndNamesLanes(t *testing.T) {
 	if !strings.Contains(page, "sqlite-vec rejects long bodies") {
 		t.Error("the HTML page must still render hits")
 	}
-	// The page names each lane and what it did. It used to hardcode "vector
-	// unbuilt"; now the lane is built and reports its own state, and the
-	// invariant is that a reader can always tell which lanes actually ran —
-	// a lexical-only result over an absent or stale semantic lane is a true
-	// result somebody draws a false conclusion from.
-	if !strings.Contains(page, "lexical") {
-		t.Error("the page must name the lexical lane")
-	}
-	if !strings.Contains(page, "vector") {
-		t.Error("the page must name the vector lane and what it did")
-	}
-	for _, state := range []string{"searched", "stale", "unbuilt", "failed"} {
-		if strings.Contains(page, "<b>"+state+"</b>") {
-			return
-		}
-	}
-	t.Error("the page must state each lane's state, not merely list the lanes")
 }
