@@ -369,6 +369,25 @@ func (s *Store) RoomHeads() (map[string]int64, error) {
 	return out, rows.Err()
 }
 
+// replyIntoExchange reports whether any ref names an in-room addressed event
+// between exactly these two seats — i.e. the post continues an existing
+// exchange. A reply must not open a waiting-on item of its own: an agent
+// answering a human's ask would otherwise open a spurious "the human owes a
+// response" row the human never asked for.
+func replyIntoExchange(tx *sql.Tx, room string, refs []string, author, recipient string) bool {
+	for _, ref := range refs {
+		var a, r, rm string
+		if err := tx.QueryRow(`SELECT author, recipient, room FROM envelope WHERE seq = ?`, ref).
+			Scan(&a, &r, &rm); err != nil || rm != room || r == "" {
+			continue
+		}
+		if (a == author && r == recipient) || (a == recipient && r == author) {
+			return true
+		}
+	}
+	return false
+}
+
 // EventRecipient backs the decider's reply-routing: who a prior event was
 // addressed to, "" when it was ambient.
 func (s *Store) EventRecipient(ref string) (core.Actor, bool) {
@@ -512,15 +531,21 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 	step, hasStep := ev.Body["step"].(float64)
 	of, hasOf := ev.Body["of"].(float64)
 	if ev.Kind == core.Kind("status") || hasStep || hasOf {
-		// "still working on the migration" is not a claim that the work went
-		// back to step 0 of 0. A step-less status carries the author's existing
-		// counter forward rather than erasing it.
-		if !hasStep && !hasOf {
+		// A missing field is not a claim that it went to zero: --step 3 on a
+		// 2-of-5 job means step 3 of 5, and a step-less legacy status carries
+		// the author's whole counter forward. Each absent field individually
+		// inherits its prior value rather than erasing it.
+		if !hasStep || !hasOf {
 			var priorStep, priorOf int
 			if err := tx.QueryRow(
 				`SELECT step, of FROM progress WHERE room = ? AND author = ?`,
 				ev.Room, string(ev.Author)).Scan(&priorStep, &priorOf); err == nil {
-				step, of = float64(priorStep), float64(priorOf)
+				if !hasStep {
+					step = float64(priorStep)
+				}
+				if !hasOf {
+					of = float64(priorOf)
+				}
 			}
 		}
 		if _, err := tx.Exec(
@@ -586,12 +611,14 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 		}
 	}
 	// What opens an item: a post addressed to a human seat — a person owes a
-	// response — unless the post is itself the reply that just closed one.
-	// Legacy `question` events open regardless of namespace, so old logs
-	// rebuild exactly. ponytail: a human-addressed ack nobody replies to sits
-	// open; per-thread state if that ever matters.
+	// response — unless the post is a reply: it closed a row, or it continues
+	// an exchange its refs already carry. Legacy `question` events open
+	// regardless of namespace, so old logs rebuild exactly. ponytail: a
+	// human-addressed ack nobody replies to sits open; per-thread state if
+	// that ever matters.
 	if ev.Kind == core.Kind("question") ||
-		(ev.Kind == core.KindChat && !closedARef && ev.Recipient != "" && !ev.Recipient.IsAgent()) {
+		(ev.Kind == core.KindChat && !closedARef && ev.Recipient != "" && !ev.Recipient.IsAgent() &&
+			!replyIntoExchange(tx, ev.Room, ev.Refs, string(ev.Author), string(ev.Recipient))) {
 		if _, err := tx.Exec(
 			`INSERT INTO question(seq, room, author, recipient, asked_at)
 			 VALUES(?,?,?,?,?) ON CONFLICT(seq) DO NOTHING`,

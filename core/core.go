@@ -266,11 +266,14 @@ func checkRedaction(s State, c Command) *Rejection {
 	}
 
 	// The target must live in the room the redact is posted to, so the record
-	// of the suppression sits where the suppressed thing was.
+	// of the suppression sits where the suppressed thing was. A cross-room
+	// target reads as nonexistent — the same existence-hiding rule reply-
+	// routing applies; naming the other room here let any member of this room
+	// map a guessed seq to the room that holds it.
 	if s.EventRoom != nil {
 		if room, ok := s.EventRoom(c.Refs[0]); ok && room != c.Room {
 			return &Rejection{"refs.target_unknown",
-				"event " + c.Refs[0] + " is in room " + room + ", not " + c.Room}
+				"no event at " + c.Refs[0] + " in this room; a redact that names nothing would report success and do nothing"}
 		}
 	}
 

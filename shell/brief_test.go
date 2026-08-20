@@ -252,22 +252,6 @@ func TestAPerKeyRateLimitReturns429WithARetryAfter(t *testing.T) {
 	}
 }
 
-// ADR-0008: budgets never touch task.* or offer.*. Work coordination is not
-// chatter, and a limit that could stall a claim turns a busy room into a stuck
-// one. The rule is a prefix so a new task.* kind is exempt by construction.
-func TestWorkCoordinationIsExemptFromTheBudget(t *testing.T) {
-	for _, k := range []string{"task.claim", "task.release", "offer.propose", "offer.settle"} {
-		if !exemptFromBudget(core.Kind(k)) {
-			t.Errorf("%s must be exempt from the posting budget", k)
-		}
-	}
-	for _, k := range []string{"chat", "finding", "til", "question"} {
-		if exemptFromBudget(core.Kind(k)) {
-			t.Errorf("%s is chatter and must be budgeted", k)
-		}
-	}
-}
-
 // docs/CLI.md promises at most two self-corrections. The client cannot keep
 // that promise — a self-correction is a fresh process with a fresh idem, so
 // there is no lineage in the client to count — but the server sees every
@@ -572,33 +556,6 @@ func TestAddressedKindsAreNotChargedToThePostingBudget(t *testing.T) {
 		`"body":{"text":"is this still true?"},"recipient":"human:bcm","idem":"ad-q"}`)
 	if code != http.StatusOK {
 		t.Errorf("an addressed kind must not be refused by the ambient budget: %d %v", code, out)
-	}
-}
-
-// Work coordination is exempt by construction, so a burst of task.* is never
-// delayed however full the room is. The rule is a prefix, so a task kind added
-// later is exempt without anyone remembering to add it.
-func TestABurstOfWorkCoordinationIsNeverDelayed(t *testing.T) {
-	p := newPosting(func() time.Time { return time.Unix(0, 0) })
-	for i := 0; i < PostingBudget*10; i++ {
-		if _, _, ok := p.charge("agent:c1", "core", core.Kind("task.done")); !ok {
-			t.Fatalf("task.done was delayed on attempt %d; claims must never queue", i)
-		}
-	}
-	for i := 0; i < PostingBudget*10; i++ {
-		if _, _, ok := p.charge("agent:c1", "core", core.Kind("offer.settle")); !ok {
-			t.Fatalf("offer.settle was delayed on attempt %d", i)
-		}
-	}
-	// And the same ledger still bounds ambient chatter.
-	var refused bool
-	for i := 0; i < PostingBudget+1; i++ {
-		if _, _, ok := p.charge("agent:c1", "core", core.Kind("til")); !ok {
-			refused = true
-		}
-	}
-	if !refused {
-		t.Error("the exemption must not disable the budget for everything else")
 	}
 }
 

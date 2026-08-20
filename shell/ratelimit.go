@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"strings"
 	"sync"
 	"time"
 
@@ -38,14 +37,12 @@ func newLimiter(perMinute int, burst int, now func() time.Time) *limiter {
 }
 
 // allow reports whether this actor may post now, and how long to wait if not.
-func (l *limiter) allow(actor core.Actor, kind core.Kind) (bool, time.Duration) {
-	// ADR-0008: budgets never touch task.* or offer.*. Work coordination is not
-	// chatter, and a rate limit that could stall a claim would turn a busy room
-	// into a stuck one.
-	if exemptFromBudget(kind) {
-		return true, 0
-	}
-
+// No kind is consulted: the old task.*/offer.* exemption ran on the
+// author-controlled kind string BEFORE validation, so any key holder could
+// name a nonexistent task.* kind and skip the limiter entirely. When
+// first-class task events arrive (parked in TODO), their exemption belongs
+// after the kind is validated, not here.
+func (l *limiter) allow(actor core.Actor) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -68,14 +65,6 @@ func (l *limiter) allow(actor core.Actor, kind core.Kind) (bool, time.Duration) 
 	// Time until one whole token exists.
 	wait := time.Duration((1 - b.tokens) / l.rate * float64(time.Second))
 	return false, wait
-}
-
-// exemptFromBudget names the kinds that coordinate work rather than fill a
-// room. It is a prefix rule so a new task.* kind is exempt by construction
-// rather than by remembering to add it here.
-func exemptFromBudget(kind core.Kind) bool {
-	k := string(kind)
-	return strings.HasPrefix(k, "task.") || strings.HasPrefix(k, "offer.")
 }
 
 // corrections counts consecutive rejections of the same invariant per seat.
@@ -164,11 +153,7 @@ func newPosting(now func() time.Time) *posting {
 // only ambient events — an addressed post is priced by the rate limit and by
 // the fact that a person is named, which is a cost the author already feels —
 // and the lane is the deliberate address's, so it is known after Decide.
-func (p *posting) charge(actor core.Actor, room string, kind core.Kind) (remaining int, oldest time.Duration, ok bool) {
-	if exemptFromBudget(kind) {
-		return PostingBudget, 0, true
-	}
-
+func (p *posting) charge(actor core.Actor, room string) (remaining int, oldest time.Duration, ok bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -191,19 +176,17 @@ func (p *posting) charge(actor core.Actor, room string, kind core.Kind) (remaini
 	return PostingBudget - len(live), 0, true
 }
 
-// release refunds the newest stamp when the charged post kept nothing — a
-// replay or failed append. Without it a refused command burned an ambient
-// slot, and the refusal's "nothing was lost" was false about the budget.
-// Mirrors charge's exemption, so an uncharged kind cannot refund a stamp some
-// other post paid for.
-func (p *posting) release(actor core.Actor, room string, kind core.Kind) {
-	if exemptFromBudget(kind) {
-		return
-	}
+// release refunds one stamp when a charged post kept nothing — a replay or
+// failed append. Without it a refused command burned an ambient slot, and the
+// refusal's "nothing was lost" was false about the budget. The OLDEST stamp
+// goes: charges append in order, so with two posts in flight the failed one is
+// the earlier charge — popping the newest would refund the kept sibling's
+// fresher stamp and let the window under-count.
+func (p *posting) release(actor core.Actor, room string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	key := postingKey{actor, room}
 	if n := len(p.spent[key]); n > 0 {
-		p.spent[key] = p.spent[key][:n-1]
+		p.spent[key] = p.spent[key][1:]
 	}
 }

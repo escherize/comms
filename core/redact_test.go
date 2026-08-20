@@ -58,8 +58,10 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// The target must live in the room the redact is posted to, so the record of
-// the suppression sits where the suppressed thing was.
+// The target must live in the room the redact is posted to, and a cross-room
+// target reads as nonexistent: naming the other room let any member of the
+// posting room map a guessed seq to the room that holds it (study 7, seq
+// 10002). Same existence-hiding rule reply-routing applies.
 func TestRedactTargetMustBeInTheSameRoom(t *testing.T) {
 	state := State{
 		RoomExists:  okRoom,
@@ -71,8 +73,8 @@ func TestRedactTargetMustBeInTheSameRoom(t *testing.T) {
 	if rej == nil || rej.Invariant != "refs.target_unknown" {
 		t.Fatalf("a cross-room target must be refused, got %v", rej)
 	}
-	if !contains(rej.Detail, "other") {
-		t.Error("the refusal should name the room the event is actually in")
+	if contains(rej.Detail, "other") {
+		t.Errorf("the refusal must not leak the room the event lives in: %q", rej.Detail)
 	}
 }
 

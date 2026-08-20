@@ -39,6 +39,7 @@ func (s *Store) Rebuild() error {
 		`DELETE FROM search`,
 		`DELETE FROM progress`,
 		`DELETE FROM question`,
+		`DELETE FROM artifact_ref`,
 		`DELETE FROM actor WHERE source = 'post'`,
 	} {
 		if _, err := tx.Exec(stmt); err != nil {
@@ -134,15 +135,39 @@ func foldInto(tx *sql.Tx, rec Record) error {
 		}
 	}
 
-	// Progress, exactly as Append folds it: body-driven, with legacy `status`
-	// events keeping their carry-forward behavior.
-	if step, of := rec.Step(), rec.Of(); rec.Kind == core.Kind("status") || step > 0 || of > 0 {
-		if step == 0 && of == 0 {
+	// The artifact access index, exactly as Append writes it — its own doc
+	// promises "-rebuild may drop and refill it", and until this line the
+	// refill half was missing. Skipped for a purged event: purge dropped its
+	// refs, and re-granting a room access through an erased event would undo
+	// the erasure. A redacted target's rows are deleted again when its redact
+	// event folds, same as the incremental path.
+	if !rec.BodyErased {
+		for _, a := range rec.Attach {
+			if err := addArtifactRef(tx, a.Hash, rec.Seq, rec.Room); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Progress, exactly as Append folds it: the trigger is body-key presence,
+	// not value — an explicit step:0 folds, and each absent field individually
+	// carries its prior value forward. The two folds diverging here is exactly
+	// what the rebuild-equivalence property test exists to catch.
+	stepF, hasStep := rec.Body["step"].(float64)
+	ofF, hasOf := rec.Body["of"].(float64)
+	if rec.Kind == core.Kind("status") || hasStep || hasOf {
+		step, of := int(stepF), int(ofF)
+		if !hasStep || !hasOf {
 			var priorStep, priorOf int
 			if err := tx.QueryRow(
 				`SELECT step, of FROM progress WHERE room = ? AND author = ?`,
 				rec.Room, string(rec.Author)).Scan(&priorStep, &priorOf); err == nil {
-				step, of = priorStep, priorOf
+				if !hasStep {
+					step = priorStep
+				}
+				if !hasOf {
+					of = priorOf
+				}
 			}
 		}
 		if _, err := tx.Exec(
@@ -192,7 +217,8 @@ func foldInto(tx *sql.Tx, rec Record) error {
 		}
 	}
 	if rec.Kind == core.Kind("question") ||
-		(rec.Kind == core.KindChat && !closedARef && rec.Recipient != "" && !rec.Recipient.IsAgent()) {
+		(rec.Kind == core.KindChat && !closedARef && rec.Recipient != "" && !rec.Recipient.IsAgent() &&
+			!replyIntoExchange(tx, rec.Room, rec.Refs, string(rec.Author), string(rec.Recipient))) {
 		if _, err := tx.Exec(
 			`INSERT INTO question(seq, room, author, recipient, asked_at)
 			 VALUES(?,?,?,?,?) ON CONFLICT(seq) DO NOTHING`,

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/escherize/comms/core"
 	"github.com/escherize/comms/store"
 )
 
@@ -72,19 +71,14 @@ func TestRecipientFilterPassesMentions(t *testing.T) {
 func TestRejectedPostRefundsTheBudget(t *testing.T) {
 	p := newPosting(time.Now)
 	for i := 0; i < 3; i++ {
-		if _, _, ok := p.charge("agent:a", "core", core.KindChat); !ok {
+		if _, _, ok := p.charge("agent:a", "core"); !ok {
 			t.Fatal("charge refused early")
 		}
-		p.release("agent:a", "core", core.KindChat)
+		p.release("agent:a", "core")
 	}
-	remaining, _, ok := p.charge("agent:a", "core", core.KindChat)
+	remaining, _, ok := p.charge("agent:a", "core")
 	if !ok || remaining != PostingBudget-1 {
 		t.Fatalf("three refunded charges must leave the budget whole, got remaining=%d ok=%v", remaining, ok)
-	}
-	// An exempt kind must refund nothing it never charged.
-	p.release("agent:a", "core", core.Kind("task.done"))
-	if remaining2, _, _ := p.charge("agent:a", "core", core.KindChat); remaining2 != PostingBudget-2 {
-		t.Fatalf("an exempt release stole a paid stamp: remaining=%d", remaining2)
 	}
 }
 

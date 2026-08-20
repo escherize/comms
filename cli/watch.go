@@ -109,8 +109,14 @@ useful for watching what a seat is being sent.`)
 		delivered := 0
 		for _, f := range events {
 			if len(command) == 0 {
+				// Print-only still advances: without this, every interval
+				// re-delivered the same events forever, and the help's
+				// "prints the events and advances" was a lie.
 				e.Out.Line(f.Data)
 				delivered++
+				if f.Seq > highest {
+					highest = f.Seq
+				}
 				continue
 			}
 			if err := handOff(command, f.Data); err != nil {
@@ -137,7 +143,7 @@ useful for watching what a seat is being sent.`)
 			}
 		}
 
-		if len(command) > 0 && highest > 0 {
+		if highest > 0 {
 			if err := SaveCursor(seat, inRoom, LaneAddressed, highest); err != nil {
 				return e.Out.Fail(ExitInternal, "internal", "cursor.unwritable", err.Error())
 			}

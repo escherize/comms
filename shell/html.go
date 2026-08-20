@@ -1659,8 +1659,9 @@ const composeScript = `
     status: function(rest){
       var m=rest.match(/^(\d+)\/(\d+)\s+([\s\S]+)$/);
       if(m) return {kind:'chat', body:{step:+m[1], of:+m[2], text:m[3]}};
-      if(!rest) return {error:'usage: /status 3/7 <what you are doing>'};
-      return {kind:'chat', body:{text:rest}};
+      // Without the numbers there is no progress to fold, and silently
+      // posting plain chat made authors believe they had reported status.
+      return {error:'usage: /status 3/7 <what you are doing> — progress needs the numbers; plain text is an ordinary post'};
     },
     ask: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
@@ -1733,7 +1734,9 @@ const composeScript = `
       var verb=m[1].toLowerCase(), rest=m[2].trim();
       var spec=SLASH[verb];
       if(!spec){
-        fail(text, 'unknown command /'+verb+' — try: '+Object.keys(SLASH).join(', '));
+        fail(text, 'unknown command /'+verb+' — shortcuts: '+
+          Object.keys(SLASH).map(function(v){return '/'+v;}).join(' ')+
+          '. To post text that starts with /, begin with a space.');
         return;
       }
       var parsed=spec(rest);

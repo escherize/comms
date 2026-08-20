@@ -196,7 +196,7 @@ func (s *Server) postArtifact(w http.ResponseWriter, r *http.Request) {
 	// (operator curls on the box), matching every other write path.
 	who := reader(r)
 	if who != "" && s.limit != nil {
-		if ok, wait := s.limit.allow(core.Actor(who), core.KindChat); !ok {
+		if ok, wait := s.limit.allow(core.Actor(who)); !ok {
 			w.Header().Set("Retry-After", fmt.Sprint(int(wait.Seconds())+1))
 			writeJSON(w, http.StatusTooManyRequests, map[string]any{
 				"ok": false, "outcome": "throttled", "exit": 6,
@@ -328,12 +328,15 @@ type wireCommand struct {
 	} `json:"attachments"`
 }
 
-func parseCommand(raw []byte) (core.Command, error) {
+// parseCommand also reports whether the recipient was parsed out of a leading
+// @token in the text (rather than sent explicitly), because the two need
+// different corrections when the seat turns out not to exist.
+func parseCommand(raw []byte) (core.Command, bool, error) {
 	var w wireCommand
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&w); err != nil {
-		return core.Command{}, fmt.Errorf("malformed command: %w", err)
+		return core.Command{}, false, fmt.Errorf("malformed command: %w", err)
 	}
 	if w.Body == nil {
 		w.Body = map[string]any{}
@@ -343,7 +346,7 @@ func parseCommand(raw []byte) (core.Command, error) {
 	var atts []core.Attachment
 	for _, a := range w.Attachments {
 		if !store.ValidHash(a.Hash) {
-			return core.Command{}, fmt.Errorf(
+			return core.Command{}, false, fmt.Errorf(
 				"attachment hash must be 64 lowercase hex chars, got %q", a.Hash)
 		}
 		atts = append(atts, core.Attachment{Hash: a.Hash, Title: a.Title})
@@ -355,8 +358,10 @@ func parseCommand(raw []byte) (core.Command, error) {
 	// enrolment check. Only the leading token addresses: an @seat buried
 	// mid-prose is a mention, evidence-weight, and never sets the recipient.
 	// An explicit --to wins over the text.
+	fromText := false
 	if w.Recipient == "" && w.Kind != string(core.KindRedact) {
 		w.Recipient = leadingAt(w.Body)
+		fromText = w.Recipient != ""
 	}
 
 	return core.Command{
@@ -368,7 +373,7 @@ func parseCommand(raw []byte) (core.Command, error) {
 		Idem:        w.Idem,
 		Recipient:   core.Actor(w.Recipient),
 		Attachments: atts,
-	}, nil
+	}, fromText, nil
 }
 
 // leadingAt extracts the seat a body's text deliberately addresses: an @token
@@ -394,7 +399,10 @@ func leadingAt(body map[string]any) string {
 	if end == 1 {
 		return "" // a bare "@" is prose
 	}
-	return strings.TrimRight(text[1:end], ".") // "@sarah." ends a sentence
+	// "@sarah." ends a sentence and "@sarah:" introduces one; the seat is
+	// sarah either way. ':' must be trimmed here even though it is a seat
+	// char (namespaces), because a trailing colon is always punctuation.
+	return strings.TrimRight(text[1:end], ".:")
 }
 
 // ---------------------------------------------------------------- commands
@@ -426,7 +434,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cmd, err := parseCommand(raw)
+	cmd, recipientFromText, err := parseCommand(raw)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest,
 			rejectedResponse{"parse.failed", err.Error(), ""})
@@ -464,7 +472,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 	// Per-key rate limit. 429 carries retry_after_ms because "slow down" without
 	// a number is an invitation to guess, and every agent guesses differently.
 	if s.limit != nil {
-		if ok, wait := s.limit.allow(cmd.Author, cmd.Kind); !ok {
+		if ok, wait := s.limit.allow(cmd.Author); !ok {
 			ms := wait.Milliseconds()
 			if ms < 1 {
 				ms = 1
@@ -512,7 +520,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		// address came from a leading @token — the way out for prose that was
 		// never meant to address anyone.
 		if rej.Invariant == "recipient.unknown" {
-			rej.Detail = s.recipientUnknownDetail(cmd, rej.Detail)
+			rej.Detail = s.recipientUnknownDetail(cmd, recipientFromText, rej.Detail)
 		}
 		attempts, exhausted := s.correct.rejected(cmd.Author, rej.Invariant)
 		if exhausted {
@@ -545,7 +553,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 	// attention nobody received.
 	kept := false
 	if s.posting != nil && len(events) > 0 && events[0].Lane == core.Ambient {
-		if _, oldest, ok := s.posting.charge(cmd.Author, cmd.Room, cmd.Kind); !ok {
+		if _, oldest, ok := s.posting.charge(cmd.Author, cmd.Room); !ok {
 			writeJSON(w, http.StatusTooManyRequests, map[string]any{
 				"ok": false, "outcome": "throttled", "exit": 6,
 				"invariant": "budget.exhausted",
@@ -556,9 +564,8 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 				"retry_after_ms": oldest.Milliseconds(),
 				"kept":           false,
 				"next": "you are not posting too fast, you are posting too much to read. " +
-					"Combine what is left into one summarizing finding and post that, or " +
-					"attach the detail and post the summary. task.* and offer.* are never " +
-					"budgeted, so work coordination is unaffected",
+					"Combine what is left into one summarizing post, or attach the " +
+					"detail with comms attach and post the summary",
 			})
 			return
 		}
@@ -566,7 +573,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		// stamped nothing, so it must refund nothing.
 		defer func() {
 			if !kept {
-				s.posting.release(cmd.Author, cmd.Room, cmd.Kind)
+				s.posting.release(cmd.Author, cmd.Room)
 			}
 		}()
 	}
@@ -621,14 +628,14 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 // parsed from a leading @token in the text — a typo'd --to and prose that
 // happens to open with @something need different corrections, and an error
 // that cannot tell them apart sends the author to fix the wrong one.
-func (s *Server) recipientUnknownDetail(cmd core.Command, base string) string {
+func (s *Server) recipientUnknownDetail(cmd core.Command, fromText bool, base string) string {
 	d := base
 	if near := s.similarSeats(string(cmd.Recipient), 3); len(near) > 0 {
 		d += ". Did you mean " + strings.Join(near, ", ") + "?"
 	} else {
 		d += ". comms room lists every enrolled seat"
 	}
-	if leadingAt(cmd.Body) == string(cmd.Recipient) {
+	if fromText {
 		d += ". This address came from the leading @" + string(cmd.Recipient) +
 			" in your text: fix the spelling if you meant to address someone, or " +
 			"reword so the text does not open with @ if it was prose — a mid-prose " +
