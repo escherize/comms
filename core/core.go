@@ -200,6 +200,14 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		}
 		if s.EventKind != nil {
 			k, ok := s.EventKind(c.Refs[0])
+			// Cross-room reads as nonexistent — the same existence-hiding
+			// redaction applies, and a decline must not route to a seat that
+			// never handed anything over in this room.
+			if ok && s.EventRoom != nil {
+				if room, roomOK := s.EventRoom(c.Refs[0]); roomOK && room != c.Room {
+					ok = false
+				}
+			}
 			if !ok {
 				return nil, &Rejection{"refs.unknown",
 					"no event at " + c.Refs[0] + "; check the seq you were handed"}
@@ -443,6 +451,14 @@ func authorOfReferenced(s State, c Command, want Kind) (Actor, bool) {
 		return "", false
 	}
 	for _, ref := range c.Refs {
+		if s.EventRoom != nil {
+			// The reply's recipient comes from the referenced event, so the
+			// reference must live in this room — deriving it cross-room
+			// addressed seats that never spoke here.
+			if room, ok := s.EventRoom(ref); ok && room != c.Room {
+				continue
+			}
+		}
 		if k, ok := s.EventKind(ref); ok && k == want {
 			if who, ok := s.EventAuthor(ref); ok && who != "" {
 				return who, true
@@ -468,6 +484,15 @@ func checkAnswersAQuestion(s State, c Command) *Rejection {
 		k, ok := s.EventKind(ref)
 		if !ok {
 			continue
+		}
+		// A ref in another room is treated exactly like a ref that does not
+		// exist: answering across rooms routed a reply to a recipient who may
+		// not be a member here, and the distinct refusal was a cross-room
+		// existence oracle. Same rule redaction already applies.
+		if s.EventRoom != nil {
+			if room, ok := s.EventRoom(ref); ok && room != c.Room {
+				continue
+			}
 		}
 		sawSomething = true
 		if k == KindQuestion {

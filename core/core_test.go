@@ -509,3 +509,30 @@ func TestDigestFailsClosedWithNoCapabilityLookup(t *testing.T) {
 		t.Error("an unwired capability check must fail closed")
 	}
 }
+
+// An answer's ref must live in the answer's room. Cross-room refs read as
+// nonexistent — the distinct refusal was an existence oracle, and the derived
+// recipient could be a non-member of the room the answer lands in.
+func TestAnswerRefsAreRoomScoped(t *testing.T) {
+	s := State{
+		RoomExists: okRoom,
+		EventKind: func(ref string) (Kind, bool) {
+			if ref == "42" {
+				return KindQuestion, true
+			}
+			return "", false
+		},
+		EventAuthor: func(ref string) (Actor, bool) { return "human:q", true },
+		EventRoom:   func(ref string) (string, bool) { return "other-room", true },
+	}
+	_, rej := Decide(s, Command{
+		Room: "core", Author: "agent:a", Kind: KindAnswer,
+		Refs: []string{"42"}, Body: map[string]any{"text": "yes"}, Idem: "x1",
+	})
+	if rej == nil {
+		t.Fatal("an answer referencing another room's question must be refused")
+	}
+	if rej.Invariant != "refs.unknown" {
+		t.Fatalf("cross-room must read as nonexistent (refs.unknown), got %s", rej.Invariant)
+	}
+}

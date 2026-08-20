@@ -292,8 +292,14 @@ func readLimited(rc io.Reader, max int) ([]byte, error) {
 		if len(buf) > max {
 			return nil, fmt.Errorf("content exceeds %d bytes", max)
 		}
-		if err != nil {
+		if err == io.EOF {
 			return buf, nil
+		}
+		if err != nil {
+			// A mid-stream failure is not a shorter upload: treating it as
+			// one stored a truncated artifact content-addressed as complete,
+			// and the returned hash named the corruption.
+			return nil, fmt.Errorf("read interrupted after %d bytes: %w", len(buf), err)
 		}
 	}
 }
@@ -440,7 +446,10 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 
 	// The posting budget. Distinct from the rate limit above and refused
 	// differently, because the remedy differs: too fast is answered by waiting,
-	// too much is answered by saying it once.
+	// too much is answered by saying it once. The charge is provisional until
+	// an event is actually kept: any exit before then refunds the slot, so a
+	// rejected command does not spend attention nobody received.
+	kept := false
 	if s.posting != nil {
 		if remaining, oldest, ok := s.posting.charge(cmd.Author, cmd.Room, cmd.Kind); !ok {
 			_ = remaining
@@ -460,6 +469,13 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// Armed only after a successful charge: the exhausted exit above
+		// stamped nothing, so it must refund nothing.
+		defer func() {
+			if !kept {
+				s.posting.release(cmd.Author, cmd.Room, cmd.Kind)
+			}
+		}()
 	}
 
 	// A shorthand recipient is expanded here, at the boundary, so the browser's
@@ -537,6 +553,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		last = seq
+		kept = true
 
 		// A redact event suppresses its target inside Append's own
 		// transaction (store.Append folds it), so a committed redact event is

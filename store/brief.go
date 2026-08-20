@@ -140,10 +140,17 @@ func (s *Store) RoomBrief(room string, now time.Time) (Brief, error) {
 		b.Delivery = d
 	}
 
+	// The redacted check rides the query: this was the one read path that
+	// served a suppressed body (the brief, and the digest restating it) — a
+	// leak three reviewers corroborated independently.
 	qrows, err := s.db.Query(
 		`SELECT q.seq, q.author, q.recipient, q.asked_at, q.answer_seq,
-		        COALESCE(json_extract(b.json, '$.text'), '')
-		   FROM question q LEFT JOIN body b ON b.seq = q.seq
+		        CASE WHEN r.seq IS NULL
+		             THEN COALESCE(json_extract(b.json, '$.text'), '')
+		             ELSE '[redacted]' END
+		   FROM question q
+		   LEFT JOIN body b ON b.seq = q.seq
+		   LEFT JOIN redacted r ON r.seq = q.seq
 		  WHERE q.room = ?
 		  ORDER BY q.answer_seq = 0 DESC, q.seq`, room)
 	if err != nil {

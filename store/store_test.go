@@ -3,7 +3,9 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -578,5 +580,54 @@ func TestADatabaseFromAnEarlierSchemaStillOpens(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Step != 3 {
 		t.Errorf("the migrated row should have folded forward, got %+v", rows)
+	}
+}
+
+// The brief was the one read path serving a redacted body: the question fold
+// joined body.json with no redaction check, so /rooms/{name} (and the digest
+// restating it) kept a suppressed secret alive. Three reviewers corroborated.
+func TestBriefMasksRedactedQuestions(t *testing.T) {
+	s := newStore(t)
+	q, err := s.Append(core.Event{Room: "core", Author: "agent:a",
+		Kind: core.KindQuestion, Recipient: "human:bcm",
+		Body: map[string]any{"text": "the api key is sk-live-8842 — is it valid?"},
+		Lane: core.Addressed}, "bq1", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:a",
+		Kind: core.KindRedact, Refs: []string{fmt.Sprint(q)},
+		Body: map[string]any{"text": "posted a secret"},
+		Lane: core.Ambient}, "br1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := s.RoomBrief("core", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, oq := range b.Questions {
+		if strings.Contains(oq.Text, "sk-live") {
+			t.Fatalf("the brief serves a redacted body: %q", oq.Text)
+		}
+	}
+}
+
+// A reused key with changed attachments is a conflict, not a replay: the old
+// fingerprint omitted attachments, so the new attachment silently vanished
+// behind an "applied at seq N" answer.
+func TestIdemConflictSeesAttachmentChanges(t *testing.T) {
+	s := newStore(t)
+	ev := core.Event{Room: "core", Author: "agent:a", Kind: core.KindFinding,
+		Body: map[string]any{"text": "suite red", "severity": "p2"},
+		Lane: core.Ambient}
+	if _, err := s.Append(ev, "nat-key", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	ev.Attachments = []core.Attachment{{Hash: strings.Repeat("a", 64), Title: "log.md"}}
+	_, err := s.Append(ev, "nat-key", time.Now())
+	var conflict ErrIdemConflict
+	if !errors.As(err, &conflict) {
+		t.Fatalf("changed attachments under a reused key must conflict, got %v", err)
 	}
 }

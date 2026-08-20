@@ -625,9 +625,13 @@ func (s *Store) seqForIdem(idem string) (int64, string, bool) {
 func idemFingerprint(ev core.Event) string {
 	body, _ := json.Marshal(ev.Body)
 	refs, _ := json.Marshal(ev.Refs)
+	// Attachments are content too: without them here, a reused key with a
+	// changed --attach read as a replay and the new attachment silently
+	// vanished.
+	attach, _ := json.Marshal(ev.Attachments)
 	return hashBytes([]byte(ev.Room + "\x00" + string(ev.Author) + "\x00" +
 		string(ev.Kind) + "\x00" + string(ev.Recipient) + "\x00" +
-		string(body) + "\x00" + string(refs)))
+		string(body) + "\x00" + string(refs) + "\x00" + string(attach)))
 }
 
 // Since returns a room's records with seq greater than after, oldest first.
@@ -769,9 +773,13 @@ func (s *Store) Search(query, room, kind, author, since string, allow []string, 
 	}
 	if since != "" {
 		// A date or a full timestamp; RFC3339 sorts lexically, so a plain
-		// comparison is correct without parsing.
+		// comparison is correct without parsing — with one trap: stored
+		// stamps carry fractional seconds ("…50.123Z") and sort BEFORE a
+		// second-precision "…50Z" because '.' < 'Z'. Stripping the caller's
+		// trailing Z turns the compare into a prefix test, so the boundary
+		// second's events are kept instead of silently dropped.
 		where = append(where, "e.server_ts >= ?")
-		args = append(args, since)
+		args = append(args, strings.TrimSuffix(since, "Z"))
 	}
 	clause := ""
 	if len(where) > 0 {
@@ -880,10 +888,21 @@ func (s *Store) Purge(seq int64) error {
 	defer tx.Rollback()
 
 	// Attachments die with the body. A secret pasted into a report must not
-	// outlive the redaction that erased the message carrying it.
+	// outlive the redaction that erased the message carrying it — but a blob
+	// is content-addressed and shared: a surviving event referencing the same
+	// hash would be left with a permanent 404, unrepairable in an append-only
+	// log. Same guard redaction uses: drop only what nobody else references.
 	for _, h := range hashes {
-		if _, err := tx.Exec(`DELETE FROM artifact WHERE hash = ?`, h); err != nil {
-			return err
+		var others int
+		_ = tx.QueryRow(
+			`SELECT COUNT(*) FROM envelope e
+			 WHERE e.seq != ? AND e.attach LIKE ?
+			   AND e.seq NOT IN (SELECT seq FROM redacted)`,
+			seq, "%"+h+"%").Scan(&others)
+		if others == 0 {
+			if _, err := tx.Exec(`DELETE FROM artifact WHERE hash = ?`, h); err != nil {
+				return err
+			}
 		}
 	}
 	for _, stmt := range []string{

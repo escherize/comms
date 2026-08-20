@@ -270,3 +270,20 @@ func (p *posting) charge(actor core.Actor, room string, kind core.Kind) (remaini
 	p.spent[key] = live
 	return PostingBudget - len(live), 0, true
 }
+
+// release refunds the newest stamp when the charged post kept nothing — a
+// rejection, replay, or failed append. Without it a refused command burned an
+// ambient slot, and the refusal's "nothing was lost" was false about the
+// budget. Mirrors charge's exemptions, so an uncharged kind cannot refund a
+// stamp some other post paid for.
+func (p *posting) release(actor core.Actor, room string, kind core.Kind) {
+	if exemptFromBudget(kind) || core.LaneOf(kind) == core.Addressed {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	key := postingKey{actor, room}
+	if n := len(p.spent[key]); n > 0 {
+		p.spent[key] = p.spent[key][:n-1]
+	}
+}

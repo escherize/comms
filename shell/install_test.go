@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/escherize/comms/core"
 	"github.com/escherize/comms/store"
 )
 
@@ -61,5 +63,27 @@ func TestRecipientFilterPassesMentions(t *testing.T) {
 		if got := mentions(rec, "agent:bcm/claude-1"); got != tc.want {
 			t.Errorf("mentions(%q) = %v, want %v", tc.text, got, tc.want)
 		}
+	}
+}
+
+// A refused command must not spend the ambient budget: the charge is
+// provisional until an event is kept. Before the refund, PostingBudget
+// rejections starved a seat that was correcting itself.
+func TestRejectedPostRefundsTheBudget(t *testing.T) {
+	p := newPosting(time.Now)
+	for i := 0; i < 3; i++ {
+		if _, _, ok := p.charge("agent:a", "core", core.KindChat); !ok {
+			t.Fatal("charge refused early")
+		}
+		p.release("agent:a", "core", core.KindChat)
+	}
+	remaining, _, ok := p.charge("agent:a", "core", core.KindChat)
+	if !ok || remaining != PostingBudget-1 {
+		t.Fatalf("three refunded charges must leave the budget whole, got remaining=%d ok=%v", remaining, ok)
+	}
+	// An exempt kind must refund nothing it never charged.
+	p.release("agent:a", "core", core.Kind("task.done"))
+	if remaining2, _, _ := p.charge("agent:a", "core", core.KindChat); remaining2 != PostingBudget-2 {
+		t.Fatalf("an exempt release stole a paid stamp: remaining=%d", remaining2)
 	}
 }

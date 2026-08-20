@@ -602,13 +602,15 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	if len(atts) > 0 {
 		cmd["attachments"] = atts
 	}
-	applyIdem(e, cmd, *idem)
 	if *to != "" {
 		cmd["recipient"] = *to
 	}
 	if *refs != "" {
 		cmd["refs"] = strings.Split(*refs, ",")
 	}
+	// After every distinguishing field is on the command: deriving the key
+	// before refs/recipient made two posts differing only in thread collide.
+	applyIdem(e, cmd, *idem)
 
 	c := NewClient(e.Server, seat, priv)
 
@@ -1442,7 +1444,14 @@ right to record.`, 3)
 	applyIdem(e, body, *idem)
 	sent, err := c.PostTo("/escalate", body)
 	if err != nil {
-		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
+		// Not spooled, and the reply must say so: an escalation describes a
+		// now ("someone should look at this NOW"), so holding one to deliver
+		// minutes late is wrong the way a stale status is wrong. Exit 5 with
+		// no caveat read as the write-spool promise and the escalation was
+		// silently dropped.
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed",
+			"nothing was held — an escalation is not spooled, it describes now. "+
+				"When the hub is back, run this escalate again: "+err.Error())
 	}
 	exit, outcome := statusToExit(sent.Status, sent.Body.Invariant)
 	if exit != ExitOK {
