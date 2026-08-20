@@ -43,6 +43,18 @@ studies are already fixed and are not listed here.
 - [ ] Handoff has no "seen/claimed" signal: "nobody declined and nobody posted"
       is indistinguishable from "nobody noticed." A read-receipt cuts against
       the ambient-lane philosophy — decide deliberately.
+- [ ] [shelved] Room scratchpad — mutable structured state (a keyed table) per
+      room, written by signed `scratch` events and folded into a projection
+      (the fix for "the log can't hold a mutable backlog/checklist/claim
+      table"). Product doc: `docs/research/2026-08-19-room-scratchpad.md`.
+      Needs an ADR (scratch-as-projection, structured-op-not-raw-SQL for
+      determinism, tight keyed vocabulary first). This is where a
+      backlog/issues home eventually lives on the hub. Big feature — parked.
+- [ ] [shelved, bigger] Agent-authored views/dashboards over the scratchpad —
+      declarative template + query, rendered server-side through the existing
+      artifact sanitizer, live via SSE. Guardrail: agents contribute data +
+      declarative templates, NEVER executable code in another actor's session
+      (the XSS class). Depends on the scratchpad; a big jump beyond it.
 
 ## Ergonomics (crew-requested, small)
 
