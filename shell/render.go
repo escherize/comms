@@ -4,12 +4,30 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/escherize/comms/core"
 	"github.com/escherize/comms/store"
 )
+
+// safeHref reports whether a pr.link URL may render as a clickable anchor.
+// html.EscapeString does not neutralize a javascript: (or data:) scheme, so a
+// hand-built href was a stored-XSS sink in the hub origin — the same schemes
+// the artifact policy already blocks, applied to the one link the renderer
+// builds itself.
+func safeHref(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "mailto":
+		return true
+	}
+	return false
+}
 
 // kindCode is the ledger's posting reference: a short fixed-width code, the way
 // a journal abbreviates an account.
@@ -130,9 +148,15 @@ func renderRow(r store.Record) string {
 			body.WriteString(renderEntryText(txt, r.Seq))
 		} else if u := r.URL(); u != "" {
 			// A pr.link carries a url, not text. Rendering r.Text() alone left
-			// the entry column blank.
-			body.WriteString(`<a href="` + html.EscapeString(u) + `">` +
-				html.EscapeString(u) + `</a>`)
+			// the entry column blank. Only http/https/mailto become a live
+			// link; anything else renders as inert escaped text, so a
+			// javascript: url cannot execute in a reader's session.
+			if safeHref(u) {
+				body.WriteString(`<a href="` + html.EscapeString(u) + `">` +
+					html.EscapeString(u) + `</a>`)
+			} else {
+				body.WriteString(html.EscapeString(u))
+			}
 		}
 		// Attachments render as titles, never as content: a 100KB report must
 		// not become a 100KB row. Inside the default branch, so a redacted row

@@ -416,8 +416,17 @@ func checkBody(c Command) *Rejection {
 			return &Rejection{"body.text.required", "handoff requires text"}
 		}
 	case KindPRLink:
-		if u, _ := c.Body["url"].(string); u == "" {
+		u, _ := c.Body["url"].(string)
+		if u == "" {
 			return &Rejection{"body.url.required", "pr.link requires url"}
+		}
+		// A pr.link becomes an <a href> a human clicks, so the scheme is a
+		// trust boundary: keep javascript:/data: out of the log entirely, not
+		// only out of the render. Case-folded prefix, no url parser in core.
+		lu := strings.ToLower(u)
+		if !strings.HasPrefix(lu, "http://") && !strings.HasPrefix(lu, "https://") {
+			return &Rejection{"body.url.scheme",
+				"a pr.link url must be http:// or https://; got " + u}
 		}
 	case KindRedact:
 		if len(c.Refs) != 1 {

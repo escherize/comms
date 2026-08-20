@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/escherize/comms/core"
 )
@@ -72,5 +73,31 @@ func TestArtifactRefIndex(t *testing.T) {
 	defer s3.Close()
 	if got := s3.ArtifactRooms(h2); len(got) != 1 || got[0] != "comms" {
 		t.Errorf("reopening must backfill a missing artifact_ref, got %v", got)
+	}
+}
+
+// Purge must drop the artifact_ref rows too, or a purged event keeps granting
+// /a/<hash> to its rooms — the read-grant surviving the body it came from.
+func TestPurgeDropsArtifactRefGrant(t *testing.T) {
+	s := newStore(t)
+	h, err := s.PutArtifact([]byte("# secret report\n"), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, err := s.Append(core.Event{Room: "core", Author: "agent:a", Kind: core.KindFinding,
+		Body:        map[string]any{"text": "see attached", "severity": "p2"},
+		Attachments: []core.Attachment{{Hash: h, Title: "report.md"}},
+		Lane:        core.Ambient}, "pa1", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rooms := s.ArtifactRooms(h); len(rooms) == 0 {
+		t.Fatal("the attachment must grant its room before purge")
+	}
+	if err := s.Purge(seq); err != nil {
+		t.Fatal(err)
+	}
+	if rooms := s.ArtifactRooms(h); len(rooms) != 0 {
+		t.Errorf("purge must revoke the read grant, still granted to %v", rooms)
 	}
 }

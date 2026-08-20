@@ -909,6 +909,10 @@ func (s *Store) Purge(seq int64) error {
 		`DELETE FROM body WHERE seq = ?`,
 		`DELETE FROM search WHERE seq = ?`,
 		`DELETE FROM vector WHERE seq = ?`,
+		// The read grant dies with the body too. Redaction deletes this row;
+		// purge did not, so a purged event kept granting /a/<hash> to its
+		// rooms via ArtifactRooms — a stale scoping hole in an append-only log.
+		`DELETE FROM artifact_ref WHERE seq = ?`,
 	} {
 		if _, err := tx.Exec(stmt, seq); err != nil {
 			return err

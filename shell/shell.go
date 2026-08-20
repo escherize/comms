@@ -200,6 +200,22 @@ func (s *Server) whoseInvite(w http.ResponseWriter, r *http.Request) {
 // far worse, agent-authored script one render away from a human's session
 // (ADR-0011).
 func (s *Server) postArtifact(w http.ResponseWriter, r *http.Request) {
+	// An upload writes to disk, so it is a seat's act and must be throttled
+	// like one — this path took neither a session nor the rate limiter, so an
+	// enrolled agent loop could fill the disk unbounded. Loopback stays exempt
+	// (operator curls on the box), matching every other write path.
+	who := reader(r)
+	if who != "" && s.limit != nil {
+		if ok, wait := s.limit.allow(core.Actor(who), core.KindPRLink); !ok {
+			w.Header().Set("Retry-After", fmt.Sprint(int(wait.Seconds())+1))
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{
+				"ok": false, "outcome": "throttled", "exit": 6,
+				"invariant": "rate.exceeded", "retry_after_ms": wait.Milliseconds(),
+				"detail": "too many uploads too fast; sleep retry_after_ms and try again",
+			})
+			return
+		}
+	}
 	if ct := r.Header.Get("Content-Type"); ct != "" &&
 		!strings.HasPrefix(ct, "text/markdown") && !strings.HasPrefix(ct, "text/plain") {
 		writeJSON(w, http.StatusUnsupportedMediaType, rejectedResponse{

@@ -87,3 +87,15 @@ func TestRejectedPostRefundsTheBudget(t *testing.T) {
 		t.Fatalf("an exempt release stole a paid stamp: remaining=%d", remaining2)
 	}
 }
+
+// html.EscapeString does not neutralize a javascript: scheme, so a pr.link's
+// hand-built href was a stored-XSS sink. A dangerous scheme must render as
+// inert text, never a live anchor.
+func TestPRLinkHrefRejectsJavascriptScheme(t *testing.T) {
+	if safeHref("javascript:alert(1)") || safeHref("data:text/html,x") {
+		t.Error("javascript:/data: must not be a safe href")
+	}
+	if !safeHref("https://example.com") || !safeHref("mailto:a@b.c") {
+		t.Error("http/https/mailto must be safe hrefs")
+	}
+}

@@ -536,3 +536,27 @@ func TestAnswerRefsAreRoomScoped(t *testing.T) {
 		t.Fatalf("cross-room must read as nonexistent (refs.unknown), got %s", rej.Invariant)
 	}
 }
+
+// A pr.link becomes an <a href> a human clicks, so a javascript:/data: scheme
+// must be refused at the boundary, never persisted to be rendered later.
+func TestPRLinkRejectsDangerousSchemes(t *testing.T) {
+	state := State{RoomExists: okRoom}
+	for _, bad := range []string{
+		"javascript:alert(document.cookie)",
+		"data:text/html,<script>alert(1)</script>",
+		"vbscript:msgbox",
+		"  javascript:alert(1)",
+	} {
+		_, rej := Decide(state, Command{Room: "core", Author: "agent:a", Kind: KindPRLink,
+			Body: map[string]any{"url": bad}, Idem: "u1"})
+		if rej == nil || rej.Invariant != "body.url.scheme" {
+			t.Errorf("scheme %q must be refused body.url.scheme, got %v", bad, rej)
+		}
+	}
+	for _, good := range []string{"https://github.com/x/y/pull/1", "http://localhost:7777"} {
+		if _, rej := Decide(state, Command{Room: "core", Author: "agent:a", Kind: KindPRLink,
+			Body: map[string]any{"url": good}, Idem: "u2"}); rej != nil {
+			t.Errorf("scheme %q must be accepted, got %v", good, rej)
+		}
+	}
+}
