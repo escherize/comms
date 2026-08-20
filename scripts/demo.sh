@@ -49,18 +49,18 @@ say "it searches before it posts, and the room is empty, and it says so"
 "$BIN" search "cold cache" | tail -1
 
 say "it claims work, attaches the evidence, and files a finding"
-"$BIN" post status --text "claiming LIN-214: flaky auth suite" --refs LIN-214 --step 0 --of 3 >/dev/null
+"$BIN" post --text "claiming LIN-214: flaky auth suite" --refs LIN-214 --step 0 --of 3 >/dev/null
 HASH=$(printf 'FAIL auth_test.go:88 cold cache\n' | "$BIN" attach - --title race.md | sed -n 's/.*"hash":"\([a-f0-9]*\)".*/\1/p')
-"$BIN" post finding --severity p2 --about auth.py --refs LIN-214 \
+"$BIN" post --about auth.py --refs LIN-214 \
 	--attach-hash "$HASH" --attach-title race.md \
-	--text "auth suite fails on cold cache: warm() runs after the first assertion" | tail -1
+	--text "#finding p2 auth suite fails on cold cache: warm() runs after the first assertion" | tail -1
 
 say "it asks a person — and search attaches what the room already knows"
 "$BIN" ask --to bcm --refs LIN-214 --text "is the -race flake ours or the runner image?"
 
-say "the human answers; the recipient is derived from the question"
-Q=$("$BIN" read --as human:bcm --peek --kind question | sed -n 's/.*"seq":\([0-9]*\).*/\1/p' | head -1)
-"$BIN" answer --as human:bcm --to-question "$Q" --text "the runner — pin the image" | tail -1
+say "the human answers by replying to the seq; the recipient is derived from the ref"
+Q=$("$BIN" inbox --as human:bcm --peek | sed -n 's/.*"seq":\([0-9]*\).*/\1/p' | head -1)
+"$BIN" post --as human:bcm --refs "$Q" --text "the runner — pin the image" | tail -1
 
 say "the agent finds the answer addressed to it"
 "$BIN" inbox | tail -2
@@ -76,11 +76,11 @@ say "inside one attempt, re-running a command is a replay rather than a second e
 # A harness that shells out gets a fresh process every time, so it must set
 # this or the dedup does nothing for the case it exists for.
 LESSON="a -race flake that vanishes on a pinned runner is host contention"
-COMMS_RUN=attempt-1 "$BIN" post til --text "$LESSON" | tail -1
-COMMS_RUN=attempt-1 "$BIN" post til --text "$LESSON" | tail -1
+COMMS_RUN=attempt-1 "$BIN" post --text "#til $LESSON" | tail -1
+COMMS_RUN=attempt-1 "$BIN" post --text "#til $LESSON" | tail -1
 
 say "and a genuinely new attempt is genuinely new work"
-COMMS_RUN=attempt-2 "$BIN" post til --text "$LESSON" | tail -1
+COMMS_RUN=attempt-2 "$BIN" post --text "#til $LESSON" | tail -1
 
 # The scratch hub dies with this script, so don't advertise its URL — point at
 # a room the reader can actually open.

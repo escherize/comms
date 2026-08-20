@@ -17,8 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/escherize/comms/core"
 )
 
 // Env is everything a verb needs, injected so tests drive the real code paths
@@ -44,7 +42,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "attach", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "ref", "skill", "skills", "hook"}
+var Verbs = []string{"serve", "invite", "join", "enrol", "post", "redact", "ask", "attach", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "ref", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -97,11 +95,6 @@ func Run(e *Env, args []string) int {
 		return runJoin(e, args[1:])
 	case "post":
 		return runPost(e, args[1:])
-	case "chat", "finding", "til", "status":
-		// Kind-as-verb: comms status --as <seat> "text" is comms post status.
-		// The ambient kinds an agent posts all day earn the short form; the
-		// addressed kinds already have their own verbs (ask, answer).
-		return runPost(e, args)
 	case "whoami":
 		return runWhoami(e, args[1:])
 	case "redact":
@@ -119,8 +112,6 @@ func Run(e *Env, args []string) int {
 		// still answers --help for it, because a verb in the list that cannot
 		// explain itself is a verb that looks broken.
 		return runServeHelp(e, args[1:])
-	case "kinds":
-		return runKinds(e, args[1:])
 	case "invite":
 		return runInvite(e, args[1:])
 	case "watch":
@@ -204,7 +195,7 @@ func buildID() string {
 
 func usage(e *Env) int {
 	e.Out.Help(`comms — a shared room where a team's humans and agents post signed,
-typed, permanent entries: findings, questions, handoffs, and what got learned.
+permanent entries: what broke, what got learned, who is asked what.
 
 usage: comms <verb> [flags]
        comms serve [--db <path>] [--rooms <list>]
@@ -217,9 +208,9 @@ join a room
    doctor      check the whole chain: binary, seat, hub, drift, hook, spool
 
 say something
-   post        one typed entry: finding, til, status, chat
-               (the ambient kinds are verbs too: comms status --as <seat> "…")
+   post        text. A leading @seat (or --to) addresses it; --refs threads
    ask         a question, addressed to a person who can answer it
+               (searches the room first and attaches what it finds)
    attach      store long content by hash; reference it from a post
    redact      suppress a body you posted (the record remains)
 
@@ -227,21 +218,20 @@ Replying is a post that --refs what it replies to: the recipient is derived
 from the referenced event, so a reply to a question reaches whoever asked and
 a put-down handoff reaches whoever handed it over.
 
-   comms chat --refs <seq> "yes — 0029 is idempotent"
+   comms post --refs <seq> "yes — 0029 is idempotent"
 
 read the room
    read        everything new since you last read, then exit
    inbox       only what is addressed to you, then exit
    watch       hold the addressed lane open, pipe each event to a handler
    search      full-text (FTS5), over the room you are in
-   kinds       the kind table, printed from the server's own list
 
 run a hub
    serve       the hub itself: http://127.0.0.1:7777, log in ./comms.db
    invite      mint an enrolment token through the running hub
 
 skills
-   ref         the room on one card: kinds, addressing, exit codes
+   ref         the room on one card: posting, addressing, exit codes
    skill       print or install the skills this binary carries
    skills      list them
    hook        wire the room into an agent harness's turn loop (--install)
@@ -416,12 +406,11 @@ func runPost(e *Env, args []string) int {
 	actor := fs.String("as", "", "the seat posting")
 	room := fs.String("room", "", "room to post in")
 	text := fs.String("text", "", "the entry")
-	severity := fs.String("severity", "", "p0|p1|p2|p3, findings only")
 	about := fs.String("about", "", "what this concerns: a ticket, a file, a ref")
 	to := fs.String("to", "", "address a seat; a leading @seat in the text does the same")
 	refs := fs.String("refs", "", "comma-separated refs")
-	step := fs.Int("step", 0, "status only")
-	of := fs.Int("of", 0, "status only")
+	step := fs.Int("step", 0, "progress: which step you are on")
+	of := fs.Int("of", 0, "progress: how many steps in total")
 	textFile := fs.String("text-file", "", "read the entry from a file")
 	attachPath := multiFlag{}
 	fs.Var(&attachPath, "attach", "upload a file and attach it (repeatable; - reads stdin)")
@@ -432,71 +421,78 @@ func runPost(e *Env, args []string) int {
 	idem := fs.String("idem", "", "reuse a natural key you already have (see --help)")
 	dryRun := fs.Bool("dry-run", false, "print the exact bytes and signature without sending")
 	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms post <kind> --as <seat> [flags]
+		e.Out.HelpFS(fs, `comms post [flags] "<text>"
 
-kinds: %s
+A post is text (ADR-0020: there is no kind to choose). Name a seat to address
+it; --refs to thread and reply; everything else is optional metadata.
 
-  comms post finding --as agent:bcm/claude-1 --severity p2 \
-      --text "auth.py:88 flakes under -race"
+  comms post --as agent:bcm/claude-1 "auth.py:88 flakes under -race #finding p2"
+  comms post "@human:sarah migration is Thursday — postpone, or batch it?"
+  comms post --refs 20015 "the runner, not us — pin the image"
 
---about names what the entry concerns (a ticket, a file, a ref). It is indexed,
-so: search --kind finding "24" finds every finding about ticket 24 rather than
-every finding whose prose happens to contain the digits.
+Addressing: a LEADING @seat in the text, or --to <seat>, puts the post in the
+addressed lane in front of that seat. An @seat mid-prose is a mention and
+interrupts nobody. Want something findable later? Put a marker in the text
+(#finding, p2, a ticket id) — search is full-text.
 
 --refs threads. To reply to ANY post — agree, correct, build on it — post your
-own entry with --refs <seq>. That is the room's whole reply mechanism.
+own entry with --refs <seq>. If the referenced event was addressed, your reply
+routes to its counterpart: answering a question reaches the asker, putting
+down a handoff reaches its sender.
+
+--about names what the entry concerns (a ticket, a file, a ref). It is
+indexed, so "every entry about ticket 24" is a search rather than a hope.
+
+--step and --of report progress on a long job; the room folds them into the
+"working" line.
 
 --idem reuses a key you already have — a Linear issue id, a CI run id, a task
-number. Reach for it when the natural key is better than the content: two
-findings with identical text about two different runs are two events, and only
-you know that. It is also how a team converges on ONE canonical post: agree
-the key up front, and the first writer wins — later writers are refused with
-the winning seq to thread onto. With no --idem the key is derived from what
-you are posting, so re-running the identical command inside one attempt is a
-replay rather than a second event.
+number. Reach for it when the natural key is better than the content. It is
+also how a team converges on ONE canonical post: agree the key up front, and
+the first writer wins — later writers are refused with the winning seq to
+thread onto. With no --idem the key is derived from what you are posting, so
+re-running the identical command inside one attempt is a replay rather than a
+second event.
 
 The entry can come from anywhere quoting is easier: --text "…", --text-file
 PATH, or --text - to read stdin. Long content belongs in an artifact instead:
 --attach PATH uploads and references in one command, --attach-hash takes what
-comms attach printed, and --attach-title names them in the same order.
-
-The client does not validate the domain. A missing --severity is sent and comes
-back naming the invariant and the schema, which is how you learn the rule.`,
-			strings.Join(knownKindNames(), ", "))
+comms attach printed, and --attach-title names them in the same order.`)
 	}
 
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
-			fs.Usage()
-			return usageOK(e)
-		}
-		return e.Out.Fail(ExitUsage, "usage", "kind.required",
-			"name the kind first: comms post <"+strings.Join(knownKindNames(), "|")+">")
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		fs.Usage()
+		return usageOK(e)
 	}
-	kind := core.Kind(args[0])
-	if err := fs.Parse(args[1:]); err != nil {
-		if isHelp(err) {
-			return usageOK(e)
+	// The entry can just be a positional argument — comms post "shipped the
+	// fix" --refs 42 — because --text on every post is ceremony agents pay
+	// hundreds of times a day. stdlib flag stops at the first non-flag, so
+	// parse in rounds: flags, prose, more flags, in any order.
+	var positional []string
+	for rest := args; ; {
+		if err := fs.Parse(rest); err != nil {
+			if isHelp(err) {
+				return usageOK(e)
+			}
+			return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
 		}
-		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
+		rem := fs.Args()
+		i := 0
+		for i < len(rem) && !strings.HasPrefix(rem[i], "-") {
+			positional = append(positional, rem[i])
+			i++
+		}
+		if i == len(rem) {
+			break
+		}
+		rest = rem[i:]
 	}
-	// The entry can just be the trailing argument — comms status --as <seat>
-	// "shipped the fix" — because --text on every post is ceremony agents pay
-	// hundreds of times a day. Flags first, prose last.
-	if rest := fs.Args(); len(rest) > 0 {
+	if len(positional) > 0 {
 		if *text != "" || *textFile != "" {
 			return e.Out.Fail(ExitUsage, "usage", "text.contested",
 				"the entry was given twice — positional and --text/--text-file; use one")
 		}
-		*text = strings.Join(rest, " ")
-	}
-
-	// The verb set never outruns the kind set. A verb whose event kind does not
-	// exist would write a lie into permanent storage, and the log is
-	// append-only, so there is no later repair.
-	if !knownKind(kind) {
-		return e.Out.Fail(ExitUsage, "usage", "kind.unknown",
-			"no kind "+string(kind)+"; known kinds: "+strings.Join(knownKindNames(), ", "))
+		*text = strings.Join(positional, " ")
 	}
 
 	seat, code := resolveSeat(e, *actor)
@@ -578,9 +574,6 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	if *about != "" {
 		body["about"] = *about
 	}
-	if *severity != "" {
-		body["severity"] = *severity
-	}
 	if *step > 0 {
 		body["step"] = *step
 	}
@@ -589,7 +582,7 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	}
 
 	cmd := map[string]any{
-		"room": inRoom, "author": seat, "kind": string(kind),
+		"room": inRoom, "author": seat, "kind": "chat",
 		"body": body,
 	}
 	if len(atts) > 0 {
@@ -662,7 +655,7 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 			Schema:       sent.Body.Schema,
 			RetryAfterMS: sent.Body.RetryAfterMS,
 			Attempts:     sent.Body.Attempts,
-			Retry:        retryFor(sent.Body.Invariant, kind, args),
+			Retry:        retryFor(sent.Body.Invariant, args),
 		}
 		if sent.Body.Next != "" {
 			r.Next = sent.Body.Next
@@ -672,9 +665,9 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 
 	applied := sent.Body.Applied
 	if applied {
-		e.Out.Note("posted %s at %d", kind, sent.Body.Seq)
+		e.Out.Note("posted at %d", sent.Body.Seq)
 	} else {
-		e.Out.Note("replayed %s at %d (already in the log)", kind, sent.Body.Seq)
+		e.Out.Note("replayed at %d (already in the log)", sent.Body.Seq)
 	}
 	outcomeName := "accepted"
 	if !applied {
@@ -684,23 +677,18 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 }
 
 // retryFor renders a corrected invocation that works when run verbatim. An
-// agent that is told what is wrong and not how to fix it spends a turn guessing.
-// retryFor builds the corrected command. Every argument is re-quoted, because
-// this string is meant to be run: an unquoted `--text probe: no severity`
-// posts the word "probe:" and leaves the rest as flags, so the retry that was
-// supposed to fix the post silently posts a different one.
-func retryFor(invariant string, kind core.Kind, args []string) string {
-	rest := args[1:]
+// agent that is told what is wrong and not how to fix it spends a turn
+// guessing. Every argument is re-quoted, because this string is meant to be
+// run: an unquoted `--text two words` posts one word and leaves the rest as
+// flags, so the retry that was supposed to fix the post silently posts a
+// different one.
+func retryFor(invariant string, args []string) string {
 	base := func(extra ...string) string {
-		return "comms post " + string(kind) + " " + shellJoin(append(append([]string{}, rest...), extra...))
+		return "comms post " + shellJoin(append(append([]string{}, args...), extra...))
 	}
 	switch invariant {
-	case "body.severity.invalid":
-		return base("--severity", "p2")
 	case "body.text.required":
-		return base("--text", "<what you found>")
-	case "recipient.required":
-		return base("--to", "<someone>")
+		return base("--text", "<what you have to say>")
 	}
 	return ""
 }
@@ -903,7 +891,7 @@ question can tell in a glance whether it is new.`)
 	}
 
 	cmd := map[string]any{
-		"room": inRoom, "author": seat, "kind": "question",
+		"room": inRoom, "author": seat, "kind": "chat",
 		"body":      map[string]any{"text": question},
 		"recipient": *to,
 	}
@@ -933,8 +921,8 @@ rejected post does not mean re-running a three-minute test to reproduce stdin
 you already consumed.
 
   HASH=$(go test ./... 2>&1 | comms attach - | jq -r .hash)
-  comms post finding --as <seat> --severity p2 \
-      --text "suite red" --attach-hash "$HASH" --attach-title suite.md
+  comms post --as <seat> --text "#finding p2 suite red" \
+      --attach-hash "$HASH" --attach-title suite.md
 
 --title travels with the upload and comes back in the reply, so the pair to
 paste into the post is printed for you rather than reassembled by hand.
@@ -1063,13 +1051,11 @@ func runRead(e *Env, args []string) int {
 	room := fs.String("room", "", "room to read")
 	full := fs.Bool("full", false, "print whole bodies rather than one line per event")
 	peek := fs.Bool("peek", false, "do not advance the cursor")
-	kind := fs.String("kind", "", "only this kind (implies --peek)")
 	author := fs.String("author", "", "only this author (implies --peek)")
 	reset := fs.Bool("reset", false, "rewind this lane's cursor and read from the start")
 	from := fs.Int64("from", 0, "replay from this seq, inclusive; does not move the cursor")
 	since := fs.Duration("since", 0, "replay the last <duration>; does not move the cursor")
 	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
-	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
 		e.Out.HelpFS(fs, `comms read --as <seat> [--room core]
@@ -1080,7 +1066,7 @@ caught up or the room is empty.
 
   comms read --as agent:bcm/claude-1
   comms read --as agent:bcm/claude-1 --full            # whole bodies
-  comms read --as agent:bcm/claude-1 --kind finding    # filtered, does not advance
+  comms read --as agent:bcm/claude-1 --author human:bcm  # filtered, does not advance
   comms read --as agent:bcm/claude-1 --from 50014 --full   # re-read one event
   comms read --as agent:bcm/claude-1 --since 1h        # replay the last hour
   comms read --as agent:bcm/claude-1 --wait 5m         # block on the ambient lane
@@ -1125,12 +1111,12 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 
 	o := readOpts{
 		Actor: seat, Room: inRoom, Lane: LaneAll,
-		Kind: *kind, Author: *author, Full: *full,
+		Author: *author, Full: *full,
 		From: *from, Since: *since,
-		Wait: *wait, UntilKind: *untilKind, UntilRefs: *untilRefs,
+		Wait: *wait, UntilRefs: *untilRefs,
 		// A filter means the read did not see everything, so it must not claim
 		// the cursor did. A replay is not a read at all.
-		Peek: *peek || *kind != "" || *author != "" || *from > 0 || *since > 0,
+		Peek: *peek || *author != "" || *from > 0 || *since > 0,
 	}
 	events, meta, err := drain(e, o)
 	if err != nil {
@@ -1154,7 +1140,6 @@ func runInbox(e *Env, args []string) int {
 	peek := fs.Bool("peek", false, "do not advance the cursor")
 	from := fs.Int64("from", 0, "replay from this seq, inclusive; does not move the cursor")
 	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
-	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
 		e.Out.HelpFS(fs, `comms inbox --as <seat> [--wait 15m --refs <seq>]
@@ -1195,7 +1180,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 		Actor: seat, Room: inRoom, Lane: LaneAddressed,
 		Recipient: seat, Full: !*compactOut, Peek: *peek || *from > 0,
 		From: *from,
-		Wait: *wait, UntilKind: *untilKind, UntilRefs: *untilRefs,
+		Wait: *wait, UntilRefs: *untilRefs,
 	}
 	events, meta, err := drain(e, o)
 	if err != nil {
@@ -1214,7 +1199,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 		e.Out.Line(map[string]any{
 			"ok": true, "outcome": "waited", "count": 0, "room": inRoom,
 			"waited": wait.String(),
-			"next": "nobody answered; hand off with: comms post handoff --to <human> " +
+			"next": "nobody answered; hand off with: comms post --to <human> " +
 				"--text \"blocked on " + orDefault(*untilRefs, "an unanswered question") + "\"",
 		})
 		e.Out.Note("waited %s, nothing arrived", *wait)
@@ -1356,31 +1341,6 @@ func orDefault(v, d string) string {
 	return v
 }
 
-func knownKind(k core.Kind) bool {
-	for _, n := range knownKindNames() {
-		if string(k) == n {
-			return true
-		}
-	}
-	return false
-}
-
-// knownKindNames is the client-side gate on `comms post <kind>`. It is derived
-// from core.Kinds() — the server's own kind table — rather than kept as a hand
-// list, because the two drifted: the list omitted presence and decline, so
-// `comms post presence` (join's documented check-in fallback) and
-// `comms post decline` were refused before the request ever left the client,
-// even though the server accepts both. Deriving it means adding a kind to core
-// is one edit and cannot silently strand a verb here.
-func knownKindNames() []string {
-	kinds := core.Kinds()
-	out := make([]string, 0, len(kinds))
-	for _, k := range kinds {
-		out = append(out, string(k.Kind))
-	}
-	return out
-}
-
 // runServeHelp explains the one verb the client does not run. The binary
 // handles `serve` before the client is reached; this exists so `serve --help`
 // answers like every other verb rather than looking like a hole in the list.
@@ -1396,51 +1356,4 @@ Starts the hub: the room, the command API, and the SSE stream.
 This is the one verb the client does not send anywhere: it is the thing the
 other verbs talk to. Every operator flag is listed by comms --h-server.`)
 	return usageOK(e)
-}
-
-// ---------------------------------------------------------------- kinds
-
-func runKinds(e *Env, args []string) int {
-	fs, sink := newFlags("kinds")
-	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms kinds
-
-What you can post, what each one means, and which lane it lands in. Read from
-the core's own list, so it cannot drift from what the server will accept —
-three documents once listed 8, 8 and 26 kinds while the binary knew the answer
-and had no way to say it.
-
-Ambient is true, worth keeping, and not worth interrupting anyone for; those
-collapse into a single carried-forward line. Addressed names a recipient and
-renders inline in front of that person.`)
-	}
-	if err := fs.Parse(args); err != nil {
-		if isHelp(err) {
-			return usageOK(e)
-		}
-		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
-	}
-
-	for _, k := range core.Kinds() {
-		lane := "ambient"
-		if k.Lane == core.Addressed {
-			lane = "addressed"
-		}
-		row := map[string]any{
-			"type": "kind", "kind": string(k.Kind), "lane": lane,
-			"means": k.Means, "requires": k.Requires,
-		}
-		if !k.Agent {
-			row["agent_postable"] = false
-			row["detail"] = "operator capability required"
-		}
-		e.Out.Line(row)
-		mark := " "
-		if !k.Agent {
-			mark = "*"
-		}
-		e.Out.Note("%s %-9s %-9s %s  (%s)", mark, k.Kind, lane, k.Means, k.Requires)
-	}
-	e.Out.Note("* needs a capability an ordinary seat does not have")
-	return e.Out.Succeed(Result{Outcome: "listed", Count: len(core.Kinds())})
 }

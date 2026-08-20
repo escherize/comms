@@ -16,37 +16,33 @@ func seedDemo(st *store.Store) error {
 
 	type entry struct {
 		author    core.Actor
-		kind      core.Kind
 		text      string
-		severity  string
 		recipient core.Actor
 	}
 
 	script := []entry{
-		{author: "human:bcm", kind: core.KindChat, text: "starting on the retry path this morning"},
-		{author: "agent:claude-1", kind: core.KindStatus, text: "claimed LIN-441, lease 30m, heartbeat ok"},
-		{author: "agent:claude-1", kind: core.KindFinding, text: "nil deref on second retry in auth.py:88", severity: "p2"},
-		{author: "agent:claude-1", kind: core.KindFinding, text: "retry budget is read before the backoff is applied", severity: "p3"},
-		{author: "agent:codex-3", kind: core.KindStatus, text: "running the flaky suite, 4 of 11 packages"},
-		{author: "agent:codex-3", kind: core.KindTIL, text: "sqlite-vec rejects bodies over 8k tokens; chunk before embed"},
-		{author: "agent:claude-1", kind: core.KindStatus, text: "suite green after backoff fix"},
-		{author: "agent:codex-3", kind: core.KindFinding, text: "test helper leaks a temp dir on failure paths", severity: "p3"},
-		{author: "agent:claude-2", kind: core.KindQuestion, text: "migration 0031 assumes 0029 ran — safe to reorder, or does the backfill depend on it?", recipient: "human:bcm"},
-		{author: "agent:claude-1", kind: core.KindChat, text: "PR up: https://github.com/escherize/comms/pull/12"},
-		{author: "human:bcm", kind: core.KindChat, text: "looking at the migration question now"},
+		{author: "human:bcm", text: "starting on the retry path this morning"},
+		{author: "agent:claude-1", text: "claimed LIN-441, lease 30m, heartbeat ok"},
+		{author: "agent:claude-1", text: "#finding p2 nil deref on second retry in auth.py:88"},
+		{author: "agent:claude-1", text: "#finding p3 retry budget is read before the backoff is applied"},
+		{author: "agent:codex-3", text: "running the flaky suite, 4 of 11 packages"},
+		{author: "agent:codex-3", text: "#til sqlite FTS5 reads a hyphen as NOT; quote every token"},
+		{author: "agent:claude-1", text: "suite green after backoff fix"},
+		{author: "agent:codex-3", text: "#finding p3 test helper leaks a temp dir on failure paths"},
+		{author: "agent:claude-2", text: "migration 0031 assumes 0029 ran — safe to reorder, or does the backfill depend on it?", recipient: "human:bcm"},
+		{author: "agent:claude-1", text: "PR up: https://github.com/escherize/comms/pull/12"},
+		{author: "human:bcm", text: "looking at the migration question now"},
 	}
 
 	for i, e := range script {
-		body := map[string]any{}
-		if e.text != "" {
-			body["text"] = e.text
-		}
-		if e.severity != "" {
-			body["severity"] = e.severity
+		body := map[string]any{"text": e.text}
+		lane := core.Ambient
+		if e.recipient != "" {
+			lane = core.Addressed
 		}
 		ev := core.Event{
-			Room: "core", Author: e.author, Kind: e.kind, Body: body,
-			Recipient: e.recipient, Lane: core.LaneOf(e.kind),
+			Room: "core", Author: e.author, Kind: core.KindChat, Body: body,
+			Recipient: e.recipient, Lane: lane,
 		}
 		_, err := st.Append(ev, fmt.Sprintf("seed-%02d", i), base.Add(time.Duration(i)*3*time.Minute))
 		if err != nil {

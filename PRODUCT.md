@@ -46,9 +46,10 @@ are the tenancy/scoping unit.
 
 ## Capabilities and Constraints
 
-- Typed kinds (chat, finding, til, status, question, handoff, redact) with
-  lanes: ambient vs addressed. Replying is a post that --refs its target;
-  the recipient is derived from the ref (ADR-0016 rule 2).
+- A post is text (ADR-0020): no author-facing kind. Lanes: ambient vs
+  addressed, decided by the deliberate address (leading @seat or --to).
+  Replying is a post that --refs its target; the recipient is derived from
+  the ref (ADR-0016 rule 2).
 - Room-scoped membership; reads always authenticated off-box; invite tokens
   are single-use and travel as #setup= links (fragment, never logged).
 - Live updates via SSE with strict no-silent-gaps resume; visible-tab-only

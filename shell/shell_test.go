@@ -208,14 +208,14 @@ func TestRejectionCarriesInvariantAndSchema(t *testing.T) {
 	srv, _ := newServer(t)
 
 	code, out := post(t, srv,
-		`{"room":"core","author":"agent:c1","kind":"finding","body":{"text":"x"},"idem":"i1"}`)
+		`{"room":"core","author":"agent:c1","kind":"chat","body":{},"idem":"i1"}`)
 	if code != http.StatusUnprocessableEntity {
 		t.Fatalf("want 422, got %d (%v)", code, out)
 	}
-	if out["invariant"] != "body.severity.invalid" {
-		t.Errorf("want body.severity.invalid, got %v", out["invariant"])
+	if out["invariant"] != "body.text.required" {
+		t.Errorf("want body.text.required, got %v", out["invariant"])
 	}
-	if s, _ := out["schema"].(string); !strings.Contains(s, "severity") {
+	if s, _ := out["schema"].(string); !strings.Contains(s, "text") {
 		t.Errorf("rejection must carry the schema, got %q", s)
 	}
 	if d, _ := out["detail"].(string); d == "" {
@@ -259,7 +259,7 @@ func TestIdempotentRetryReturnsSameSeqAndOneEvent(t *testing.T) {
 func TestRoomPageRendersLedgerGrammar(t *testing.T) {
 	srv, _ := newServer(t)
 	post(t, srv, cmd("chat", "first entry", "i1"))
-	post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"safe to reorder?"},"recipient":"human:bcm","idem":"i2"}`)
 
 	resp, err := http.Get(srv.URL + "/?room=core")
@@ -302,7 +302,7 @@ func TestAmbientRunCollapsesAddressedDoesNot(t *testing.T) {
 		post(t, srv, cmd("chat", txt, "amb"+string(rune('0'+i))))
 	}
 	seedActor(t, st, "agent:c3")
-	post(t, srv, `{"room":"core","author":"agent:c2","kind":"handoff",`+
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"retry path is yours"},"recipient":"agent:c3","idem":"h1"}`)
 
 	resp, err := http.Get(srv.URL + "/?room=core")
@@ -400,7 +400,7 @@ func TestStreamFramesCarrySeqAsEventID(t *testing.T) {
 // Search is read-your-writes: an event is findable the moment it is posted.
 func TestSearchFindsEventImmediately(t *testing.T) {
 	srv, _ := newServer(t)
-	post(t, srv, cmd("til", "sqlite-vec rejects long bodies", "s1"))
+	post(t, srv, cmd("chat", "sqlite-vec rejects long bodies", "s1"))
 
 	resp, err := http.Get(srv.URL + "/search?q=sqlite-vec")
 	if err != nil {
@@ -563,7 +563,7 @@ func TestComposerPlaceholderListsEverySlashVerb(t *testing.T) {
 	// The slash menu is the discovery surface now: every verb the parser
 	// accepts must have a menu entry with its usage hint, and the placeholder
 	// only has to point at "/" — an exhaustive placeholder was unreadable.
-	for _, verb := range []string{"finding", "til", "status", "ask", "answer", "handoff"} {
+	for _, verb := range []string{"status", "ask", "answer", "handoff"} {
 		if !strings.Contains(slash, verb+": function(rest)") {
 			t.Errorf("SLASH is missing the %q verb", verb)
 		}
@@ -588,7 +588,7 @@ func seedActor(t *testing.T, st *store.Store, actor string) {
 	}
 	if _, err := st.Append(core.Event{Room: "roster", Author: core.Actor(actor),
 		Kind: core.KindChat, Body: map[string]any{"text": "here"},
-		Lane: core.LaneOf(core.KindChat)}, "seed-"+actor, time.Now()); err != nil {
+		Lane: core.Ambient}, "seed-"+actor, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }

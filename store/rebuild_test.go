@@ -192,8 +192,8 @@ func TestRebuildDoesNotTouchWhatTheLogDoesNotDetermine(t *testing.T) {
 func TestRebuildDoesNotResurrectARedactedBody(t *testing.T) {
 	s := openAt(t, filepath.Join(t.TempDir(), "red.db"))
 	secret, err := s.Append(core.Event{Room: "core", Author: "human:bcm",
-		Kind: core.KindTIL, Body: map[string]any{"text": "token PLACEHOLDER-NOT-REAL"},
-		Lane: core.LaneOf(core.KindTIL)}, "sec", kt0)
+		Kind: core.Kind("til"), Body: map[string]any{"text": "token PLACEHOLDER-NOT-REAL"},
+		Lane: core.Ambient}, "sec", kt0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestRebuildDoesNotResurrectARedactedBody(t *testing.T) {
 	redactSeq, err := s.Append(core.Event{Room: "core", Author: "human:bcm",
 		Kind: core.KindRedact, Refs: []string{itoa(secret)},
 		Body: map[string]any{"text": "pasted a credential"},
-		Lane: core.LaneOf(core.KindRedact)}, "red", kt0)
+		Lane: core.Ambient}, "red", kt0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,13 +210,13 @@ func TestRebuildDoesNotResurrectARedactedBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", "", nil, 10); len(hits) != 0 {
+	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", nil, 10); len(hits) != 0 {
 		t.Fatalf("setup: the redaction should have cleared the index, got %d", len(hits))
 	}
 	if err := s.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
-	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", "", nil, 10); len(hits) != 0 {
+	if hits, _ := s.Search("PLACEHOLDER", "core", "", "", nil, 10); len(hits) != 0 {
 		t.Errorf("the rebuild put a redacted body back in the index: %d hits", len(hits))
 	}
 }
@@ -233,7 +233,7 @@ func TestSeqJumpMakesAPostRestoreCollisionImpossible(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		seq, err := s.Append(core.Event{Room: "core", Author: "agent:c1",
 			Kind: core.KindChat, Body: map[string]any{"text": "before"},
-			Lane: core.LaneOf(core.KindChat)}, fmt.Sprintf("b%d", i), kt0)
+			Lane: core.Ambient}, fmt.Sprintf("b%d", i), kt0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -249,7 +249,7 @@ func TestSeqJumpMakesAPostRestoreCollisionImpossible(t *testing.T) {
 
 	next, err := restored.Append(core.Event{Room: "core", Author: "agent:c1",
 		Kind: core.KindChat, Body: map[string]any{"text": "after"},
-		Lane: core.LaneOf(core.KindChat)}, "after", kt0)
+		Lane: core.Ambient}, "after", kt0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func generateLog(t *testing.T, s *Store, rng *rand.Rand, n int) {
 
 		switch rng.Intn(6) {
 		case 0:
-			ev.Kind = core.KindStatus
+			ev.Kind = core.Kind("status")
 			body := map[string]any{"text": fmt.Sprintf("step note %d", i)}
 			if rng.Intn(4) > 0 {
 				body["step"] = float64(rng.Intn(8))
@@ -295,7 +295,7 @@ func generateLog(t *testing.T, s *Store, rng *rand.Rand, n int) {
 			}
 			ev.Body = body
 		case 1:
-			ev.Kind = core.KindQuestion
+			ev.Kind = core.Kind("question")
 			ev.Recipient = "human:bcm"
 			ev.Body = map[string]any{"text": fmt.Sprintf("question %d?", i)}
 		case 2:
@@ -311,13 +311,13 @@ func generateLog(t *testing.T, s *Store, rng *rand.Rand, n int) {
 			ev.Recipient = "agent:c1"
 			ev.Body = map[string]any{"text": fmt.Sprintf("answer %d", i)}
 		case 3:
-			ev.Kind = core.KindFinding
+			ev.Kind = core.Kind("finding")
 			ev.Body = map[string]any{
 				"text":     fmt.Sprintf("finding %d about the cache", i),
 				"severity": []string{"p0", "p1", "p2", "p3"}[rng.Intn(4)],
 			}
 		case 4:
-			ev.Kind = core.KindTIL
+			ev.Kind = core.Kind("til")
 			ev.Body = map[string]any{"text": fmt.Sprintf("lesson %d worth keeping", i)}
 		case 5:
 			if len(posted) == 0 || rng.Intn(3) > 0 {
@@ -331,8 +331,8 @@ func generateLog(t *testing.T, s *Store, rng *rand.Rand, n int) {
 			ev.Body = map[string]any{"text": "suppressed"}
 		}
 
-		ev.Lane = core.LaneOf(ev.Kind)
-		if core.LaneOf(ev.Kind) == core.Ambient {
+		ev.Lane = laneFor(ev.Kind)
+		if laneFor(ev.Kind) == core.Ambient {
 			ev.Recipient = ""
 		}
 		seq, err := s.Append(ev, fmt.Sprintf("gen-%d", i), at)
@@ -340,7 +340,7 @@ func generateLog(t *testing.T, s *Store, rng *rand.Rand, n int) {
 			continue // an invalid combination the generator produced; not the subject
 		}
 		posted = append(posted, seq)
-		if ev.Kind == core.KindQuestion {
+		if ev.Kind == core.Kind("question") {
 			questions = append(questions, seq)
 		}
 	}
@@ -362,8 +362,8 @@ func openAt(t *testing.T, path string) *Store {
 func TestAppendFoldsRedactionAndRebuildRederivesIt(t *testing.T) {
 	s := openAt(t, filepath.Join(t.TempDir(), "redfold.db"))
 	secret, err := s.Append(core.Event{Room: "core", Author: "human:bcm",
-		Kind: core.KindTIL, Body: map[string]any{"text": "token HUNTER2-NOT-REAL"},
-		Lane: core.LaneOf(core.KindTIL)}, "sec2", kt0)
+		Kind: core.Kind("til"), Body: map[string]any{"text": "token HUNTER2-NOT-REAL"},
+		Lane: core.Ambient}, "sec2", kt0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,13 +371,13 @@ func TestAppendFoldsRedactionAndRebuildRederivesIt(t *testing.T) {
 	if _, err := s.Append(core.Event{Room: "core", Author: "human:bcm",
 		Kind: core.KindRedact, Refs: []string{itoa(secret)},
 		Body: map[string]any{"text": "pasted a credential"},
-		Lane: core.LaneOf(core.KindRedact)}, "red2", kt0); err != nil {
+		Lane: core.Ambient}, "red2", kt0); err != nil {
 		t.Fatal(err)
 	}
 	if !s.IsRedacted(secret) {
 		t.Fatal("append alone must suppress the target")
 	}
-	if hits, _ := s.Search("HUNTER2", "core", "", "", "", nil, 10); len(hits) != 0 {
+	if hits, _ := s.Search("HUNTER2", "core", "", "", nil, 10); len(hits) != 0 {
 		t.Fatalf("append alone must clear the index, got %d hits", len(hits))
 	}
 
@@ -391,7 +391,7 @@ func TestAppendFoldsRedactionAndRebuildRederivesIt(t *testing.T) {
 	if !s.IsRedacted(secret) {
 		t.Error("rebuild must re-derive the redacted row from the redact event")
 	}
-	if hits, _ := s.Search("HUNTER2", "core", "", "", "", nil, 10); len(hits) != 0 {
+	if hits, _ := s.Search("HUNTER2", "core", "", "", nil, 10); len(hits) != 0 {
 		t.Errorf("rebuild resurrected a redacted body: %d hits", len(hits))
 	}
 }

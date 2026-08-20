@@ -13,24 +13,19 @@ import "strings"
 // already happened and can never be invalid.
 type Kind string
 
+// The author surface has no kind (ADR-0020): a post is text, addressed by
+// naming a seat, threaded by --refs. What remains here is the system
+// discriminator — the folds must tell a presence or a redact apart from a
+// post — plus the legacy values old rows still carry (finding, question, til,
+// handoff, status, answer, decline, pr.link), which render and search as they
+// always did and are never written again.
 const (
-	KindChat     Kind = "chat"
-	KindFinding  Kind = "finding"
-	KindQuestion Kind = "question"
-	KindTIL      Kind = "til"
-	KindHandoff  Kind = "handoff"
-	KindStatus   Kind = "status"
-	// KindPresence is a seat arriving: the check-in join posts. It exists
-	// because join used to check in as chat — exactly the shrug the skill
-	// tells agents never to post, filed as an inconsistency by a study agent.
-	// Presence is a fact about the roster, not a thing anyone said.
+	KindChat Kind = "chat"
+	// KindPresence is a seat arriving: the check-in join posts. Presence is a
+	// fact about the roster, not a thing anyone said.
 	KindPresence Kind = "presence"
 	KindRedact   Kind = "redact"
 )
-
-// answer and decline are retired kinds (ADR-0016 rule 2): replying is a post
-// that --refs the thing it replies to, and the recipient is derived from the
-// ref. Old events keep the stored kinds; nothing writes them anymore.
 
 // Lane is how an event competes for human attention. It is decided by the
 // deliberate address (ADR-0016 rule 1): a post that names a seat — a leading
@@ -44,18 +39,6 @@ const (
 	Ambient Lane = iota
 	Addressed
 )
-
-// LaneOf is a kind's default lane, kept only for question/handoff, which still
-// require an address until ADR-0020 retires them as kinds. The lane an event
-// actually lands in is decided by its deliberate address in Decide, not here.
-func LaneOf(k Kind) Lane {
-	switch k {
-	case KindQuestion, KindHandoff:
-		return Addressed
-	default:
-		return Ambient
-	}
-}
 
 // Actor identifies a human or an agent. Agents are actors in exactly the same
 // sense humans are.
@@ -184,14 +167,6 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 
 	if r := checkBody(c); r != nil {
 		return nil, r
-	}
-
-	// question/handoff exist to address someone, so posting one without an
-	// address is refused — the ceremony survives until ADR-0020 retires the
-	// kinds. Every other kind may address by naming a seat (ADR-0016 rule 1).
-	if LaneOf(c.Kind) == Addressed && c.Recipient == "" {
-		return nil, &Rejection{"recipient.required",
-			"kind " + string(c.Kind) + " is addressed and must name a recipient"}
 	}
 
 	// Reply-routing (ADR-0016 rule 2): a post that refs an addressed event in
@@ -332,36 +307,21 @@ func checkAttachments(s State, c Command) *Rejection {
 
 func knownKind(k Kind) bool {
 	switch k {
-	case KindChat, KindFinding, KindQuestion, KindTIL,
-		KindHandoff, KindStatus, KindRedact,
-		KindPresence:
+	case KindChat, KindRedact, KindPresence:
 		return true
 	}
 	return false
 }
 
-// checkBody enforces the per-kind schema. A rejection returns the field that
-// failed so an agent can correct itself without a human.
+// checkBody is what remains of the per-kind schema ladder (ADR-0020): a post
+// needs text, a redact names exactly one target.
 func checkBody(c Command) *Rejection {
 	text, _ := c.Body["text"].(string)
 
 	switch c.Kind {
-	case KindFinding:
-		if text == "" {
-			return &Rejection{"body.text.required", "finding requires text"}
-		}
-		sev, _ := c.Body["severity"].(string)
-		if !validSeverity(sev) {
-			return &Rejection{"body.severity.invalid",
-				"finding requires severity in p0|p1|p2|p3, got: " + sev}
-		}
-	case KindChat, KindQuestion, KindTIL, KindStatus, KindPresence:
+	case KindChat, KindPresence:
 		if text == "" {
 			return &Rejection{"body.text.required", string(c.Kind) + " requires text"}
-		}
-	case KindHandoff:
-		if text == "" {
-			return &Rejection{"body.text.required", "handoff requires text"}
 		}
 	case KindRedact:
 		if len(c.Refs) != 1 {
@@ -370,14 +330,6 @@ func checkBody(c Command) *Rejection {
 		}
 	}
 	return nil
-}
-
-func validSeverity(s string) bool {
-	switch s {
-	case "p0", "p1", "p2", "p3":
-		return true
-	}
-	return false
 }
 
 // replyRecipient derives who a reply routes to, from its refs alone. A
@@ -413,48 +365,8 @@ func replyRecipient(s State, c Command) (Actor, bool) {
 	return "", false
 }
 
-// KindDoc is what a kind means and what it needs, so the binary can answer
-// "what are the kinds" instead of a person having to. Three documents listed
-// 8, 8 and 26 kinds while this list held the answer and would not say it.
-type KindDoc struct {
-	Kind     Kind
-	Lane     Lane
-	Means    string
-	Requires string
-	Agent    bool // may an ordinary agent seat post it
-}
-
 // AllKinds is the enumeration every switch in this package must handle. Go has
-// no exhaustive matching, so a Kind added without updating knownKind, LaneOf or
-// checkBody would fall through a default and ship.
-//
-// It is derived from Kinds() rather than written out beside it. It used to be a
-// second list, in a _test.go file — which meant no production code could read
-// it, so `comms kinds` could not exist and three documents each kept
-// their own copy. It also meant the guard could rot: `decline` was added and
-// the list was not updated, so the check against forgetting a kind had itself
-// forgotten one. One list, and adding a kind is one edit.
-var AllKinds = allKinds()
-
-func allKinds() []Kind {
-	out := make([]Kind, 0, len(Kinds()))
-	for _, k := range Kinds() {
-		out = append(out, k.Kind)
-	}
-	return out
-}
-
-// Kinds describes every kind, in the order an agent should consider them: the
-// ladder from "something is wrong" down to "it still needs saying".
-func Kinds() []KindDoc {
-	return []KindDoc{
-		{KindFinding, LaneOf(KindFinding), "a defect, gotcha or surprise worth keeping", "--text, --severity p0|p1|p2|p3", true},
-		{KindTIL, LaneOf(KindTIL), "a lesson the team can reuse (today I learned)", "--text", true},
-		{KindQuestion, LaneOf(KindQuestion), "a decision or fact you need from a person", "--text, --to", true},
-		{KindHandoff, LaneOf(KindHandoff), "transfer of responsibility, with context", "--text, --to", true},
-		{KindStatus, LaneOf(KindStatus), "progress on work in flight", "--text, optional --step/--of", true},
-		{KindChat, LaneOf(KindChat), "everything else, and a shrug of an answer", "--text", true},
-		{KindPresence, LaneOf(KindPresence), "a seat arriving — join posts it for you", "--text; join's check-in, not for chatter", true},
-		{KindRedact, LaneOf(KindRedact), "suppress a body you should not have posted", "redact <seq> --why", true},
-	}
-}
+// no exhaustive matching, so a Kind added without updating knownKind or
+// checkBody would fall through a default and ship. Three system kinds are all
+// that remain (ADR-0020); there is no author-facing kind table to print.
+var AllKinds = []Kind{KindChat, KindPresence, KindRedact}

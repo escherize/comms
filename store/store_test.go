@@ -12,6 +12,15 @@ import (
 	"github.com/escherize/comms/core"
 )
 
+// laneFor mirrors the retired core.LaneOf for legacy test fixtures: the two
+// legacy addressed kinds land addressed, everything else ambient.
+func laneFor(k core.Kind) core.Lane {
+	if k == "question" || k == "handoff" {
+		return core.Addressed
+	}
+	return core.Ambient
+}
+
 func newStore(t *testing.T) *Store {
 	t.Helper()
 	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
@@ -28,7 +37,7 @@ func newStore(t *testing.T) *Store {
 func ev(kind core.Kind, author core.Actor, text string) core.Event {
 	return core.Event{
 		Room: "core", Author: author, Kind: kind,
-		Body: map[string]any{"text": text}, Lane: core.LaneOf(kind),
+		Body: map[string]any{"text": text}, Lane: laneFor(kind),
 	}
 }
 
@@ -194,7 +203,7 @@ func TestPurgeRemovesFromSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hits, err := s.Search("hunter2", "", "", "", "", nil, 10)
+	hits, err := s.Search("hunter2", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +214,7 @@ func TestPurgeRemovesFromSearch(t *testing.T) {
 	if err := s.Purge(seq); err != nil {
 		t.Fatal(err)
 	}
-	hits, err = s.Search("hunter2", "", "", "", "", nil, 10)
+	hits, err = s.Search("hunter2", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,11 +227,11 @@ func TestPurgeRemovesFromSearch(t *testing.T) {
 // step.
 func TestEventIsSearchableImmediately(t *testing.T) {
 	s := newStore(t)
-	if _, err := s.Append(ev(core.KindFinding, "agent:claude-1", "nil deref on retry"), "i1", t0); err != nil {
+	if _, err := s.Append(ev(core.Kind("finding"), "agent:claude-1", "nil deref on retry"), "i1", t0); err != nil {
 		t.Fatal(err)
 	}
 
-	hits, err := s.Search("deref", "", "", "", "", nil, 10)
+	hits, err := s.Search("deref", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,25 +251,20 @@ func TestSearchFilters(t *testing.T) {
 
 	mustAppend(t, s, core.Event{Room: "core", Author: "human:bcm", Kind: core.KindChat,
 		Body: map[string]any{"text": "migration order"}}, "i1")
-	mustAppend(t, s, core.Event{Room: "bash", Author: "agent:claude-1", Kind: core.KindFinding,
+	mustAppend(t, s, core.Event{Room: "bash", Author: "agent:claude-1", Kind: core.Kind("finding"),
 		Body: map[string]any{"text": "migration order", "severity": "p1"}}, "i2")
 
-	all, _ := s.Search("migration", "", "", "", "", nil, 10)
+	all, _ := s.Search("migration", "", "", "", nil, 10)
 	if len(all) != 2 {
 		t.Fatalf("unfiltered: expected 2, got %d", len(all))
 	}
 
-	byRoom, _ := s.Search("migration", "bash", "", "", "", nil, 10)
+	byRoom, _ := s.Search("migration", "bash", "", "", nil, 10)
 	if len(byRoom) != 1 || byRoom[0].Room != "bash" {
 		t.Errorf("room filter failed: %+v", byRoom)
 	}
 
-	byKind, _ := s.Search("migration", "", "finding", "", "", nil, 10)
-	if len(byKind) != 1 || byKind[0].Kind != core.KindFinding {
-		t.Errorf("kind filter failed: %+v", byKind)
-	}
-
-	byAuthor, _ := s.Search("migration", "", "", "human:bcm", "", nil, 10)
+	byAuthor, _ := s.Search("migration", "", "human:bcm", "", nil, 10)
 	if len(byAuthor) != 1 || byAuthor[0].Author != "human:bcm" {
 		t.Errorf("author filter failed: %+v", byAuthor)
 	}
@@ -322,7 +326,7 @@ func TestRoomProjection(t *testing.T) {
 
 func TestEventRecipientLookup(t *testing.T) {
 	s := newStore(t)
-	seq := mustAppend(t, s, core.Event{Room: "core", Author: "agent:c1", Kind: core.KindQuestion,
+	seq := mustAppend(t, s, core.Event{Room: "core", Author: "agent:c1", Kind: core.Kind("question"),
 		Body: map[string]any{"text": "?"}, Recipient: "human:bcm", Lane: core.Addressed}, "i1")
 
 	r, ok := s.EventRecipient(itoa(seq))
@@ -386,7 +390,7 @@ func TestVerifyDetectsTampering(t *testing.T) {
 func mustAppend(t *testing.T, s *Store, e core.Event, idem string) int64 {
 	t.Helper()
 	if e.Lane == 0 && e.Kind != "" {
-		e.Lane = core.LaneOf(e.Kind)
+		e.Lane = laneFor(e.Kind)
 	}
 	seq, err := s.Append(e, idem, t0)
 	if err != nil {
@@ -414,19 +418,19 @@ func TestSearchSinceFilter(t *testing.T) {
 	old := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
 	recent := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
 
-	if _, err := s.Append(ev(core.KindFinding, "human:bcm", "migration order old"), "s1", old); err != nil {
+	if _, err := s.Append(ev(core.Kind("finding"), "human:bcm", "migration order old"), "s1", old); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Append(ev(core.KindFinding, "human:bcm", "migration order new"), "s2", recent); err != nil {
+	if _, err := s.Append(ev(core.Kind("finding"), "human:bcm", "migration order new"), "s2", recent); err != nil {
 		t.Fatal(err)
 	}
 
-	all, _ := s.Search("migration", "", "", "", "", nil, 10)
+	all, _ := s.Search("migration", "", "", "", nil, 10)
 	if len(all) != 2 {
 		t.Fatalf("unfiltered: want 2, got %d", len(all))
 	}
 
-	sinceRecent, _ := s.Search("migration", "", "", "", "2026-08-05", nil, 10)
+	sinceRecent, _ := s.Search("migration", "", "", "2026-08-05", nil, 10)
 	if len(sinceRecent) != 1 {
 		t.Fatalf("since: want 1 hit after 2026-08-05, got %d", len(sinceRecent))
 	}
@@ -435,7 +439,7 @@ func TestSearchSinceFilter(t *testing.T) {
 	}
 
 	// A full timestamp works too, and composes with the other filters.
-	composed, _ := s.Search("migration", "core", "finding", "human:bcm", "2026-08-05T00:00:00Z", nil, 10)
+	composed, _ := s.Search("migration", "core", "human:bcm", "2026-08-05T00:00:00Z", nil, 10)
 	if len(composed) != 1 {
 		t.Errorf("filters must compose: want 1, got %d", len(composed))
 	}
@@ -446,13 +450,13 @@ func TestRedactedBodyLeavesSearch(t *testing.T) {
 	s := newStore(t)
 	seq := mustAppend(t, s, ev(core.KindChat, "human:bcm", "hunter2 secret"), "r1")
 
-	if hits, _ := s.Search("hunter2", "", "", "", "", nil, 10); len(hits) != 1 {
+	if hits, _ := s.Search("hunter2", "", "", "", nil, 10); len(hits) != 1 {
 		t.Fatal("setup: should be searchable before redaction")
 	}
 	if err := s.ApplyRedaction(seq, seq+1, "human:bcm", t0); err != nil {
 		t.Fatal(err)
 	}
-	if hits, _ := s.Search("hunter2", "", "", "", "", nil, 10); len(hits) != 0 {
+	if hits, _ := s.Search("hunter2", "", "", "", nil, 10); len(hits) != 0 {
 		t.Errorf("a redacted body must not survive in search, got %d hits", len(hits))
 	}
 
@@ -505,11 +509,11 @@ func TestIdemReuseWithDifferentContentConflicts(t *testing.T) {
 // knew and posted a duplicate.
 func TestSearchDoesNotRequireEveryToken(t *testing.T) {
 	s := newStore(t)
-	mustAppend(t, s, ev(core.KindTIL, "agent:c1", "sqlite-vec rejects long bodies"), "q1")
+	mustAppend(t, s, ev(core.Kind("til"), "agent:c1", "sqlite-vec rejects long bodies"), "q1")
 
 	// Check the error: discarding it turns a SQL failure into "no hits", which
 	// is the exact confusion this ticket exists to remove.
-	exact, err := s.Search("sqlite-vec rejects long bodies", "", "", "", "", nil, 10)
+	exact, err := s.Search("sqlite-vec rejects long bodies", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatalf("search errored: %v", err)
 	}
@@ -518,7 +522,7 @@ func TestSearchDoesNotRequireEveryToken(t *testing.T) {
 	}
 
 	// One word the room does not contain must not zero the result.
-	loose, err := s.Search("sqlite-vec long bodies missing", "", "", "", "", nil, 10)
+	loose, err := s.Search("sqlite-vec long bodies missing", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatalf("search errored: %v", err)
 	}
@@ -570,8 +574,8 @@ func TestADatabaseFromAnEarlierSchemaStillOpens(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.Append(core.Event{Room: "core", Author: "agent:old",
-		Kind: core.KindStatus, Body: map[string]any{"text": "resumed", "step": float64(3), "of": float64(5)},
-		Lane: core.LaneOf(core.KindStatus)}, "mig1", time.Now()); err != nil {
+		Kind: core.Kind("status"), Body: map[string]any{"text": "resumed", "step": float64(3), "of": float64(5)},
+		Lane: core.Ambient}, "mig1", time.Now()); err != nil {
 		t.Fatalf("append after migration: %v", err)
 	}
 	if _, err := s.MintInvite("agent:old", ScopeAll, time.Now()); err != nil {
@@ -594,7 +598,7 @@ func TestADatabaseFromAnEarlierSchemaStillOpens(t *testing.T) {
 func TestBriefMasksRedactedQuestions(t *testing.T) {
 	s := newStore(t)
 	q, err := s.Append(core.Event{Room: "core", Author: "agent:a",
-		Kind: core.KindQuestion, Recipient: "human:bcm",
+		Kind: core.Kind("question"), Recipient: "human:bcm",
 		Body: map[string]any{"text": "the api key is sk-live-8842 — is it valid?"},
 		Lane: core.Addressed}, "bq1", time.Now())
 	if err != nil {
@@ -623,7 +627,7 @@ func TestBriefMasksRedactedQuestions(t *testing.T) {
 // behind an "applied at seq N" answer.
 func TestIdemConflictSeesAttachmentChanges(t *testing.T) {
 	s := newStore(t)
-	ev := core.Event{Room: "core", Author: "agent:a", Kind: core.KindFinding,
+	ev := core.Event{Room: "core", Author: "agent:a", Kind: core.Kind("finding"),
 		Body: map[string]any{"text": "suite red", "severity": "p2"},
 		Lane: core.Ambient}
 	if _, err := s.Append(ev, "nat-key", time.Now()); err != nil {

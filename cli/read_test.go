@@ -13,6 +13,15 @@ import (
 	"github.com/escherize/comms/store"
 )
 
+// laneFor mirrors the retired core.LaneOf for legacy test fixtures: the two
+// legacy addressed kinds land addressed, everything else ambient.
+func laneFor(k core.Kind) core.Lane {
+	if k == "question" || k == "handoff" {
+		return core.Addressed
+	}
+	return core.Ambient
+}
+
 func lines(t *testing.T, c *capture) []map[string]any {
 	t.Helper()
 	var out []map[string]any
@@ -35,17 +44,17 @@ func lines(t *testing.T, c *capture) []map[string]any {
 func seedRoom(t *testing.T, srv *httptest.Server, st *store.Store) {
 	t.Helper()
 	enrol(t, srv, st)
-	seedEvent(t, st, core.KindTIL, "", "ambient one", "s1")
-	seedEvent(t, st, core.KindTIL, "", "ambient two", "s2")
-	seedEvent(t, st, core.KindQuestion, seat, "for you", "s3")
-	seedEvent(t, st, core.KindTIL, "", "ambient three", "s4")
+	seedEvent(t, st, core.Kind("til"), "", "ambient one", "s1")
+	seedEvent(t, st, core.Kind("til"), "", "ambient two", "s2")
+	seedEvent(t, st, core.Kind("question"), seat, "for you", "s3")
+	seedEvent(t, st, core.Kind("til"), "", "ambient three", "s4")
 }
 
 func seedEvent(t *testing.T, st *store.Store, kind core.Kind, to, text, idem string) {
 	t.Helper()
 	ev := core.Event{
 		Room: "core", Author: "agent:c9", Kind: kind,
-		Body: map[string]any{"text": text}, Lane: core.LaneOf(kind),
+		Body: map[string]any{"text": text}, Lane: laneFor(kind),
 		Recipient: core.Actor(to),
 	}
 	if _, err := st.Append(ev, idem, time.Now()); err != nil {
@@ -133,7 +142,7 @@ func TestFilteredReadImpliesPeek(t *testing.T) {
 	seedRoom(t, srv, st)
 
 	var filtered capture
-	Run(filtered.env(t, srv.URL, ""), []string{"read", "--as", seat, "--kind", "question"})
+	Run(filtered.env(t, srv.URL, ""), []string{"read", "--as", seat, "--author", "agent:nobody"})
 	fl := lines(t, &filtered)
 	term := fl[len(fl)-1]
 	if term["peek"] != true {
@@ -181,7 +190,7 @@ func TestFirstReadOfALargeRoomIsBounded(t *testing.T) {
 	srv, st := liveServer(t)
 	enrol(t, srv, st)
 	for i := range 200 {
-		seedEvent(t, st, core.KindTIL, "",
+		seedEvent(t, st, core.Kind("til"), "",
 			"a reasonably wordy lesson about something that happened",
 			"bulk"+itoa(int64(i)))
 	}
@@ -222,7 +231,7 @@ func TestWaitingOutTheClockIsSuccessWithAHandoff(t *testing.T) {
 	var c capture
 	start := time.Now()
 	code := Run(c.env(t, srv.URL, ""),
-		[]string{"inbox", "--as", seat, "--wait", "2s", "--until-kind", "answer", "--refs", "20014"})
+		[]string{"inbox", "--as", seat, "--wait", "2s", "--refs", "20014"})
 	if code != ExitOK {
 		t.Fatalf("waiting out the clock must be exit 0, got %d: %s", code, c.out.String())
 	}
@@ -235,8 +244,8 @@ func TestWaitingOutTheClockIsSuccessWithAHandoff(t *testing.T) {
 		t.Errorf("want outcome waited, got %v", term["outcome"])
 	}
 	next, _ := term["next"].(string)
-	if !strings.Contains(next, "handoff") || !strings.Contains(next, "20014") {
-		t.Errorf("the suggestion must name a handoff and the unanswered seq, got %q", next)
+	if !strings.Contains(next, "hand off") || !strings.Contains(next, "20014") {
+		t.Errorf("the suggestion must name handing off and the unanswered seq, got %q", next)
 	}
 	if Cursor(seat, "core", LaneAddressed) != 0 {
 		t.Error("a wait that found nothing must not advance the cursor")
@@ -303,7 +312,7 @@ func TestWaitDrainsTheWholeBacklogInOneCall(t *testing.T) {
 	for i := 0; i < 7; i++ {
 		if _, err := st.Append(core.Event{Room: "core", Author: "human:sarah",
 			Kind: core.KindChat, Body: map[string]any{"text": "backlog"},
-			Lane: core.LaneOf(core.KindChat)}, "wd"+itoa(int64(i)), time.Now()); err != nil {
+			Lane: core.Ambient}, "wd"+itoa(int64(i)), time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

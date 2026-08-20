@@ -37,15 +37,15 @@ func TestRoomBriefAnswersWhatIsInFlight(t *testing.T) {
 	seedActor(t, st, "human:bcm")
 
 	post(t, srv, cmd("chat", "morning", "b1"))
-	post(t, srv, `{"room":"core","author":"agent:c2","kind":"status",`+
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"migrating projections","step":3,"of":7},"idem":"b2"}`)
-	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"safe to reorder?"},"recipient":"human:bcm","idem":"b3"}`)
 	if code != http.StatusOK {
 		t.Fatalf("setup question rejected: %v", out)
 	}
 	qseq := int64(out["seq"].(float64))
-	post(t, srv, `{"room":"core","author":"agent:c9","kind":"question",`+
+	post(t, srv, `{"room":"core","author":"agent:c9","kind":"chat",`+
 		`"body":{"text":"who owns the runner image?"},"recipient":"human:bcm","idem":"b4"}`)
 	post(t, srv, `{"room":"core","author":"human:bcm","kind":"chat",`+
 		`"body":{"text":"yes"},"refs":["`+itoa(qseq)+`"],"idem":"b5"}`)
@@ -141,7 +141,7 @@ func TestAddressingAnUnknownSeatIsRejectedOverTheWire(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:sarah")
 
-	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"?"},"recipient":"human:sarrah","idem":"u1"}`)
 	if code == http.StatusOK {
 		t.Fatal("a question to a seat nobody enrolled as must not be accepted")
@@ -176,7 +176,7 @@ func TestShorthandRecipientResolvesTheSameForBothClients(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:sarah")
 
-	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"?"},"recipient":"sarah","idem":"s1"}`)
 	if code != http.StatusOK {
 		t.Fatalf("a shorthand recipient should resolve, got %d %v", code, out)
@@ -187,7 +187,7 @@ func TestShorthandRecipientResolvesTheSameForBothClients(t *testing.T) {
 	}
 	var got string
 	for _, r := range recs {
-		if r.Kind == "question" {
+		if r.Recipient != "" {
 			got = string(r.Recipient)
 		}
 	}
@@ -203,7 +203,7 @@ func TestAmbiguousShorthandIsRefusedNotGuessed(t *testing.T) {
 	seedActor(t, st, "human:sam")
 	seedActor(t, st, "agent:sam")
 
-	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"?"},"recipient":"sam","idem":"s2"}`)
 	if code == http.StatusOK {
 		t.Fatal("an ambiguous shorthand must not be resolved by guessing")
@@ -276,8 +276,8 @@ func TestTheThirdIdenticalRejectionSaysAskAPerson(t *testing.T) {
 	srv, _ := newServer(t)
 
 	bad := func(n int) string {
-		return `{"room":"core","author":"agent:c1","kind":"finding",` +
-			`"body":{"text":"no severity"},"idem":"sc` + itoa(int64(n)) + `"}`
+		return `{"room":"core","author":"agent:c1","kind":"chat",` +
+			`"body":{},"idem":"sc` + itoa(int64(n)) + `"}`
 	}
 
 	for i := 1; i <= 2; i++ {
@@ -300,7 +300,7 @@ func TestTheThirdIdenticalRejectionSaysAskAPerson(t *testing.T) {
 	if !strings.Contains(fmt.Sprint(out["next"]), "comms ask") {
 		t.Errorf("the escalation must name the command that asks a human: %v", out["next"])
 	}
-	if out["invariant"] != "body.severity.invalid" {
+	if out["invariant"] != "body.text.required" {
 		t.Errorf("the escalation must still name what failed, got %v", out["invariant"])
 	}
 }
@@ -311,15 +311,15 @@ func TestASuccessOrADifferentInvariantResetsTheCount(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:bcm")
 
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
-		`"body":{"text":"x"},"idem":"r1"}`)
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
-		`"body":{"text":"x"},"idem":"r2"}`)
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+		`"body":{},"idem":"r1"}`)
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+		`"body":{},"idem":"r2"}`)
 
 	// A different invariant: the run starts over rather than inheriting a
 	// count from an unrelated mistake.
-	if code, _ := post(t, srv, `{"room":"core","author":"agent:c1","kind":"question",`+
-		`"body":{"text":"x"},"idem":"r3"}`); code != http.StatusUnprocessableEntity {
+	if code, _ := post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+		`"body":{"text":"x"},"recipient":"human:nobody","idem":"r3"}`); code != http.StatusUnprocessableEntity {
 		t.Errorf("a different invariant must be an ordinary rejection, got %d", code)
 	}
 
@@ -328,8 +328,8 @@ func TestASuccessOrADifferentInvariantResetsTheCount(t *testing.T) {
 		t.Fatal("setup: the accepted post should succeed")
 	}
 	for i := 5; i <= 6; i++ {
-		if code, _ := post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding",`+
-			`"body":{"text":"x"},"idem":"r`+itoa(int64(i))+`"}`); code != http.StatusUnprocessableEntity {
+		if code, _ := post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+			`"body":{},"idem":"r`+itoa(int64(i))+`"}`); code != http.StatusUnprocessableEntity {
 			t.Errorf("after a success the budget restarts; attempt %d got %d", i, code)
 		}
 	}
@@ -343,7 +343,7 @@ func TestTheRoomPageShowsTheNewestEventsNotTheOldest(t *testing.T) {
 	for i := 0; i < roomPageRows+20; i++ {
 		if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
 			Kind: core.KindChat, Body: map[string]any{"text": "entry " + itoa(int64(i))},
-			Lane: core.LaneOf(core.KindChat)}, "p"+itoa(int64(i)), time.Now()); err != nil {
+			Lane: core.Ambient}, "p"+itoa(int64(i)), time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -372,7 +372,7 @@ func TestLatestReturnsTheTailInOrder(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
 			Kind: core.KindChat, Body: map[string]any{"text": itoa(int64(i))},
-			Lane: core.LaneOf(core.KindChat)}, "l"+itoa(int64(i)), time.Now()); err != nil {
+			Lane: core.Ambient}, "l"+itoa(int64(i)), time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -398,8 +398,8 @@ func TestALongBodyIsFoldedNotUnbounded(t *testing.T) {
 	srv, st := newServer(t)
 	long := "panic under -race:\n" + strings.Repeat("goroutine 1 [running]:\n", 40)
 	if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
-		Kind: core.KindFinding, Body: map[string]any{"text": long, "severity": "p2"},
-		Lane: core.LaneOf(core.KindFinding)}, "long", time.Now()); err != nil {
+		Kind: core.Kind("finding"), Body: map[string]any{"text": long, "severity": "p2"},
+		Lane: core.Ambient}, "long", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -448,8 +448,8 @@ func TestALongBodyIsFoldedNotUnbounded(t *testing.T) {
 func TestAShortBodyIsNotFolded(t *testing.T) {
 	srv, st := newServer(t)
 	if _, err := st.Append(core.Event{Room: "core", Author: "agent:c1",
-		Kind: core.KindTIL, Body: map[string]any{"text": "one\ntwo\nthree"},
-		Lane: core.LaneOf(core.KindTIL)}, "short", time.Now()); err != nil {
+		Kind: core.Kind("til"), Body: map[string]any{"text": "one\ntwo\nthree"},
+		Lane: core.Ambient}, "short", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := http.Get(srv.URL + "/?room=core")
@@ -470,12 +470,12 @@ func TestEachKindRendersItsOwnFields(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:bcm")
 
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding","body":{`+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat","body":{`+
 		`"text":"TokenCache.warm() runs after the first assertion","severity":"p1",`+
 		`"about":"auth.py:88"},"idem":"k1"}`)
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"handoff","body":{`+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat","body":{`+
 		`"text":"the retry path is yours"},"recipient":"human:bcm","idem":"k2"}`)
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"status","body":{`+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat","body":{`+
 		`"text":"migrating","step":3,"of":7},"idem":"k3"}`)
 
 	resp, err := http.Get(srv.URL + "/?room=core")
@@ -511,7 +511,7 @@ func TestThePostingBudgetAsksForASummaryNotAWait(t *testing.T) {
 	var code int
 	var out map[string]any
 	for i := 0; i < PostingBudget+5; i++ {
-		code, out = post(t, srv, cmd("til", "entry "+itoa(int64(i)), "b"+itoa(int64(i))))
+		code, out = post(t, srv, cmd("chat", "entry "+itoa(int64(i)), "b"+itoa(int64(i))))
 		if code == http.StatusTooManyRequests {
 			break
 		}
@@ -546,13 +546,13 @@ func TestThePostingBudgetIsPerRoom(t *testing.T) {
 	}
 
 	for i := 0; i < PostingBudget+2; i++ {
-		post(t, srv, cmd("til", "core entry "+itoa(int64(i)), "pr"+itoa(int64(i))))
+		post(t, srv, cmd("chat", "core entry "+itoa(int64(i)), "pr"+itoa(int64(i))))
 	}
-	if code, _ := post(t, srv, cmd("til", "one more in core", "pr-over")); code != http.StatusTooManyRequests {
+	if code, _ := post(t, srv, cmd("chat", "one more in core", "pr-over")); code != http.StatusTooManyRequests {
 		t.Fatalf("setup: core's budget should be spent, got %d", code)
 	}
 
-	code, out := post(t, srv, `{"room":"bash","author":"agent:c1","kind":"til",`+
+	code, out := post(t, srv, `{"room":"bash","author":"agent:c1","kind":"chat",`+
 		`"body":{"text":"a fresh room"},"idem":"other-room"}`)
 	if code != http.StatusOK {
 		t.Errorf("a spent budget in one room must not silence the seat in another: %d %v", code, out)
@@ -566,9 +566,9 @@ func TestAddressedKindsAreNotChargedToThePostingBudget(t *testing.T) {
 	seedActor(t, st, "human:bcm")
 
 	for i := 0; i < PostingBudget+2; i++ {
-		post(t, srv, cmd("til", "entry "+itoa(int64(i)), "ad"+itoa(int64(i))))
+		post(t, srv, cmd("chat", "entry "+itoa(int64(i)), "ad"+itoa(int64(i))))
 	}
-	code, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"question",`+
+	code, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
 		`"body":{"text":"is this still true?"},"recipient":"human:bcm","idem":"ad-q"}`)
 	if code != http.StatusOK {
 		t.Errorf("an addressed kind must not be refused by the ambient budget: %d %v", code, out)
@@ -593,7 +593,7 @@ func TestABurstOfWorkCoordinationIsNeverDelayed(t *testing.T) {
 	// And the same ledger still bounds ambient chatter.
 	var refused bool
 	for i := 0; i < PostingBudget+1; i++ {
-		if _, _, ok := p.charge("agent:c1", "core", core.KindTIL); !ok {
+		if _, _, ok := p.charge("agent:c1", "core", core.Kind("til")); !ok {
 			refused = true
 		}
 	}
@@ -606,7 +606,7 @@ func TestABurstOfWorkCoordinationIsNeverDelayed(t *testing.T) {
 // During a bug bash the answer changes while you are reading it.
 func TestTheSearchPageIsLive(t *testing.T) {
 	srv, _ := newServer(t)
-	post(t, srv, cmd("til", "FTS5 reads a hyphen as NOT", "s1"))
+	post(t, srv, cmd("chat", "FTS5 reads a hyphen as NOT", "s1"))
 
 	resp, err := http.Get(srv.URL + "/search?q=hyphen")
 	if err != nil {
@@ -640,8 +640,8 @@ func TestTheSearchPageIsLive(t *testing.T) {
 // so live rows and rendered rows cannot disagree about what the search meant.
 func TestTheStreamFiltersByQuery(t *testing.T) {
 	srv, st := newServer(t)
-	post(t, srv, cmd("til", "the cold cache flake is run order", "q1"))
-	post(t, srv, cmd("til", "unrelated note about deploys", "q2"))
+	post(t, srv, cmd("chat", "the cold cache flake is run order", "q1"))
+	post(t, srv, cmd("chat", "unrelated note about deploys", "q2"))
 
 	fs := frames(t, srv.URL+"/stream?room=core&q=flake", "", 500*time.Millisecond)
 	if n := countOf(fs, "event"); n != 1 {
@@ -649,7 +649,7 @@ func TestTheStreamFiltersByQuery(t *testing.T) {
 	}
 
 	// And it agrees with what Search itself would return.
-	hits, err := st.Search("flake", "core", "", "", "", nil, 10)
+	hits, err := st.Search("flake", "core", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -672,8 +672,8 @@ func TestTheStreamFiltersByQuery(t *testing.T) {
 // JSON and not for the person reading the page is not a filter.
 func TestTheHTMLStreamAppliesTheSameFiltersAsTheJSONOne(t *testing.T) {
 	srv, _ := newServer(t)
-	post(t, srv, cmd("til", "the cold cache flake is run order", "h1"))
-	post(t, srv, cmd("til", "unrelated note about deploys", "h2"))
+	post(t, srv, cmd("chat", "the cold cache flake is run order", "h1"))
+	post(t, srv, cmd("chat", "unrelated note about deploys", "h2"))
 
 	// No Accept header: this is the lane the page uses.
 	req, _ := http.NewRequest("GET", srv.URL+"/stream?room=core&q=flake", nil)
@@ -704,7 +704,7 @@ func TestTheHTMLStreamAppliesTheSameFiltersAsTheJSONOne(t *testing.T) {
 // Without a query it is still the room, and still room-shaped.
 func TestTheHTMLStreamStillSendsRoomRowsWithoutAQuery(t *testing.T) {
 	srv, _ := newServer(t)
-	post(t, srv, cmd("til", "an ordinary entry", "h3"))
+	post(t, srv, cmd("chat", "an ordinary entry", "h3"))
 
 	req, _ := http.NewRequest("GET", srv.URL+"/stream?room=core", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
@@ -732,12 +732,12 @@ func TestTheBriefCarriesContentNotOnlyCounts(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:bcm")
 
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"finding","body":{`+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat","body":{`+
 		`"text":"the auth suite flakes on a cold cache","severity":"p1",`+
 		`"about":"auth.py"},"idem":"bc1"}`)
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"til",`+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
 		`"body":{"text":"FTS5 reads a hyphen as NOT"},"idem":"bc2"}`)
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"handoff",`+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
 		`"body":{"text":"the retry path is yours"},"recipient":"human:bcm","idem":"bc3"}`)
 
 	_, body := getJSON(t, srv.URL+"/rooms/core")
@@ -750,7 +750,7 @@ func TestTheBriefCarriesContentNotOnlyCounts(t *testing.T) {
 	var sawFinding bool
 	for _, r := range recent {
 		m := r.(map[string]any)
-		if m["kind"] == "finding" {
+		if m["about"] == "auth.py" {
 			sawFinding = true
 			if m["about"] != "auth.py" {
 				t.Errorf("a recent finding must carry what it is about, got %v", m["about"])
@@ -781,7 +781,7 @@ func TestTheBriefCarriesContentNotOnlyCounts(t *testing.T) {
 func TestTheBriefShowsWhetherAnAddressedEventWasDrained(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:bcm")
-	_, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"handoff",`+
+	_, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
 		`"body":{"text":"the retry path is yours"},"recipient":"human:bcm","idem":"dv1"}`)
 	handoff := int64(out["seq"].(float64))
 
@@ -822,7 +822,7 @@ func TestOnlyAddressedDeliveryIsPublished(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:bcm")
 	for i := 0; i < 5; i++ {
-		post(t, srv, cmd("til", "ambient "+itoa(int64(i)), "amb"+itoa(int64(i))))
+		post(t, srv, cmd("chat", "ambient "+itoa(int64(i)), "amb"+itoa(int64(i))))
 	}
 
 	_, body := getJSON(t, srv.URL+"/rooms/core")
@@ -840,7 +840,7 @@ func TestAHandoffRefusalRoutesBackToWhoeverHandedItOver(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "agent:c1")
 	seedActor(t, st, "agent:c2")
-	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"handoff",`+
+	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"the retry path is yours"},"recipient":"agent:c1","idem":"h1"}`)
 	if code != http.StatusOK {
 		t.Fatalf("setup handoff: %v", out)

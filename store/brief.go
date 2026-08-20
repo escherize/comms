@@ -129,7 +129,7 @@ func (s *Store) RoomBrief(room string, now time.Time) (Brief, error) {
 			switch {
 			case r.Lane == core.Addressed && len(b.Addressed) < 8:
 				b.Addressed = append(b.Addressed, entry)
-			case r.Kind == core.KindFinding || r.Kind == core.KindTIL:
+			case r.Kind != core.KindPresence && r.Kind != core.KindRedact:
 				if len(b.Recent) < 8 {
 					b.Recent = append(b.Recent, entry)
 				}

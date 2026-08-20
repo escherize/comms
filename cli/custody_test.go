@@ -27,7 +27,7 @@ func TestASeatRefusesToSignForAnotherServer(t *testing.T) {
 
 	var c capture
 	env := c.env(t, "http://evil.example", "")
-	code := Run(env, []string{"post", "til", "--as", seat, "--text", "x"})
+	code := Run(env, []string{"post", "--as", seat, "--text", "x"})
 	if code != ExitUsage {
 		t.Fatalf("a redirected seat must be refused, got %d: %s", code, c.out.String())
 	}
@@ -37,7 +37,7 @@ func TestASeatRefusesToSignForAnotherServer(t *testing.T) {
 
 	// A trailing slash is the same hub, not a different one.
 	var ok capture
-	if code := Run(ok.env(t, srv.URL+"/", ""), []string{"post", "til", "--as", seat,
+	if code := Run(ok.env(t, srv.URL+"/", ""), []string{"post", "--as", seat,
 		"--text", "same hub"}); code != ExitOK {
 		t.Errorf("a trailing slash must not read as a different server: %s", ok.out.String())
 	}
@@ -118,8 +118,8 @@ func TestTransportFailureSpoolsAndReportsSuccess(t *testing.T) {
 	}
 
 	var c capture
-	code := Run(c.env(t, proxy.URL, ""), []string{"post", "finding", "--as", seat,
-		"--severity", "p1", "--text", "the suite is red"})
+	code := Run(c.env(t, proxy.URL, ""), []string{"post", "--as", seat,
+		"--text", "the suite is red"})
 	if code != ExitOK {
 		t.Fatalf("a held command must exit 0; %d tells a harness to run it again", code)
 	}
@@ -138,7 +138,7 @@ func TestTransportFailureSpoolsAndReportsSuccess(t *testing.T) {
 	// The hub comes back at the same address.
 	broken.Store(false)
 	var next capture
-	if code := Run(next.env(t, proxy.URL, ""), []string{"post", "til", "--as", seat,
+	if code := Run(next.env(t, proxy.URL, ""), []string{"post", "--as", seat,
 		"--text", "back online"}); code != ExitOK {
 		t.Fatalf("the draining write failed: %s", next.out.String())
 	}
@@ -234,7 +234,7 @@ func TestDryRunPrintsADigestNotTheSignature(t *testing.T) {
 	claimed = stdinClaim{}
 
 	var c capture
-	if code := Run(c.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	if code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--text", "dry", "--dry-run"}); code != ExitOK {
 		t.Fatalf("dry-run failed: %s", c.out.String())
 	}
@@ -255,7 +255,7 @@ func TestDryRunPrintsADigestNotTheSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the named file must exist: %v", err)
 	}
-	if !strings.Contains(string(raw), `"kind":"til"`) {
+	if !strings.Contains(string(raw), `"kind":"chat"`) {
 		t.Error("the file must hold the exact bytes that would have been posted")
 	}
 	info, _ := os.Stat(path)
@@ -281,8 +281,8 @@ func TestServerErrorSpoolsTheWrite(t *testing.T) {
 	}
 
 	var c capture
-	code := Run(c.env(t, down.URL, ""), []string{"post", "finding", "--as", seat,
-		"--severity", "p1", "--text", "written mid-redeploy"})
+	code := Run(c.env(t, down.URL, ""), []string{"post", "--as", seat,
+		"--text", "written mid-redeploy"})
 	if code != ExitOK {
 		t.Fatalf("a 5xx write must spool and exit 0, got %d: %s", code, c.out.String())
 	}

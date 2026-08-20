@@ -50,18 +50,6 @@ func TestDecide(t *testing.T) {
 			wantLane: Ambient,
 		},
 		{
-			name: "finding with severity is accepted and ambient",
-			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindFinding, Idem: "i2",
-				Body: map[string]any{"text": "nil deref", "severity": "p2"}},
-			wantLane: Ambient,
-		},
-		{
-			name: "question naming a recipient is accepted and addressed",
-			cmd: Command{Room: "core", Author: "agent:claude-2", Kind: KindQuestion, Idem: "i3",
-				Body: chat("safe to reorder?"), Recipient: "human:bcm"},
-			wantLane: Addressed,
-		},
-		{
 			name: "a reply refs an addressed event and routes to its counterpart",
 			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindChat, Idem: "i4",
 				Body: chat("yes"), Refs: []string{"evt_q"}},
@@ -72,17 +60,6 @@ func TestDecide(t *testing.T) {
 			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindChat, Idem: "i4b",
 				Body: chat("agreed"), Refs: []string{"evt_chat"}},
 			wantLane: Ambient,
-		},
-		{
-			name:     "til is accepted and ambient",
-			cmd:      Command{Room: "core", Author: "agent:codex-3", Kind: KindTIL, Body: chat("chunk before embed"), Idem: "i5"},
-			wantLane: Ambient,
-		},
-		{
-			name: "handoff naming a recipient is accepted and addressed",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindHandoff, Idem: "i6",
-				Body: chat("retry path is yours"), Recipient: "agent:codex-3"},
-			wantLane: Addressed,
 		},
 		{
 			name: "redact referencing one event is accepted",
@@ -120,48 +97,24 @@ func TestDecide(t *testing.T) {
 			wantErr: "body.text.required",
 		},
 		{
-			name: "finding requires text",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindFinding, Idem: "i13",
-				Body: map[string]any{"severity": "p1"}},
-			wantErr: "body.text.required",
-		},
-		{
-			name: "finding requires a valid severity",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindFinding, Idem: "i14",
-				Body: map[string]any{"text": "x", "severity": "critical"}},
-			wantErr: "body.severity.invalid",
-		},
-		{
-			name: "finding rejects missing severity",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindFinding, Idem: "i15",
-				Body: map[string]any{"text": "x"}},
-			wantErr: "body.severity.invalid",
-		},
-		{
 			name: "redact must reference exactly one event",
 			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindRedact, Idem: "i17",
 				Body: chat("x"), Refs: []string{"a", "b"}},
 			wantErr: "refs.exactly_one",
 		},
 
-		// --- rejections: attention lanes ---
+		// --- attention lanes ---
 		{
-			name: "addressed kind must name a recipient",
-			cmd: Command{Room: "core", Author: "agent:claude-2", Kind: KindQuestion, Idem: "i18",
-				Body: chat("anyone?")},
-			wantErr: "recipient.required",
-		},
-		{
-			name: "handoff must name a recipient",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindHandoff, Idem: "i19",
-				Body: chat("someone take this")},
-			wantErr: "recipient.required",
-		},
-		{
-			name: "any kind may address by naming a seat (ADR-0016 rule 1)",
-			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindFinding, Idem: "i20",
-				Body: map[string]any{"text": "x", "severity": "p0"}, Recipient: "human:bcm"},
+			name: "naming a seat addresses (ADR-0016 rule 1)",
+			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindChat, Idem: "i20",
+				Body: chat("x"), Recipient: "human:bcm"},
 			wantLane: Addressed,
+		},
+		{
+			name: "a legacy kind is no longer writable (ADR-0020)",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: "finding", Idem: "i21",
+				Body: map[string]any{"text": "x", "severity": "p2"}},
+			wantErr: "kind.unknown",
 		},
 	}
 
@@ -304,21 +257,21 @@ func TestMemberlessSeatRefusalIsExistenceIndependent(t *testing.T) {
 	}
 }
 
-// TestLaneIsAPropertyOfKind is the attention invariant: nothing an author writes
-// inside an event changes its lane. Severity is an author-set claim, so a p0
-// finding stays ambient — escalation is priced elsewhere, never assumed here.
-func TestLaneIsAPropertyOfKind(t *testing.T) {
+// TestLaneIsAPropertyOfTheAddress is the attention invariant: nothing an
+// author writes inside an event's body changes its lane. "p0" in the prose is
+// a claim, not an interrupt — only naming a seat addresses.
+func TestLaneIsAPropertyOfTheAddress(t *testing.T) {
 	state := State{RoomExists: okRoom}
 
-	for _, sev := range []string{"p0", "p1", "p2", "p3"} {
+	for _, txt := range []string{"p0 prod is down", "#finding p0 all broken", "URGENT"} {
 		events, rej := Decide(state, Command{Room: "core", Author: "agent:claude-1",
-			Kind: KindFinding, Idem: "i-" + sev,
-			Body: map[string]any{"text": "x", "severity": sev}})
+			Kind: KindChat, Idem: "i-" + txt,
+			Body: map[string]any{"text": txt}})
 		if rej != nil {
-			t.Fatalf("severity %s: unexpected rejection %v", sev, rej)
+			t.Fatalf("%q: unexpected rejection %v", txt, rej)
 		}
 		if events[0].Lane != Ambient {
-			t.Errorf("severity %s must stay ambient; escalation is priced, not claimed", sev)
+			t.Errorf("%q must stay ambient; only an address moves the lane", txt)
 		}
 	}
 }
@@ -356,22 +309,6 @@ func TestActorIsAgent(t *testing.T) {
 	for actor, want := range cases {
 		if got := actor.IsAgent(); got != want {
 			t.Errorf("%q.IsAgent() = %v, want %v", actor, got, want)
-		}
-	}
-}
-
-func TestLaneOf(t *testing.T) {
-	addressed := []Kind{KindQuestion, KindHandoff}
-	ambient := []Kind{KindChat, KindFinding, KindTIL, KindStatus, KindRedact}
-
-	for _, k := range addressed {
-		if LaneOf(k) != Addressed {
-			t.Errorf("%s must be addressed", k)
-		}
-	}
-	for _, k := range ambient {
-		if LaneOf(k) != Ambient {
-			t.Errorf("%s must be ambient", k)
 		}
 	}
 }
@@ -456,7 +393,7 @@ func TestAddressingAnUnenrolledSeatIsRejected(t *testing.T) {
 	s := State{RoomExists: okRoom, ActorEnrolled: func(a Actor) bool { return roster[a] }}
 
 	_, rej := Decide(s, Command{
-		Room: "core", Author: "agent:c1", Kind: KindQuestion,
+		Room: "core", Author: "agent:c1", Kind: KindChat,
 		Recipient: "human:sarrah", Body: map[string]any{"text": "is it safe?"}, Idem: "i1",
 	})
 	if rej == nil {
@@ -467,7 +404,7 @@ func TestAddressingAnUnenrolledSeatIsRejected(t *testing.T) {
 	}
 
 	if _, rej := Decide(s, Command{
-		Room: "core", Author: "agent:c1", Kind: KindQuestion,
+		Room: "core", Author: "agent:c1", Kind: KindChat,
 		Recipient: "human:sarah", Body: map[string]any{"text": "is it safe?"}, Idem: "i2",
 	}); rej != nil {
 		t.Errorf("the enrolled spelling must be accepted, got %v", rej)
@@ -479,7 +416,7 @@ func TestAddressingAnUnenrolledSeatIsRejected(t *testing.T) {
 func TestRecipientCheckIsSkippedOnlyWhenNoRosterIsWired(t *testing.T) {
 	s := State{RoomExists: okRoom}
 	if _, rej := Decide(s, Command{
-		Room: "core", Author: "agent:c1", Kind: KindQuestion,
+		Room: "core", Author: "agent:c1", Kind: KindChat,
 		Recipient: "human:anyone", Body: map[string]any{"text": "?"}, Idem: "i3",
 	}); rej != nil {
 		t.Errorf("with no roster wired the check cannot run; got %v", rej)

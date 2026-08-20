@@ -612,13 +612,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 // schemaFor lets a rejected agent self-correct without a human.
 func schemaFor(k core.Kind) string {
 	switch k {
-	case core.KindFinding:
-		return `{"text": string, "severity": "p0"|"p1"|"p2"|"p3"}`
-	case core.KindQuestion, core.KindHandoff:
-		return `{"text": string} + recipient required`
-	case core.KindStatus:
-		return `{"text": string, "step": int?, "of": int?}`
-	case core.KindChat, core.KindTIL:
+	case core.KindChat, core.KindPresence:
 		return `{"text": string}`
 	case core.KindRedact:
 		return `{"text": string} + refs must name exactly one event`
@@ -829,7 +823,6 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	// that did not match its query — a filter that holds for a program reading
 	// JSON and not for the person reading the page.
 	recipient := r.URL.Query().Get("recipient")
-	kindFilter := r.URL.Query().Get("kind")
 	queryFilter := r.URL.Query().Get("q")
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -872,7 +865,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		for _, rec := range backlog {
-			if lastSeq = rec.Seq; !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
+			if lastSeq = rec.Seq; !s.matchesFilter(rec, recipient, queryFilter) {
 				continue
 			}
 			writeSSE(w, rec, queryFilter != "")
@@ -901,7 +894,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			lastSeq = rec.Seq
-			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
+			if !s.matchesFilter(rec, recipient, queryFilter) {
 				continue
 			}
 			writeSSE(w, rec, queryFilter != "")
@@ -941,7 +934,6 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 		return
 	}
 	recipient := r.URL.Query().Get("recipient")
-	kindFilter := r.URL.Query().Get("kind")
 	// A search page is a room view with one more filter on it. Without this the
 	// results are a snapshot that goes stale the moment a matching event lands
 	// — which during a bug bash is immediately, and silently.
@@ -988,7 +980,7 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 	}
 	var lastSeq int64 = after
 	for _, rec := range backlog {
-		if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
+		if !s.matchesFilter(rec, recipient, queryFilter) {
 			lastSeq = rec.Seq
 			continue
 		}
@@ -1036,7 +1028,7 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 				continue
 			}
 			lastSeq = rec.Seq
-			if !s.matchesFilter(rec, recipient, kindFilter, queryFilter) {
+			if !s.matchesFilter(rec, recipient, queryFilter) {
 				continue
 			}
 			writeFrame(w, "event", rec.Seq, s.eventFrame(rec))
@@ -1048,7 +1040,7 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 	}
 }
 
-func (s *Server) matchesFilter(rec store.Record, recipient, kind, query string) bool {
+func (s *Server) matchesFilter(rec store.Record, recipient, query string) bool {
 	// The recipient filter also passes @mentions of that seat. A mention is
 	// text anyone can type — weaker than the signed recipient — but a human
 	// who @names a seat in ambient chat expects that seat's watch to ring,
@@ -1056,9 +1048,6 @@ func (s *Server) matchesFilter(rec store.Record, recipient, kind, query string) 
 	// which it was: its recipient field stays empty, so a consumer can rank
 	// the two.
 	if recipient != "" && string(rec.Recipient) != recipient && !mentions(rec, recipient) {
-		return false
-	}
-	if kind != "" && string(rec.Kind) != kind {
 		return false
 	}
 	// The query is checked last and against the index, not the record: the

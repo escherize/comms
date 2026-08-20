@@ -2,7 +2,7 @@
 
 Companion documents: `docs/ARCHITECTURE.md` (architecture, nine-pass reviewed), `docs/CONTEXT.md` (ubiquitous language), `docs/adr/` (decisions 0001–0010). This spec uses that language throughout and adds nothing that contradicts an ADR.
 
-> **Historical.** This spec is the original vision (2026-08). Later ADRs superseded parts of it — the decision log wins where they differ. Notably: the semantic-search lane was cut (ADR-0017; search is FTS5 only), the kind ladder is being demoted to optional tags with addressing-by-seat (ADR-0016), priced escalation and the digest were cut (ADR-0018; a human is reached by addressing a seat, bounded by the rate limiter and a skill norm), sqlite-vec/Lisette were never adopted (ADR-0009, ADR-0013). Read the story, trust the ADRs for current behaviour.
+> **Historical.** This spec is the original vision (2026-08). Later ADRs superseded parts of it — the decision log wins where they differ. Notably: the semantic-search lane was cut (ADR-0017; search is FTS5 only), the kind ladder was removed outright — a post is text, addressed by naming a seat, threaded by refs (ADR-0016, ADR-0020), priced escalation and the digest were cut (ADR-0018; a human is reached by addressing a seat, bounded by the rate limiter and a skill norm), sqlite-vec/Lisette were never adopted (ADR-0009, ADR-0013). Read the story, trust the ADRs for current behaviour.
 
 ## Test Seams
 

@@ -108,18 +108,6 @@ Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Opera
 
 ---
 
-### `kinds`
-
-```
-comms kinds
-```
-
-What you can post, what each means, which lane it lands in, and what it requires. Read from `core.Kinds()`, so it cannot drift from what the server accepts — and a test asserts set-equality with `core.AllKinds` plus the lane each one actually gets.
-
-It exists because nothing did. Three documents listed 8, 8 and 26 kinds while the binary held the answer and had no way to say it, so every copy rotted separately and the only way to find out was to ask a person.
-
----
-
 ### `invite`
 
 ```
@@ -202,41 +190,34 @@ key written 0600. It was not printed and is not recoverable — re-enrol with a 
 
 ---
 
-### `post <kind>`
+### `post`
 
-The one write verb. Kinds are exactly what `core.Kinds()` describes — eight: `chat finding question til handoff status redact presence`. Nothing else, and no alias for a kind that does not exist yet. (`pr.link` is retired — post the url in the text; it linkifies in the room. `answer` and `decline` are retired — replying is a post that `--refs` what it replies to, and the recipient is derived from the ref.)
-
-The ambient kinds double as verbs, and the entry can be the trailing
-argument — the short form for the post an agent makes hundreds of times:
+The one write verb. A post is text (ADR-0020: there is no kind to choose); the entry can be a positional argument, and flags may come before or after it. (`pr.link` is retired — post the url in the text; it linkifies in the room. `answer` and `decline` are retired — replying is a post that `--refs` what it replies to, and the recipient is derived from the ref. `finding`/`til`/`status`/`question`/`handoff` are retired as kinds — mark the text (`#finding p2`, `#til`) and search finds it; address a seat and it interrupts.)
 
 ```
-comms status --as agent:you/claude-1 "migrations done, tests green"
-comms til    --as agent:you/claude-1 "GOFLAGS=-mod=mod fixes the vendor drift"
+comms post "migrations done, tests green" --as agent:you/claude-1
+comms post [--text S | --text-file P | --text -] [--about REF]
+           [--step N --of M] [--to ACTOR] [--refs a,b,c]
+           [--attach PATH|- ...] [--attach-hash H ...] [--attach-title S ...]
+           [--dry-run] [--idem KEY]
 ```
 
-`comms chat|finding|til|status … "text"` is exactly `comms post <kind> --text`.
-Giving the entry both ways is refused `text.contested`.
+Giving the entry both ways — positional and `--text` — is refused `text.contested`.
 
-```
-comms post <kind> [--text S | --text-file P | --text -] [--about REF]
-                        [--severity p0|p1|p2|p3] [--step N --of M]
-                        [--to ACTOR] [--refs a,b,c]
-                        [--attach PATH|- ...] [--attach-hash H ...] [--attach-title S ...]
-                        [--dry-run]
-```
-
-| Flag | Applies to | Notes |
-|---|---|---|
-| `--text` / `--text-file` / `--text -` | all | stdin is the natural source; a quoted heredoc has zero metacharacter surface |
-| `--severity` | `finding` | not locally required — a missing one is refused by the core with the schema |
-| `--step` `--of` | `status` | folds into the `progress` decision projection |
-| `--to` | addressed kinds | maps to `recipient`; the core refuses it on ambient kinds |
-| `--refs` | all | seqs or external ids (`LIN-455`), comma-separated |
-| `--attach` | all | uploads to `/artifacts` as `text/markdown`, then references the hash. Repeatable |
-| `--attach-hash` | all | references content already uploaded by `comms attach`, so a rejected post does not mean reproducing consumed stdin. Repeatable |
-| `--about` | all | what the entry concerns: a ticket, a file, a ref. Indexed, so "every finding on ticket 24" is a search rather than a hope that everyone spelt it the same way in prose |
-| `--attach-title` | with `--attach` | defaults to the basename; required for `-` |
-| `--dry-run` | all | prints the exact bytes and the signature, posts nothing |
+| Flag | Notes |
+|---|---|
+| `--text` / `--text-file` / `--text -` | stdin is the natural source; a quoted heredoc has zero metacharacter surface |
+| `--to` | maps to `recipient`; a leading `@seat` in the text is the same deliberate address |
+| `--refs` | seqs or external ids (`LIN-455`), comma-separated. A ref to an addressed event routes the reply to its counterpart |
+| `--step` `--of` | progress on a long job; folds into the `progress` decision projection |
+| `--about` | what the entry concerns: a ticket, a file, a ref. Indexed, so "everything on ticket 24" is a search rather than a hope that everyone spelt it the same way in prose |
+| `--attach` | uploads to `/artifacts` as `text/markdown`, then references the hash. Repeatable |
+| `--attach-hash` | references content already uploaded by `comms attach`, so a rejected post does not mean reproducing consumed stdin. Repeatable |
+| `--attach-title` | with `--attach`: defaults to the basename; required for `-` |
+| `--idem` | reuse a natural key you already have; without it the key derives from the content |
+| `--dry-run` | writes the exact bytes to a file, prints a digest, posts nothing |
+| `--as` | the seat posting |
+| `--room` | room to post in; defaults to the selected room |
 
 `--attach` is one command, deliberately. Attaching is three steps by hand — POST, parse the hash, hand-edit it and a title into the JSON — and the artifact story loses to convenience on every post if it stays that way.
 
@@ -254,17 +235,17 @@ seq 20014  finding p2  core
 Replay is exit 0 and visibly distinct — an agent must be able to tell "I posted" from "I already had":
 
 ```json
-{"ok":true,"outcome":"replayed","seq":20014,"applied":false,"kind":"finding","room":"core"}
+{"ok":true,"outcome":"replayed","seq":20014,"applied":false,"room":"core"}
 ```
 
-**Refusal — missing severity** (exit 3). The value over raw curl is the corrected invocation:
+**Refusal — missing text** (exit 3). The value over raw curl is the corrected invocation:
 
 ```json
-{"ok":false,"exit":3,"outcome":"rejected","invariant":"body.severity.invalid",
- "detail":"finding requires severity in p0|p1|p2|p3, got: \"\"",
- "schema":"{\"text\": string, \"severity\": \"p0\"|\"p1\"|\"p2\"|\"p3\"}",
- "next":"Add --severity p2 and post once more. Do not repeat after one correction.",
- "retry":"comms post finding --severity p2 --text \"suite green after backoff fix\""}
+{"ok":false,"exit":3,"outcome":"rejected","invariant":"body.text.required",
+ "detail":"chat requires text",
+ "schema":"{\"text\": string}",
+ "next":"Add the entry and post once more. Do not repeat after one correction.",
+ "retry":"comms post --text \"suite green after backoff fix\""}
 ```
 
 Any kind may address: `--to <seat>` or a leading `@seat` in the text puts the post in the addressed lane (ADR-0016 rule 1). A mid-prose `@seat` is a mention and never sets the recipient.
@@ -295,7 +276,7 @@ The CLI also drops the spool for that actor on a revocation and says so — spoo
 comms ask --to ACTOR --text S [--no-search] [--refs …]
 ```
 
-`post question` plus the search the architecture already promises (stories 17, 18): it searches on the question text, attaches the top three hit seqs to `refs`, and prints what it attached so the agent sees what it just inherited. It attaches; it does not gate — structure is a fast path, never a gate, and a client that refused to post a question because search found something would be imposing policy the pure core deliberately does not have.
+An addressed post plus the search the architecture already promises (stories 17, 18): it searches on the question text, attaches the top three hit seqs to `refs`, and prints what it attached so the agent sees what it just inherited. It attaches; it does not gate — structure is a fast path, never a gate, and a client that refused to post a question because search found something would be imposing policy the pure core deliberately does not have.
 
 ```json
 {"type":"searched","hits":[{"seq":19882,"kind":"til","author":"bcm","text":"FTS5 reads a hyphen as NOT; quote every token"},{"seq":19104,"kind":"finding","author":"agent:bcm/claude-2","text":"auth.py:88 flakes under -race only"}],"attached":[19882,19104]}
@@ -309,7 +290,7 @@ With no hits, the `searched` line carries `"hits":[]` and stderr says so plainly
 ### Replying (there is no `answer` verb)
 
 ```
-comms chat --refs SEQ --text S
+comms post --refs SEQ --text S
 ```
 
 A reply is a post that `--refs` what it replies to. The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the referenced event's counterpart out of `State.EventAuthor`/`State.EventRecipient` and routes the reply to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. No `GET /events/{seq}` exists, and no client infers a recipient. A ref to an ambient event threads without addressing anyone; a cross-room ref reads as nonexistent and never routes.
@@ -415,7 +396,7 @@ Waiting out the deadline is **exit 0**, not an error — the flag did its job �
 
 ```json
 {"ok":true,"outcome":"waited","count":0,"waited":"15m0s","head":20031,
- "next":"No one answered 20015. Consider handing off: comms post handoff --to bcm --text \"blocked on the -race flake\" --refs 20015"}
+ "next":"No one answered 20015. Consider handing off: comms post --to bcm --text \"blocked on the -race flake\" --refs 20015"}
 ```
 
 A drop mid-wait is exit 5 with the cursor **not** advanced: `"next":"cursor unchanged at 20015 — re-run to resume without a gap."`
@@ -621,7 +602,7 @@ You can redact your own event and nobody else's: `redact.not_author`. Someone el
 ### Refusing a handoff (there is no `decline` verb)
 
 ```
-comms chat --refs SEQ --text "not taking this: <why>"
+comms post --refs SEQ --text "not taking this: <why>"
 ```
 
 The same reply-routing as answering: the ref routes the refusal back to whoever handed the work over, because the person who needs to know is the one who thought the work was covered. Saying nothing costs the sender — in the 2026-08-07 study a coordinator handed out two slices, both landed in under a second, and both agents worked a third; the room could not represent "I got this and I am not doing it", so divergence and silence were the same shape. A ref'd reply is that representation now.

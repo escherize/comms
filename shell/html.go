@@ -1133,13 +1133,7 @@ finish review, the verdict, and DESIGN.md.
   <div id="composer-error" class="composer-error" hidden></div>
   <div id="cchips" class="cchips"></div>
   <form class="composer" id="composer">
-    <select name="kind" id="ckind" aria-label="entry kind">
-      <option value="chat">chat</option>
-      <option value="finding">finding</option>
-      <option value="til">til</option>
-      <option value="status">status</option>
-    </select>
-    <textarea id="ctext" name="text" rows="3" placeholder="entry — / for typed kinds, @ to name a seat; enter posts  (c to focus)" aria-label="entry"></textarea>
+    <textarea id="ctext" name="text" rows="3" placeholder="entry — @ to name a seat, / for shortcuts; enter posts  (c to focus)" aria-label="entry"></textarea>
     <input type="file" id="cfile" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple hidden>
     <button type="button" id="cattach" title="attach a markdown file">▤</button>
     <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" aria-label="enrolment token" autocomplete="off">
@@ -1458,9 +1452,7 @@ const composeScript = `
       ['ask',     '@someone <question> — lands addressed; the answer routes back'],
       ['handoff', '@someone <what they take over>'],
       ['answer',  '<seq> <your answer>'],
-      ['finding', 'p0|p1|p2|p3 <what you found>'],
-      ['til',     '<what you learned>'],
-      ['status',  '[3/7] <what you are doing>'],
+      ['status',  '3/7 <what you are doing>'],
     ];
     function closeMenu(){ menu.hidden=true; mitems=[]; msel=0; }
     function paintMenu(){
@@ -1664,27 +1656,18 @@ const composeScript = `
   // unknown verb is refused locally with the list, rather than posting chat
   // that happens to start with a slash.
   var SLASH={
-    finding: function(rest){
-      var m=rest.match(/^(p[0-3])\s+([\s\S]+)$/i);
-      if(!m) return {error:'usage: /finding p0|p1|p2|p3 <what you found>'};
-      return {kind:'finding', body:{severity:m[1].toLowerCase(), text:m[2]}};
-    },
-    til: function(rest){
-      if(!rest) return {error:'usage: /til <what you learned>'};
-      return {kind:'til', body:{text:rest}};
-    },
     status: function(rest){
       var m=rest.match(/^(\d+)\/(\d+)\s+([\s\S]+)$/);
-      if(m) return {kind:'status', body:{step:+m[1], of:+m[2], text:m[3]}};
-      if(!rest) return {error:'usage: /status [3/7] <what you are doing>'};
-      return {kind:'status', body:{text:rest}};
+      if(m) return {kind:'chat', body:{step:+m[1], of:+m[2], text:m[3]}};
+      if(!rest) return {error:'usage: /status 3/7 <what you are doing>'};
+      return {kind:'chat', body:{text:rest}};
     },
     ask: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /ask @someone <question>'};
       // A bare @name is sent as typed; the server resolves it against the
       // roster, the same way the client's --to does, so one rule serves both.
-      return {kind:'question', body:{text:m[2]}, recipient:m[1]};
+      return {kind:'chat', body:{text:m[2]}, recipient:m[1]};
     },
     answer: function(rest){
       // Sugar for a ref'd post: no recipient and no answer kind — the core
@@ -1697,7 +1680,7 @@ const composeScript = `
     handoff: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /handoff @someone <what they are taking over>'};
-      return {kind:'handoff', body:{text:m[2]}, recipient:m[1]};
+      return {kind:'chat', body:{text:m[2]}, recipient:m[1]};
     }
   };
 
@@ -1720,7 +1703,7 @@ const composeScript = `
 
   f.addEventListener('submit', function(e){
     e.preventDefault();
-    var text=document.getElementById('ctext'), kind=document.getElementById('ckind');
+    var text=document.getElementById('ctext');
     if(!text.value.trim()) return;
     var actor=(document.getElementById('actor')||{value:'bcm'}).value;
 
@@ -1742,9 +1725,9 @@ const composeScript = `
       return;
     }
 
-    // Slash-commands are the human's fast path to the same typed kinds agents
-    // post. The dropdown stays as the discoverable route; this is the quick one.
-    var raw=text.value.trim(), k=kind.value, body={};
+    // Slash-commands are the human's fast path: sugar over the same address
+    // and refs rules an agent's post uses. A post is text (ADR-0020).
+    var raw=text.value.trim(), k='chat', body={};
     var m=raw.match(/^\/(\S+)\s*([\s\S]*)$/);
     if(m){
       var verb=m[1].toLowerCase(), rest=m[2].trim();
@@ -1760,7 +1743,6 @@ const composeScript = `
       if(parsed.refs) body.__refs=parsed.refs;
     } else {
       body.text=raw;
-      if(k==='finding') body.severity='p2';
     }
     var recipient=body.__recipient||''; delete body.__recipient;
     var refs=body.__refs||null; delete body.__refs;

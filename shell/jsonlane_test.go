@@ -140,15 +140,16 @@ func TestJSONLaneResumesWithoutGap(t *testing.T) {
 	}
 }
 
-// recipient= is the only filter inbox needs.
-func TestRecipientAndKindFilterServerSide(t *testing.T) {
+// recipient= is the only filter inbox needs; the kind filter is retired with
+// the kinds (ADR-0020).
+func TestRecipientFiltersServerSide(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "human:bcm")
 	seedActor(t, st, "human:sarah")
 	post(t, srv, cmd("chat", "ambient noise", "f1"))
-	post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"for bcm"},"recipient":"human:bcm","idem":"f2"}`)
-	post(t, srv, `{"room":"core","author":"agent:c2","kind":"question",`+
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
 		`"body":{"text":"for sarah"},"recipient":"human:sarah","idem":"f3"}`)
 
 	fs := frames(t, srv.URL+"/stream?room=core&recipient=human:bcm", "", 500*time.Millisecond)
@@ -156,10 +157,6 @@ func TestRecipientAndKindFilterServerSide(t *testing.T) {
 		t.Errorf("recipient= must filter server-side, got %d events", countOf(fs, "event"))
 	}
 
-	fs = frames(t, srv.URL+"/stream?room=core&kind=question", "", 500*time.Millisecond)
-	if countOf(fs, "event") != 2 {
-		t.Errorf("kind= must filter server-side, got %d events", countOf(fs, "event"))
-	}
 }
 
 // A TIL written by a since-compromised key must not read like any other.
@@ -169,7 +166,7 @@ func TestEventsCarryAuthorKeyStatus(t *testing.T) {
 	if err := st.RegisterKey("agent:c1", pub, time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
-	post(t, srv, `{"room":"core","author":"agent:c1","kind":"til",`+
+	post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
 		`"body":{"text":"chunk before embed"},"idem":"k1"}`)
 
 	fs := frames(t, srv.URL+"/stream?room=core", "", 400*time.Millisecond)

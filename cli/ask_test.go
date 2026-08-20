@@ -38,9 +38,9 @@ func TestAskAttachesPriorContext(t *testing.T) {
 	seedActor(t, st, "human:bcm")
 
 	// The room already knows.
-	ev := core.Event{Room: "core", Author: "agent:c9", Kind: core.KindTIL,
+	ev := core.Event{Room: "core", Author: "agent:c9", Kind: core.Kind("til"),
 		Body: map[string]any{"text": "migration 0031 reorder is safe; 0029 is idempotent"},
-		Lane: core.LaneOf(core.KindTIL)}
+		Lane: core.Ambient}
 	prior, err := st.Append(ev, "prior", time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestReplyNeedsNoRecipient(t *testing.T) {
 	srv, st := liveServer(t)
 	enrol(t, srv, st)
 
-	q := core.Event{Room: "core", Author: "agent:asker", Kind: core.KindQuestion,
+	q := core.Event{Room: "core", Author: "agent:asker", Kind: core.Kind("question"),
 		Body: map[string]any{"text": "safe to reorder?"}, Recipient: core.Actor(seat),
 		Lane: core.Addressed}
 	qseq, err := st.Append(q, "q1", time.Now())
@@ -98,7 +98,7 @@ func TestReplyNeedsNoRecipient(t *testing.T) {
 	}
 
 	var c capture
-	code := Run(c.env(t, srv.URL, ""), []string{"chat", "--as", seat,
+	code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--refs", itoa(qseq), "--text", "yes, 0029 is idempotent"})
 	if code != ExitOK {
 		t.Fatalf("reply failed: %d %s", code, c.out.String())
@@ -141,14 +141,14 @@ func TestAttachThenPostByHash(t *testing.T) {
 
 	// The pipe is consumed, but the hash survives a rejected post.
 	var bad capture
-	if code := Run(bad.env(t, srv.URL, ""), []string{"post", "finding", "--as", seat,
-		"--text", "suite red", "--attach-hash", hash}); code != ExitRejected {
-		t.Fatalf("expected a severity rejection, got %d", code)
+	if code := Run(bad.env(t, srv.URL, ""), []string{"post", "--as", seat,
+		"--attach-hash", hash}); code != ExitRejected {
+		t.Fatalf("expected a text rejection, got %d", code)
 	}
 
 	var good capture
-	if code := Run(good.env(t, srv.URL, ""), []string{"post", "finding", "--as", seat,
-		"--severity", "p1", "--text", "suite red", "--attach-hash", hash,
+	if code := Run(good.env(t, srv.URL, ""), []string{"post", "--as", seat,
+		"--text", "suite red", "--attach-hash", hash,
 		"--attach-title", "suite.md"}); code != ExitOK {
 		t.Fatalf("the corrected post must succeed: %d %s", code, good.out.String())
 	}
@@ -175,7 +175,7 @@ func TestMismatchedAttachTitlesAreRefused(t *testing.T) {
 	enrol(t, srv, st)
 
 	var c capture
-	code := Run(c.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--text", "x", "--attach-hash", strings.Repeat("a", 64),
 		"--attach-title", "one", "--attach-title", "two"})
 	if code != ExitUsage {
@@ -195,7 +195,7 @@ func TestStdinCannotBeClaimedTwice(t *testing.T) {
 	claimed = stdinClaim{}
 
 	var c capture
-	code := Run(c.env(t, srv.URL, "some text\n"), []string{"post", "til", "--as", seat,
+	code := Run(c.env(t, srv.URL, "some text\n"), []string{"post", "--as", seat,
 		"--text", "-", "--attach", "-"})
 	if code != ExitUsage {
 		t.Fatalf("contested stdin must be refused, got %d: %s", code, c.out.String())
@@ -215,7 +215,7 @@ func TestLongTextIsNudgedNotRefused(t *testing.T) {
 
 	long := "line one\nline two\nline three\nline four\nline five"
 	var c capture
-	if code := Run(c.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	if code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--text", long}); code != ExitOK {
 		t.Fatalf("long text must still post, got %d: %s", code, c.out.String())
 	}
@@ -256,7 +256,7 @@ func TestTextFromAFile(t *testing.T) {
 	}
 
 	var c capture
-	if code := Run(c.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	if code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--text-file", path}); code != ExitOK {
 		t.Fatalf("--text-file failed: %d %s", code, c.out.String())
 	}
@@ -318,7 +318,7 @@ func seedActor(t *testing.T, st *store.Store, actor string) {
 	t.Helper()
 	_, err := st.Append(core.Event{Room: "core", Author: core.Actor(actor),
 		Kind: core.KindChat, Body: map[string]any{"text": "here"},
-		Lane: core.LaneOf(core.KindChat)}, "seed-"+actor, time.Now())
+		Lane: core.Ambient}, "seed-"+actor, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestSelectingARoomSticksAndFlagStillWins(t *testing.T) {
 	}
 
 	var p capture
-	if code := Run(p.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	if code := Run(p.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--text", "landed in the selected room"}); code != ExitOK {
 		t.Fatalf("post failed: %d %s", code, p.out.String())
 	}
@@ -353,7 +353,7 @@ func TestSelectingARoomSticksAndFlagStillWins(t *testing.T) {
 	}
 
 	var o capture
-	if code := Run(o.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	if code := Run(o.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--room", "core", "--text", "one-off into core"}); code != ExitOK {
 		t.Fatalf("override failed: %d %s", code, o.out.String())
 	}

@@ -101,7 +101,7 @@ every later command needs only --as.
 		if posted, perr := NewClient(e.Server, actor, priv).Post(cmd); perr == nil && posted.Status == 200 {
 			e.Out.Line(map[string]any{"type": "join", "step": "check-in", "seq": posted.Body.Seq})
 		} else {
-			e.Out.Note("check-in did not land; post one yourself: comms post presence --as %s --text \"%s online\"", actor, actor)
+			e.Out.Note("check-in did not land; run comms join again, or post: comms post --as %s \"%s online\"", actor, actor)
 		}
 	}
 

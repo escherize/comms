@@ -42,7 +42,7 @@ func TestArtifactRoundTrip(t *testing.T) {
 	}
 
 	// Attach it to an event.
-	cmd := `{"room":"core","author":"agent:claude-1","kind":"finding",` +
+	cmd := `{"room":"core","author":"agent:claude-1","kind":"chat",` +
 		`"body":{"text":"suite failing","severity":"p1"},"idem":"a1",` +
 		`"attachments":[{"hash":"` + hash + `","title":"suite-results.md"}]}`
 	code, out := post(t, srv, cmd)
@@ -129,7 +129,7 @@ func TestMalformedAttachmentHashFailsParse(t *testing.T) {
 func TestArtifactContentIsSearchable(t *testing.T) {
 	srv, _ := newServer(t)
 	hash := putArtifact(t, srv, report)
-	post(t, srv, `{"room":"core","author":"agent:claude-1","kind":"finding",`+
+	post(t, srv, `{"room":"core","author":"agent:claude-1","kind":"chat",`+
 		`"body":{"text":"suite failing","severity":"p1"},"idem":"s1",`+
 		`"attachments":[{"hash":"`+hash+`","title":"suite-results.md"}]}`)
 
@@ -182,11 +182,11 @@ func TestPurgeDropsAttachments(t *testing.T) {
 func TestProgressProjectionRendersInRoom(t *testing.T) {
 	srv, _ := newServer(t)
 	for i, s := range []string{"1", "2", "3"} {
-		post(t, srv, `{"room":"core","author":"agent:claude-1","kind":"status",`+
+		post(t, srv, `{"room":"core","author":"agent:claude-1","kind":"chat",`+
 			`"body":{"text":"migrating","step":`+s+`,"of":7},"idem":"st`+s+`"}`)
 		_ = i
 	}
-	post(t, srv, `{"room":"core","author":"agent:codex-3","kind":"status",`+
+	post(t, srv, `{"room":"core","author":"agent:codex-3","kind":"chat",`+
 		`"body":{"text":"running suite"},"idem":"st9"}`)
 
 	resp, err := http.Get(srv.URL + "/?room=core")
@@ -218,7 +218,7 @@ func TestProgressProjectionRendersInRoom(t *testing.T) {
 func TestArtifactRawMarkdownUnderAccept(t *testing.T) {
 	srv, _ := newServer(t)
 	hash := putArtifact(t, srv, report)
-	cmd := `{"room":"core","author":"agent:claude-1","kind":"finding",` +
+	cmd := `{"room":"core","author":"agent:claude-1","kind":"chat",` +
 		`"body":{"text":"suite failing","severity":"p1"},"idem":"raw1",` +
 		`"attachments":[{"hash":"` + hash + `","title":"suite-results.md"}]}`
 	if code, out := post(t, srv, cmd); code != http.StatusOK {

@@ -25,9 +25,9 @@ func TestTheCrewLoopNeedsNoWorkaround(t *testing.T) {
 		"Scout owns structure, so overlap is expected on 08 and 17 — say so rather " +
 		"than dropping it. Verify each checked criterion against code, not prose."
 	lead, err := st.Append(core.Event{Room: "core", Author: "agent:scout",
-		Kind: core.KindHandoff, Recipient: core.Actor(seat),
+		Kind: core.Kind("handoff"), Recipient: core.Actor(seat),
 		Body: map[string]any{"text": assignment},
-		Lane: core.LaneOf(core.KindHandoff)}, "h1", time.Now())
+		Lane: core.Addressed}, "h1", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +67,8 @@ func TestTheCrewLoopNeedsNoWorkaround(t *testing.T) {
 		{"02", "slash-commands are built; the note says they are not"},
 	} {
 		var c capture
-		if code := Run(c.env(t, srv.URL, ""), []string{"post", "finding", "--as", seat,
-			"--severity", "p1", "--about", f.about, "--text", f.text}); code != ExitOK {
+		if code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
+			"--about", f.about, "--text", f.text}); code != ExitOK {
 			t.Fatalf("post finding failed: %d %s", code, c.out.String())
 		}
 	}
@@ -84,14 +84,19 @@ func TestTheCrewLoopNeedsNoWorkaround(t *testing.T) {
 		}
 	}
 
-	// 5. "everything about ticket 19" is a filter, not a hope about prose.
+	// 5. "everything about ticket 19" is a search on the indexed --about, not a
+	// hope about prose.
 	var found capture
-	if code := Run(found.env(t, srv.URL, ""), []string{"search", "19", "--as", seat,
-		"--kind", "finding"}); code != ExitOK {
+	if code := Run(found.env(t, srv.URL, ""), []string{"search", "19", "--as", seat}); code != ExitOK {
 		t.Fatalf("search failed: %d %s", code, found.out.String())
 	}
-	if n := strings.Count(found.out.String(), `"type":"event"`); n != 2 {
-		t.Errorf("want the 2 findings about ticket 19, got %d: %s", n, found.out.String())
+	if n := strings.Count(found.out.String(), `"type":"event"`); n < 2 {
+		t.Errorf("want the 2 findings about ticket 19 in the hits, got %d: %s", n, found.out.String())
+	}
+	for _, want := range []string{"diffs no flags", "listing verbs"} {
+		if !strings.Contains(found.out.String(), want) {
+			t.Errorf("search on the indexed --about lost %q", want)
+		}
 	}
 }
 
@@ -108,7 +113,7 @@ func TestAQuietReadSaysWhichKindOfQuiet(t *testing.T) {
 		t.Errorf("a room nobody has posted in should read empty, got %v", last["state"])
 	}
 
-	Run(new(capture).env(t, srv.URL, ""), []string{"post", "til", "--as", seat, "--text", "hi"})
+	Run(new(capture).env(t, srv.URL, ""), []string{"post", "--as", seat, "--text", "hi"})
 	Run(new(capture).env(t, srv.URL, ""), []string{"read", "--as", seat})
 
 	var current capture
@@ -132,8 +137,8 @@ func TestATruncatedPreviewSaysSo(t *testing.T) {
 
 	long := strings.Repeat("this is a long finding body. ", 12)
 	if _, err := st.Append(core.Event{Room: "core", Author: "agent:scout",
-		Kind: core.KindFinding, Body: map[string]any{"text": long, "severity": "p2"},
-		Lane: core.LaneOf(core.KindFinding)}, "long1", time.Now()); err != nil {
+		Kind: core.Kind("finding"), Body: map[string]any{"text": long, "severity": "p2"},
+		Lane: core.Ambient}, "long1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -168,14 +173,14 @@ func TestReadCanWaitOnTheAmbientLane(t *testing.T) {
 	// because fan-out lives on the command path where the seq is assigned.
 	go func() {
 		time.Sleep(250 * time.Millisecond)
-		Run(new(capture).env(t, srv.URL, ""), []string{"post", "finding", "--as", seat,
-			"--severity", "p3", "--text", "late finding"})
+		Run(new(capture).env(t, srv.URL, ""), []string{"post", "--as", seat,
+			"--text", "late finding"})
 	}()
 
 	var c capture
 	start := time.Now()
 	if code := Run(c.env(t, srv.URL, ""), []string{"read", "--as", seat,
-		"--wait", "10s", "--until-kind", "finding"}); code != ExitOK {
+		"--wait", "10s"}); code != ExitOK {
 		t.Fatalf("read --wait failed: %d %s", code, c.out.String())
 	}
 	if !strings.Contains(c.out.String(), "late finding") {
@@ -191,7 +196,7 @@ func TestSearchIsBuiltNotDocumentedOnly(t *testing.T) {
 	isolateKeys(t)
 	srv, st := liveServer(t)
 	enrol(t, srv, st)
-	Run(new(capture).env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	Run(new(capture).env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--text", "FTS5 reads a hyphen as NOT; quote every token"})
 
 	var c capture
@@ -247,8 +252,8 @@ func TestQuietDefaultsOnWhenStdoutIsPiped(t *testing.T) {
 }
 
 // A retry command is meant to be run. An unquoted one runs as something else:
-// `--text probe: no severity --severity p2` posts the word "probe:" and leaves
-// the rest as flags, so the correction silently posts a different event.
+// an unquoted multi-word --about posts one word and leaves the rest as flags,
+// so the correction silently posts a different event.
 func TestRetryCommandsArePasteSafe(t *testing.T) {
 	isolateKeys(t)
 	srv, st := liveServer(t)
@@ -256,28 +261,17 @@ func TestRetryCommandsArePasteSafe(t *testing.T) {
 	claimed = stdinClaim{}
 
 	var c capture
-	Run(c.env(t, srv.URL, ""), []string{"post", "finding", "--as", seat,
-		"--text", "probe: a finding with no severity, and an apostrophe's worth of trouble"})
+	Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
+		"--about", "probe: no text given, and an apostrophe's worth of trouble"})
 
 	l := lines(t, &c)
 	retry, _ := l[len(l)-1]["retry"].(string)
 	if retry == "" {
 		t.Fatal("a correctable rejection should offer the corrected command")
 	}
-	// The whole entry must survive as one argument.
-	if !strings.Contains(retry, "'probe: a finding with no severity, and an apostrophe'\"'\"'s worth of trouble'") {
+	// The whole flag value must survive as one argument.
+	if !strings.Contains(retry, "'probe: no text given, and an apostrophe'\"'\"'s worth of trouble'") {
 		t.Errorf("the retry is not paste-safe: %s", retry)
-	}
-
-	// Dropping --to must drop its value too, or the corrected command fails a
-	// second time in a new way.
-	var amb capture
-	Run(amb.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
-		"--to", "human:bcm", "--text", "ambient with a recipient"})
-	l = lines(t, &amb)
-	retry, _ = l[len(l)-1]["retry"].(string)
-	if strings.Contains(retry, "human:bcm") {
-		t.Errorf("the recipient survived as a bare positional: %s", retry)
 	}
 }
 
@@ -335,9 +329,9 @@ func TestAFailedHandlerReDeliversTheEvent(t *testing.T) {
 	seedActor(t, st, "human:bcm")
 
 	if _, err := st.Append(core.Event{Room: "core", Author: "human:bcm",
-		Kind: core.KindHandoff, Recipient: core.Actor(seat),
+		Kind: core.Kind("handoff"), Recipient: core.Actor(seat),
 		Body: map[string]any{"text": "take the auth suite"},
-		Lane: core.LaneOf(core.KindHandoff)}, "w1", time.Now()); err != nil {
+		Lane: core.Addressed}, "w1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 

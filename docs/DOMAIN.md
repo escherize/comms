@@ -104,6 +104,6 @@ Bots, the outbox drainer and the worker all read the log and submit commands. No
 
 One place, named so it is not discovered by surprise.
 
-**`Post` is doing too much.** Chat, finding, question, answer, til, handoff and status are one aggregate with a switch on kind. That is fine while their invariants are "schema plus lane," and it will stop being fine the first time one of them needs state — a question that can be *answered* or *abandoned*, say. That is the signal to split it.
+**`Post` is one aggregate, and now one shape.** ADR-0020 removed the per-kind switch: a post is text with an optional address and refs. The signal to split remains the same — the first time a post-like thing needs state (a task that can be *claimed* or *done*, say), it becomes its own aggregate rather than a switch arm.
 
 **Escalation was built as a shell counter, then cut (ADR-0018).** The priced `escalate` verb and its per-seat budget shipped, then ADR-0018 removed both: a human is reached by addressing a seat, bounded by the rate limiter and a skill norm, not by a budget. ADR-0008, which designed the budget, is superseded. The lesson survives: had budgets needed to stay, spend-cannot-exceed-grant is an aggregate invariant, not a counter in the shell.

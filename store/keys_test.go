@@ -261,7 +261,7 @@ func TestBothEnrolmentAndPostingPutASeatOnTheRoster(t *testing.T) {
 	}
 	if _, err := st.Append(core.Event{Room: "core", Author: "human:poster",
 		Kind: core.KindChat, Body: map[string]any{"text": "hi"},
-		Lane: core.LaneOf(core.KindChat)}, "p1", time.Now()); err != nil {
+		Lane: core.Ambient}, "p1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -524,9 +524,9 @@ func TestAnOutOfOrderStatusCannotRewindProgress(t *testing.T) {
 	mk := func(step, of int, idem string, at time.Time) {
 		t.Helper()
 		if _, err := s.Append(core.Event{Room: "core", Author: "agent:w",
-			Kind: core.KindStatus,
+			Kind: core.Kind("status"),
 			Body: map[string]any{"text": "working", "step": float64(step), "of": float64(of)},
-			Lane: core.LaneOf(core.KindStatus)}, idem, at); err != nil {
+			Lane: core.Ambient}, idem, at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -565,14 +565,14 @@ func TestAStepLessStatusCarriesTheCounterForward(t *testing.T) {
 	if err := s.EnsureRoom("core"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Append(core.Event{Room: "core", Author: "agent:w", Kind: core.KindStatus,
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:w", Kind: core.Kind("status"),
 		Body: map[string]any{"text": "migrating", "step": float64(3), "of": float64(7)},
-		Lane: core.LaneOf(core.KindStatus)}, "p1", kt0); err != nil {
+		Lane: core.Ambient}, "p1", kt0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Append(core.Event{Room: "core", Author: "agent:w", Kind: core.KindStatus,
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:w", Kind: core.Kind("status"),
 		Body: map[string]any{"text": "still migrating"},
-		Lane: core.LaneOf(core.KindStatus)}, "p2", kt0.Add(time.Minute)); err != nil {
+		Lane: core.Ambient}, "p2", kt0.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 

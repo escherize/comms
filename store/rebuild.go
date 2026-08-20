@@ -134,9 +134,9 @@ func foldInto(tx *sql.Tx, rec Record) error {
 		}
 	}
 
-	switch rec.Kind {
-	case core.KindStatus:
-		step, of := rec.Step(), rec.Of()
+	// Progress, exactly as Append folds it: body-driven, with legacy `status`
+	// events keeping their carry-forward behavior.
+	if step, of := rec.Step(), rec.Of(); rec.Kind == core.Kind("status") || step > 0 || of > 0 {
 		if step == 0 && of == 0 {
 			var priorStep, priorOf int
 			if err := tx.QueryRow(
@@ -156,14 +156,9 @@ func foldInto(tx *sql.Tx, rec Record) error {
 			rec.Room, string(rec.Author), step, of, rec.Text(), ts, rec.Seq); err != nil {
 			return err
 		}
-	case core.KindQuestion:
-		if _, err := tx.Exec(
-			`INSERT INTO question(seq, room, author, recipient, asked_at)
-			 VALUES(?,?,?,?,?) ON CONFLICT(seq) DO NOTHING`,
-			rec.Seq, rec.Room, string(rec.Author), string(rec.Recipient), ts); err != nil {
-			return err
-		}
-	case core.KindRedact:
+	}
+
+	if rec.Kind == core.KindRedact {
 		// Redaction is re-derived from the log, not merely preserved: a
 		// redacted row lost to a crash or a restore comes back on rebuild.
 		// The fold runs in seq order, so the target's search row (re-inserted
@@ -175,19 +170,34 @@ func foldInto(tx *sql.Tx, rec Record) error {
 				}
 			}
 		}
-	default:
-		// The reply fold, exactly as Append does it: a reply routed to a
-		// question's author closes the question, first reply wins. Legacy
-		// answer events carry the same shape and fold the same way.
-		if rec.Recipient != "" {
-			for _, ref := range rec.Refs {
-				if _, err := tx.Exec(
-					`UPDATE question SET answer_seq = ?, answered_at = ?
-					 WHERE seq = ? AND answer_seq = 0 AND author = ?`,
-					rec.Seq, ts, ref, string(rec.Recipient)); err != nil {
-					return err
-				}
+		return nil
+	}
+
+	// The waiting-on-a-person fold, exactly as Append does it: a routed reply
+	// closes, a human-addressed post that closed nothing opens, and legacy
+	// `question` events open regardless of namespace.
+	var closedARef bool
+	if rec.Recipient != "" {
+		for _, ref := range rec.Refs {
+			res, err := tx.Exec(
+				`UPDATE question SET answer_seq = ?, answered_at = ?
+				 WHERE seq = ? AND answer_seq = 0 AND author = ?`,
+				rec.Seq, ts, ref, string(rec.Recipient))
+			if err != nil {
+				return err
 			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				closedARef = true
+			}
+		}
+	}
+	if rec.Kind == core.Kind("question") ||
+		(rec.Kind == core.KindChat && !closedARef && rec.Recipient != "" && !rec.Recipient.IsAgent()) {
+		if _, err := tx.Exec(
+			`INSERT INTO question(seq, room, author, recipient, asked_at)
+			 VALUES(?,?,?,?,?) ON CONFLICT(seq) DO NOTHING`,
+			rec.Seq, rec.Room, string(rec.Author), string(rec.Recipient), ts); err != nil {
+			return err
 		}
 	}
 	return nil

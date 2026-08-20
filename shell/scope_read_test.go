@@ -52,7 +52,7 @@ func scopedServer(t *testing.T) (h http.Handler, ownerTok, sarahTok string) {
 	for _, room := range []string{"comms", "secret"} {
 		if _, err := st.Append(core.Event{Room: room, Author: "human:owner",
 			Kind: core.KindChat, Body: map[string]any{"text": "hi from " + room},
-			Lane: core.LaneOf(core.KindChat)}, "seed-"+room, now); err != nil {
+			Lane: core.Ambient}, "seed-"+room, now); err != nil {
 			t.Fatal(err)
 		}
 	}

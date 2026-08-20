@@ -15,28 +15,28 @@ func seedRoom(t *testing.T) (*Store, map[string]int64) {
 	seqs := map[string]int64{}
 	add := func(key string, kind core.Kind, author core.Actor, text string) {
 		body := map[string]any{"text": text}
-		if kind == core.KindFinding {
+		if kind == core.Kind("finding") {
 			body["severity"] = "p2"
 		}
 		seq, err := s.Append(core.Event{Room: "core", Author: author, Kind: kind,
-			Body: body, Lane: core.LaneOf(kind)}, key, t0)
+			Body: body, Lane: laneFor(kind)}, key, t0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		seqs[key] = seq
 	}
 
-	add("coldcache", core.KindFinding, "agent:claude-1",
+	add("coldcache", core.Kind("finding"), "agent:claude-1",
 		"auth suite fails on cold cache: TokenCache.warm() runs after the first assertion")
-	add("vec", core.KindTIL, "agent:codex-3",
+	add("vec", core.Kind("til"), "agent:codex-3",
 		"sqlite-vec rejects bodies over 8k tokens; chunk before embed")
-	add("deref", core.KindFinding, "agent:claude-1",
+	add("deref", core.Kind("finding"), "agent:claude-1",
 		"nil deref on second retry in auth.py:88")
-	add("backoff", core.KindFinding, "agent:claude-1",
+	add("backoff", core.Kind("finding"), "agent:claude-1",
 		"retry budget is read before the backoff is applied")
-	add("migration", core.KindQuestion, "agent:claude-2",
+	add("migration", core.Kind("question"), "agent:claude-2",
 		"migration 0031 assumes 0029 ran; is it safe to reorder?")
-	add("flake", core.KindTIL, "human:bcm",
+	add("flake", core.Kind("til"), "human:bcm",
 		"the flaky test helper leaks a temp dir on failure paths")
 	return s, seqs
 }
@@ -63,7 +63,7 @@ func TestNaturalQueriesFindTheirEvent(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.query, func(t *testing.T) {
-			hits, err := s.Search(c.query, "", "", "", "", nil, 20)
+			hits, err := s.Search(c.query, "", "", "", nil, 20)
 			if err != nil {
 				t.Fatalf("search errored: %v", err)
 			}
@@ -97,7 +97,7 @@ func TestAddingTermsNeverRemovesAHit(t *testing.T) {
 	}
 
 	for _, q := range growing {
-		hits, err := s.Search(q, "", "", "", "", nil, 50)
+		hits, err := s.Search(q, "", "", "", nil, 50)
 		if err != nil {
 			t.Fatalf("%q errored: %v", q, err)
 		}
@@ -122,7 +122,7 @@ func TestLiteralTokensStillMatch(t *testing.T) {
 		{"sqlite-vec", "vec"},
 		{"auth.py:88", "deref"},
 	} {
-		hits, err := s.Search(c.query, "", "", "", "", nil, 10)
+		hits, err := s.Search(c.query, "", "", "", nil, 10)
 		if err != nil {
 			t.Fatalf("%q errored: %v", c.query, err)
 		}
@@ -138,7 +138,7 @@ func TestLiteralTokensStillMatch(t *testing.T) {
 	}
 
 	// The other direction: a token that is genuinely absent finds nothing.
-	if hits, _ := s.Search("kubernetes", "", "", "", "", nil, 10); len(hits) != 0 {
+	if hits, _ := s.Search("kubernetes", "", "", "", nil, 10); len(hits) != 0 {
 		t.Errorf("an absent term must return nothing, got %d hits", len(hits))
 	}
 }
@@ -148,7 +148,7 @@ func TestResultsOrderByRankNotSeq(t *testing.T) {
 	s, seqs := seedRoom(t)
 
 	// A query strongly matching a late event must put it first.
-	hits, err := s.Search("cold cache TokenCache", "", "", "", "", nil, 10)
+	hits, err := s.Search("cold cache TokenCache", "", "", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -188,7 +188,7 @@ func TestRedactDropsAttachmentsAndTheirLinks(t *testing.T) {
 	srv, st := newServer(t)
 
 	hash := putArtifact(t, srv, "# trace\n\nSECRET-TOKEN-abc123\n")
-	_, out := post(t, srv, `{"room":"core","author":"human:bcm","kind":"finding",`+
+	_, out := post(t, srv, `{"room":"core","author":"human:bcm","kind":"chat",`+
 		`"body":{"text":"crash log","severity":"p1"},"idem":"a1",`+
 		`"attachments":[{"hash":"`+hash+`","title":"trace.md"}]}`)
 	target := itoa(int64(out["seq"].(float64)))
@@ -250,7 +250,7 @@ func TestCrossRoomRedactIsRefused(t *testing.T) {
 // a link an agent reports and a link a human clicks are the same link.
 func TestSearchJSONLane(t *testing.T) {
 	srv, _ := newServer(t)
-	post(t, srv, `{"room":"core","author":"agent:claude-1","kind":"finding",`+
+	post(t, srv, `{"room":"core","author":"agent:claude-1","kind":"chat",`+
 		`"body":{"text":"auth suite fails on cold cache","severity":"p2"},"idem":"j1"}`)
 
 	req, _ := http.NewRequest("GET", srv.URL+"/search?q=flaky+auth+cold+cache", nil)
@@ -315,7 +315,7 @@ func TestEmptyQueryIsRejected(t *testing.T) {
 // The HTML page is unchanged by the JSON lane, and renders lexical hits.
 func TestSearchPageStillRenders(t *testing.T) {
 	srv, _ := newServer(t)
-	post(t, srv, cmd("til", "sqlite-vec rejects long bodies", "h1"))
+	post(t, srv, cmd("chat", "sqlite-vec rejects long bodies", "h1"))
 
 	page := getPage(t, srv.URL+"/search?q=sqlite-vec")
 	if !strings.Contains(page, "sqlite-vec rejects long bodies") {

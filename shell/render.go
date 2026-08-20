@@ -31,24 +31,25 @@ func safeHref(raw string) bool {
 }
 
 // kindCode is the ledger's posting reference: a short fixed-width code, the way
-// a journal abbreviates an account.
+// a journal abbreviates an account. Everything below chat/redact is a legacy
+// kind (ADR-0020) — stored rows keep their glyph, nothing writes them anymore.
 func kindCode(k core.Kind) string {
 	switch k {
 	case core.KindChat:
 		return "💬"
-	case core.KindFinding:
+	case "finding":
 		return "🔍"
-	case core.KindQuestion:
+	case "question":
 		return "❓"
-	case "answer": // legacy rows; replying is a ref'd post now (ADR-0016 rule 2)
+	case "answer":
 		return "💡"
-	case core.KindTIL:
+	case "til":
 		return "🎓"
-	case core.KindHandoff:
+	case "handoff":
 		return "🤝"
-	case core.KindStatus:
+	case "status":
 		return "🛠️"
-	case "pr.link": // legacy rows; the kind is retired (ADR-0016 step 1)
+	case "pr.link":
 		return "🔗"
 	case core.KindRedact:
 		return "✂️"
@@ -138,10 +139,8 @@ func renderRow(r store.Record) string {
 		if r.Recipient != "" {
 			body.WriteString(`<span class="to">` + html.EscapeString(string(r.Recipient)) + `</span> `)
 		}
-		if r.Kind == core.KindStatus {
-			if step, of := r.Step(), r.Of(); of > 0 {
-				body.WriteString(fmt.Sprintf(`<span class="step">%d/%d</span> `, step, of))
-			}
+		if step, of := r.Step(), r.Of(); of > 0 {
+			body.WriteString(fmt.Sprintf(`<span class="step">%d/%d</span> `, step, of))
 		}
 		if txt := r.Text(); txt != "" {
 			body.WriteString(renderEntryText(txt, r.Seq))
@@ -428,7 +427,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 
 	if wantsJSON(r) {
 		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
-			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
+			r.URL.Query().Get("author"),
 			r.URL.Query().Get("since"), s.readerRooms(reader(r)), 100)
 		if err != nil {
 			writeJSONL(w, http.StatusInternalServerError, nil, map[string]any{
@@ -448,7 +447,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	var highest int64
 	if q != "" {
 		hits, err := s.st.Search(q, r.URL.Query().Get("room"),
-			r.URL.Query().Get("kind"), r.URL.Query().Get("author"),
+			r.URL.Query().Get("author"),
 			r.URL.Query().Get("since"), s.readerRooms(reader(r)), 100)
 		if err != nil {
 			rows.WriteString(`<div class="row"><div class="folio">!</div>` +
@@ -464,7 +463,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		n = len(hits)
 		if n == 0 && err == nil {
 			rows.WriteString(`<div class="empty">no matches for &ldquo;` +
-				html.EscapeString(q) + `&rdquo; — try fewer words, or filter with the kind/author boxes</div>`)
+				html.EscapeString(q) + `&rdquo; — try fewer words</div>`)
 		}
 	} else {
 		rows.WriteString(`<div class="empty">type a query above — every room this seat can read is searchable</div>`)

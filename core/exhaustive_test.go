@@ -10,22 +10,22 @@ func TestEveryKindIsKnown(t *testing.T) {
 	}
 }
 
-// Every kind must land in exactly one lane, deliberately. The default arm of
-// LaneOf makes silence look like a decision, so assert each kind's lane is the
-// one someone chose.
+// The lane is a property of the deliberate address (ADR-0016 rule 1); no kind
+// carries one. Every system kind posted without a recipient must land ambient.
 func TestEveryKindHasADeliberateLane(t *testing.T) {
-	// Written out rather than derived from LaneOf, so this asserts the intent
-	// against the implementation instead of the implementation against itself.
-	addressed := map[Kind]bool{
-		KindQuestion: true, KindHandoff: true,
-	}
+	state := State{RoomExists: okRoom}
 	for _, k := range AllKinds {
-		want := Ambient
-		if addressed[k] {
-			want = Addressed
+		cmd := Command{Room: "core", Author: "human:bcm", Kind: k, Idem: "l-" + string(k),
+			Body: map[string]any{"text": "x"}}
+		if k == KindRedact {
+			cmd.Refs = []string{"evt_1"}
 		}
-		if got := LaneOf(k); got != want {
-			t.Errorf("kind %q: lane %v, expected %v — a new kind must be classified, not defaulted", k, got, want)
+		events, rej := Decide(state, cmd)
+		if rej != nil {
+			t.Fatalf("kind %q: %v", k, rej)
+		}
+		if events[0].Lane != Ambient {
+			t.Errorf("kind %q with no address must land ambient", k)
 		}
 	}
 }
@@ -45,14 +45,8 @@ func TestEveryKindIsPostable(t *testing.T) {
 			cmd := Command{Room: "core", Author: "human:bcm", Kind: k, Idem: "i-" + string(k),
 				Body: map[string]any{"text": "x"}}
 
-			switch k {
-			case KindFinding:
-				cmd.Body["severity"] = "p2"
-			case KindRedact:
+			if k == KindRedact {
 				cmd.Refs = []string{"evt_1"}
-			}
-			if LaneOf(k) == Addressed {
-				cmd.Recipient = "someone"
 			}
 
 			events, rej := Decide(state, cmd)
@@ -63,31 +57,5 @@ func TestEveryKindIsPostable(t *testing.T) {
 				t.Fatalf("kind %q did not round-trip through Decide", k)
 			}
 		})
-	}
-}
-
-// knownKind must accept exactly the kinds Kinds() describes — no more. A kind
-// the server accepts and nothing documents is a kind an agent discovers by
-// accident; a kind documented and refused is worse.
-func TestKnownKindAcceptsExactlyTheDocumentedSet(t *testing.T) {
-	documented := map[Kind]bool{}
-	for _, k := range Kinds() {
-		documented[k.Kind] = true
-		if !knownKind(k.Kind) {
-			t.Errorf("Kinds() describes %q and knownKind rejects it", k.Kind)
-		}
-		if k.Means == "" || k.Requires == "" {
-			t.Errorf("kind %q is described with an empty field", k.Kind)
-		}
-	}
-	// Every constant declared in this package must be in the documented set.
-	for _, k := range []Kind{
-		KindChat, KindFinding, KindQuestion, KindTIL, KindHandoff,
-		KindStatus, KindRedact,
-	} {
-		if !documented[k] {
-			t.Errorf("kind %q exists and Kinds() does not describe it, so no document "+
-				"and no command can tell an agent it is there", k)
-		}
 	}
 }

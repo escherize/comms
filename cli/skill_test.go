@@ -176,17 +176,17 @@ func TestEverySkillCommandRuns(t *testing.T) {
 	// hash it uploaded. Seed both, so the examples are exercised as written
 	// rather than skipped for want of a value the prose assumes.
 	seedQ, err := st.Append(core.Event{Room: "core", Author: "human:sarah",
-		Kind: core.KindQuestion, Recipient: core.Actor(seat),
+		Kind: core.Kind("question"), Recipient: core.Actor(seat),
 		Body: map[string]any{"text": "is the -race flake ours or the runner image?"},
-		Lane: core.LaneOf(core.KindQuestion)}, "skill-q", time.Now())
+		Lane: core.Addressed}, "skill-q", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	subs["20015"] = itoa(seedQ)
 
 	seedF, err := st.Append(core.Event{Room: "core", Author: core.Actor(seat),
-		Kind: core.KindFinding, Body: map[string]any{"text": "seed finding", "severity": "p2"},
-		Lane: core.LaneOf(core.KindFinding)}, "skill-f", time.Now())
+		Kind: core.Kind("finding"), Body: map[string]any{"text": "seed finding", "severity": "p2"},
+		Lane: core.Ambient}, "skill-f", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +195,9 @@ func TestEverySkillCommandRuns(t *testing.T) {
 	// The skill's decline example names a handoff. Seed one addressed to this
 	// seat, so the example runs as written rather than being special-cased.
 	seedH, err := st.Append(core.Event{Room: "core", Author: "human:sarah",
-		Kind: core.KindHandoff, Recipient: core.Actor(seat),
+		Kind: core.Kind("handoff"), Recipient: core.Actor(seat),
 		Body: map[string]any{"text": "the retry path is yours"},
-		Lane: core.LaneOf(core.KindHandoff)}, "skill-h", time.Now())
+		Lane: core.Addressed}, "skill-h", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,6 +236,15 @@ func TestEverySkillCommandRuns(t *testing.T) {
 		var cap capture
 		code := Run(cap.env(t, srv.URL, c.stdin), args)
 		claimed = stdinClaim{}
+		// Exit 6 says "sleep retry_after_ms, then post it again" — do exactly
+		// what the reply teaches, once, so a doc with more examples than the
+		// rate limiter's burst still runs as written.
+		if code == ExitThrottled {
+			time.Sleep(1100 * time.Millisecond)
+			cap = capture{}
+			code = Run(cap.env(t, srv.URL, c.stdin), args)
+			claimed = stdinClaim{}
+		}
 
 		if code != ExitOK {
 			t.Errorf("SKILL.md line %d: `comms %s` exited %d\n%s",
@@ -252,11 +261,9 @@ func TestEverySkillCommandRuns(t *testing.T) {
 			if !ok {
 				continue
 			}
-			switch args[1] {
-			case "question":
-				question = int64(seq)
-				subs["20015"] = itoa(question)
-			case "finding":
+			// A #finding-marked post is the finding the later examples ref; an
+			// ask is the question the later examples answer.
+			if args[0] == "post" && strings.Contains(strings.Join(args, " "), "#finding") {
 				finding = int64(seq)
 				subs["20014"] = itoa(finding)
 			}
@@ -340,62 +347,6 @@ func knownInvariantPrefix(s string) bool {
 	return false
 }
 
-// The kind table and the kind set must be the same set. A kind missing from the
-// table is a kind no agent will ever use; a kind in the table that the core does
-// not know is a rejection on first use.
-func TestSkillKindTableMatchesTheKindSet(t *testing.T) {
-	doc := mustReadSkill(t)
-
-	// Scope to the kind table. The file has several tables and every one of them
-	// begins a row with a backticked token, so an unscoped match reads the
-	// invariant table as a list of kinds.
-	start := strings.Index(doc, "| Kind | Means |")
-	if start == -1 {
-		t.Fatal("the skill must have a kind table")
-	}
-	table := doc[start:]
-	if end := strings.Index(table, "\n\n"); end != -1 {
-		table = table[:end]
-	}
-
-	inTable := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^\| `+"`"+`([a-z.]+)`+"`").FindAllStringSubmatch(table, -1) {
-		inTable[m[1]] = true
-	}
-	if len(inTable) < 5 {
-		t.Fatalf("only %d kinds found in the table; the extractor is wrong", len(inTable))
-	}
-
-	b, err := os.ReadFile("../core/core.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	all := regexp.MustCompile(`Kind\w+\s+Kind\s+=\s+"([a-z.]+)"`).FindAllStringSubmatch(string(b), -1)
-	if len(all) < 5 {
-		t.Fatal("could not read the kind set out of core")
-	}
-
-	for _, m := range all {
-		kind := m[1]
-		if !inTable[kind] {
-			t.Errorf("kind %q is postable and is not in the skill's table, so no agent will use it", kind)
-		}
-	}
-	for kind := range inTable {
-		var known bool
-		for _, m := range all {
-			if m[1] == kind {
-				known = true
-			}
-		}
-		if !known {
-			t.Errorf("the skill's table offers %q and the core does not know it", kind)
-		}
-	}
-}
-
-// The skill must speak the room's language. A word the rest of the system does
-// not use is a word an agent will search for and not find.
 func TestSkillUsesTheUbiquitousLanguage(t *testing.T) {
 	doc := strings.ToLower(mustReadSkill(t))
 	for _, banned := range []string{"notification", "urgent", "priority"} {
@@ -632,54 +583,6 @@ func TestTheREADMEStartsTheHubWithACommandThatExists(t *testing.T) {
 	}
 }
 
-// The binary must be able to answer "what can I post". Three documents once
-// listed 8, 8 and 26 kinds while core held the answer and had no way to say it,
-// so every copy rotted separately and a human had to be asked.
-func TestTheKindsVerbMatchesTheCore(t *testing.T) {
-	isolateKeys(t)
-	var c capture
-	env := c.env(t, "http://127.0.0.1:1", "")
-	env.Out.Quiet = true
-	if code := Run(env, []string{"kinds"}); code != ExitOK {
-		t.Fatalf("kinds exited %d", code)
-	}
-
-	printed := map[string]string{}
-	for _, l := range lines(t, &c) {
-		if l["type"] != "kind" {
-			continue
-		}
-		printed[l["kind"].(string)] = l["lane"].(string)
-	}
-
-	// Set equality with the core, and the lane it actually assigns.
-	for _, k := range core.AllKinds {
-		lane, ok := printed[string(k)]
-		if !ok {
-			t.Errorf("kind %q exists and `comms kinds` does not print it", k)
-			continue
-		}
-		want := "ambient"
-		if core.LaneOf(k) == core.Addressed {
-			want = "addressed"
-		}
-		if lane != want {
-			t.Errorf("kinds says %q is %s; LaneOf says %s", k, lane, want)
-		}
-	}
-	for k := range printed {
-		var known bool
-		for _, real := range core.AllKinds {
-			if string(real) == k {
-				known = true
-			}
-		}
-		if !known {
-			t.Errorf("kinds prints %q and the core does not know it", k)
-		}
-	}
-}
-
 // An operator flag that creates a database is almost always the wrong
 // database. -db defaults to comms.db relative to the working directory, so
 // running -invite from the wrong place mints a real token into a file no hub
@@ -704,26 +607,21 @@ func TestOperatorActionsRefuseANeverServedDatabase(t *testing.T) {
 	}
 }
 
-// The quick-reference card is generated from core.Kinds(), so every agent-
-// postable kind must appear — the guard that keeps `ref` from becoming a
-// fourth drifting copy of the kind list.
-func TestRefCoversEveryAgentKind(t *testing.T) {
+// The quick-reference card teaches the post-ADR-0020 model: text, addressing,
+// refs — no kind ladder.
+func TestRefCoversTheCard(t *testing.T) {
 	var c capture
 	if code := Run(c.env(t, "http://127.0.0.1:1", ""), []string{"ref"}); code != ExitOK {
 		t.Fatalf("ref exited %d", code)
 	}
 	out := c.out.String()
-	for _, k := range core.Kinds() {
-		if !k.Agent {
-			continue
-		}
-		if !strings.Contains(out, string(k.Kind)) {
-			t.Errorf("ref is missing the %q kind", k.Kind)
-		}
-	}
-	for _, want := range []string{"exit codes", "comms search", "--attach-hash", "retry_after_ms"} {
+	for _, want := range []string{"comms post", "--refs", "@seat", "--to",
+		"exit codes", "comms search", "--attach-hash", "retry_after_ms"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ref is missing %q", want)
 		}
+	}
+	if strings.Contains(out, "kinds — a ladder") {
+		t.Error("ref still teaches the retired kind ladder")
 	}
 }

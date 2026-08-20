@@ -504,11 +504,14 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 		return 0, err
 	}
 
-	// Decision projection, same transaction: a status event folds into the
-	// author's current progress rather than being replayed to reconstruct it.
-	if ev.Kind == core.KindStatus {
-		step, hasStep := ev.Body["step"].(float64)
-		of, hasOf := ev.Body["of"].(float64)
+	// Decision projection, same transaction: a post carrying --step/--of folds
+	// into the author's current progress rather than being replayed to
+	// reconstruct it. The trigger is the body, not a kind (ADR-0020) — legacy
+	// `status` events keep folding, including the step-less kind that carried
+	// the counter forward; a new post without step/of leaves progress alone.
+	step, hasStep := ev.Body["step"].(float64)
+	of, hasOf := ev.Body["of"].(float64)
+	if ev.Kind == core.Kind("status") || hasStep || hasOf {
 		// "still working on the migration" is not a claim that the work went
 		// back to step 0 of 0. A step-less status carries the author's existing
 		// counter forward rather than erasing it.
@@ -520,7 +523,6 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 				step, of = float64(priorStep), float64(priorOf)
 			}
 		}
-		_, _ = hasStep, hasOf
 		if _, err := tx.Exec(
 			`INSERT INTO progress(room, author, step, of, note, server_ts, seq)
 			 VALUES(?,?,?,?,?,?,?)
@@ -562,31 +564,39 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 		return 0, err
 	}
 
-	// Question -> answer folding, same transaction.
-	switch ev.Kind {
-	case core.KindQuestion:
+	// The waiting-on-a-person projection, same transaction. A reply routed
+	// back to a question's author closes the question (ADR-0016 rule 2: the
+	// ref carries the relationship; there is no answer kind). First reply
+	// wins: a question is open or it is not, and later replies do not reopen
+	// it. Legacy answer events match this same shape — recipient set to the
+	// asker, ref to the question — so rebuild folds them identically.
+	var closedARef bool
+	if ev.Recipient != "" {
+		for _, ref := range ev.Refs {
+			res, err := tx.Exec(
+				`UPDATE question SET answer_seq = ?, answered_at = ?
+				 WHERE seq = ? AND answer_seq = 0 AND author = ?`,
+				next, ts, ref, string(ev.Recipient))
+			if err != nil {
+				return 0, err
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				closedARef = true
+			}
+		}
+	}
+	// What opens an item: a post addressed to a human seat — a person owes a
+	// response — unless the post is itself the reply that just closed one.
+	// Legacy `question` events open regardless of namespace, so old logs
+	// rebuild exactly. ponytail: a human-addressed ack nobody replies to sits
+	// open; per-thread state if that ever matters.
+	if ev.Kind == core.Kind("question") ||
+		(ev.Kind == core.KindChat && !closedARef && ev.Recipient != "" && !ev.Recipient.IsAgent()) {
 		if _, err := tx.Exec(
 			`INSERT INTO question(seq, room, author, recipient, asked_at)
 			 VALUES(?,?,?,?,?) ON CONFLICT(seq) DO NOTHING`,
 			next, ev.Room, string(ev.Author), string(ev.Recipient), ts); err != nil {
 			return 0, err
-		}
-	default:
-		// A reply routed back to a question's author closes the question
-		// (ADR-0016 rule 2: the ref carries the relationship; there is no
-		// answer kind). First reply wins: a question is open or it is not,
-		// and later replies do not reopen it. Legacy answer events match this
-		// same shape — recipient set to the asker, ref to the question — so
-		// rebuild folds them identically.
-		if ev.Recipient != "" {
-			for _, ref := range ev.Refs {
-				if _, err := tx.Exec(
-					`UPDATE question SET answer_seq = ?, answered_at = ?
-					 WHERE seq = ? AND answer_seq = 0 AND author = ?`,
-					next, ts, ref, string(ev.Recipient)); err != nil {
-					return 0, err
-				}
-			}
 		}
 	}
 
@@ -732,7 +742,7 @@ type SearchResult struct {
 // search to exactly those rooms, and an empty slice matches nothing. It is the
 // reading seat's membership, applied at the source so a non-member room's
 // content never enters the result set — scoping the query, not filtering after.
-func (s *Store) Search(query, room, kind, author, since string, allow []string, limit int) ([]Record, error) {
+func (s *Store) Search(query, room, author, since string, allow []string, limit int) ([]Record, error) {
 	q := ftsQuery(query)
 	if q == "" {
 		return nil, nil
@@ -758,10 +768,6 @@ func (s *Store) Search(query, room, kind, author, since string, allow []string, 
 			args = append(args, rm)
 		}
 		where = append(where, "e.room IN ("+strings.Join(ph, ",")+")")
-	}
-	if kind != "" {
-		where = append(where, "e.kind = ?")
-		args = append(args, kind)
 	}
 	if author != "" {
 		where = append(where, "e.author = ?")

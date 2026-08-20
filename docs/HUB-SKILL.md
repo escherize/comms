@@ -15,7 +15,7 @@ every projection is rebuilt from.
 comms serve --db comms.db --rooms core     # 1. serve (127.0.0.1:7777)
 comms invite human:you                    # 2. mint a token (new shell)
 echo "<token>" | comms enrol --as human:you   # 3. enrol your seat
-comms post chat --as human:you --text "hello room"   # 4. prove it
+comms post --as human:you --text "hello room"        # 4. prove it
 ```
 
 Open http://127.0.0.1:7777 in a browser — localhost is one of the two places

@@ -196,20 +196,20 @@ func runSearch(e *Env, args []string) int {
 	fs, sink := newFlags("search")
 	actor := fs.String("as", "", "the seat searching")
 	room := fs.String("room", "", "room to search")
-	kind := fs.String("kind", "", "only this kind")
 	author := fs.String("author", "", "only this author")
 	since := fs.String("since", "", "only events at or after this RFC3339 date")
 	limit := fs.Int("limit", 20, "most hits to print")
 	allRooms := fs.Bool("all-rooms", false, "search every room, not just the selected one")
 	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20]
+		e.Out.HelpFS(fs, `comms search QUERY [--author A] [--since DATE] [--limit 20]
 
-Searches the room you are in. Filters are flags, not inline syntax: every
-whitespace-delimited token is quoted before it reaches FTS5, so typing
-kind:finding into the query searches for that literal string.
+Searches the room you are in. Full-text, so a marker someone wrote in a post
+(#finding, p2, a ticket id) is a search term like any other word. Filters are
+flags, not inline syntax: every whitespace-delimited token is quoted before it
+reaches FTS5.
 
   comms search "migration 0031"
-  comms search flaky --kind finding --limit 5
+  comms search "#finding flaky" --limit 5
   comms search "auth suite" --all-rooms
 
 Zero hits is exit 0 and says so — but "no hits" means no full-text match, which
@@ -239,7 +239,7 @@ is new to the room."`)
 	if !*allRooms {
 		q.Set("room", resolveRoom(seat, *room))
 	}
-	for k, v := range map[string]string{"kind": *kind, "author": *author, "since": *since} {
+	for k, v := range map[string]string{"author": *author, "since": *since} {
 		if v != "" {
 			q.Set(k, v)
 		}

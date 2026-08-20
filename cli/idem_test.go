@@ -13,7 +13,7 @@ func TestReRunningTheSameCommandIsAReplay(t *testing.T) {
 	enrol(t, srv, st)
 	claimed = stdinClaim{}
 
-	args := []string{"post", "finding", "--as", seat, "--severity", "p2",
+	args := []string{"post", "--as", seat,
 		"--text", "the auth suite flakes on a cold cache"}
 
 	var first capture
@@ -56,13 +56,13 @@ func TestADifferentCommandIsANewEvent(t *testing.T) {
 	enrol(t, srv, st)
 	claimed = stdinClaim{}
 
-	base := []string{"post", "finding", "--as", seat, "--severity", "p2", "--text", "the first"}
+	base := []string{"post", "--as", seat, "--text", "the first"}
 	Run(new(capture).env(t, srv.URL, ""), base)
 
 	for _, changed := range [][]string{
-		{"post", "finding", "--as", seat, "--severity", "p2", "--text", "the second"},
-		{"post", "finding", "--as", seat, "--severity", "p1", "--text", "the first"},
-		{"post", "til", "--as", seat, "--text", "the first"},
+		{"post", "--as", seat, "--text", "the second"},
+		{"post", "--as", seat, "--text", "the first", "--about", "run-2"},
+		{"post", "--as", seat, "--text", "the first", "--refs", "42"},
 	} {
 		var c capture
 		if code := Run(c.env(t, srv.URL, ""), changed); code != ExitOK {
@@ -77,7 +77,7 @@ func TestADifferentCommandIsANewEvent(t *testing.T) {
 	recs, _ := st.Since("core", 0, 100)
 	var n int
 	for _, r := range recs {
-		if r.Kind == "finding" || r.Kind == "til" {
+		if strings.HasPrefix(r.Text(), "the ") {
 			n++
 		}
 	}
@@ -157,11 +157,11 @@ func TestAnExplicitKeyWins(t *testing.T) {
 	// Two different texts under one natural key: the second is a conflict, not
 	// a silent replacement, because the key says they are the same post and the
 	// content says they are not.
-	Run(new(capture).env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	Run(new(capture).env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--idem", "LIN-214-note", "--text", "the first version"})
 
 	var c capture
-	code := Run(c.env(t, srv.URL, ""), []string{"post", "til", "--as", seat,
+	code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
 		"--idem", "LIN-214-note", "--text", "an edited version"})
 	if code == ExitOK {
 		t.Fatal("the same key with different content must not silently replace")

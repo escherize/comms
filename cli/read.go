@@ -32,12 +32,10 @@ type readOpts struct {
 	Room      string
 	Lane      Lane
 	Recipient string
-	Kind      string
 	Author    string
 	Full      bool
 	Peek      bool
 	Wait      time.Duration
-	UntilKind string
 	UntilRefs string
 	// From replays from a seq instead of the cursor. Replay never moves the
 	// cursor: re-reading is not reading, and a lead reconstructing an hour of
@@ -65,9 +63,6 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 	q.Set("room", o.Room)
 	if o.Recipient != "" {
 		q.Set("recipient", o.Recipient)
-	}
-	if o.Kind != "" {
-		q.Set("kind", o.Kind)
 	}
 	after := Cursor(o.Actor, o.Room, o.Lane)
 	if o.From > 0 {
@@ -227,9 +222,6 @@ func matchesLocal(f frame, o readOpts) bool {
 }
 
 func satisfiesWait(f frame, o readOpts) bool {
-	if o.UntilKind != "" && f.Data["kind"] != o.UntilKind {
-		return false
-	}
 	if o.UntilRefs != "" {
 		refs, _ := f.Data["refs"].([]any)
 		var hit bool

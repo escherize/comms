@@ -57,15 +57,15 @@ func artifactScopedServer(t *testing.T) (h http.Handler, sarahTok string, secret
 		t.Fatal(err)
 	}
 	if _, err := st.Append(core.Event{Room: "comms", Author: "human:owner",
-		Kind: core.KindFinding, Body: map[string]any{"text": "see report", "severity": "p2"},
+		Kind: core.Kind("finding"), Body: map[string]any{"text": "see report", "severity": "p2"},
 		Attachments: []core.Attachment{{Hash: commsHash, Title: "comms.md"}},
-		Lane:        core.LaneOf(core.KindFinding)}, "a-comms", now); err != nil {
+		Lane:        core.Ambient}, "a-comms", now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Append(core.Event{Room: "secret", Author: "human:owner",
-		Kind: core.KindFinding, Body: map[string]any{"text": "see report", "severity": "p2"},
+		Kind: core.Kind("finding"), Body: map[string]any{"text": "see report", "severity": "p2"},
 		Attachments: []core.Attachment{{Hash: secretHash, Title: "secret.md"}},
-		Lane:        core.LaneOf(core.KindFinding)}, "a-secret", now); err != nil {
+		Lane:        core.Ambient}, "a-secret", now); err != nil {
 		t.Fatal(err)
 	}
 

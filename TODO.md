@@ -11,25 +11,17 @@ simplification that must land first, or it just gets un-built.
 
 ---
 
-## Now — the simplification (ADR-0016), in dependency order
+## Now
 
-Done since this queue was written: ADR-0017 cut the semantic lane, ADR-0018 cut
-`escalate` + the escalation budget and the `digest` kind/bot. What remains of the
-simplification is ADR-0016 (`docs/adr/0016-addressing-replaces-the-kind-ladder.md`):
-a post is text, addressed by naming a seat, kind demoted to an optional search
-tag. Land it in this order — each step is its own commit, skill/docs trimmed to
-match, `./check` green.
+The simplification arc is landed: ADR-0017 cut the semantic lane, ADR-0018 cut
+`escalate` + digest, ADR-0016 replaced the kind ladder with addressing-by-seat
+and reply-routing-by-ref, and ADR-0020 deleted the author-facing kind outright
+(a post is text; `chat`/`presence`/`redact` survive as the system
+discriminator; legacy kinds render from old rows). One TBD deliberately left
+open: dedicated human-address rate-limit numbers — the global per-seat limiter
+is the floor for now (ADR-0016 rule 4).
 
-1. [ ] **Delete author-facing kind entirely** (ADR-0020, supersedes 0016 rule
-       3). No `--finding`/`--severity`, no `search --kind`, no `comms kinds`.
-       `checkBody` collapses to "text required." `Kind` shrinks to the system
-       discriminator (`chat`, `presence`, `redact`); old events legacy-read
-       their stored kind. Rewrite the skill's "choose the kind" section to
-       "post text; name a seat when you need one."
-
-TBDs to settle while building step 1 (don't guess): the human-address rate-limit numbers.
-
-Also remaining: **ADR-0019** (`docs/adr/0019-read-ergonomics-show-and-presence.md`)
+Next up: **ADR-0019** (`docs/adr/0019-read-ergonomics-show-and-presence.md`)
 — `comms show <seq>` and roster last-seen. Both are in the Ergonomics section
 below; the ADR is accepted, the code is not landed yet.
 

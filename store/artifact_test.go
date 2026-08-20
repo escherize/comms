@@ -24,9 +24,9 @@ func TestArtifactRefIndex(t *testing.T) {
 	}
 	hash, _ := s.PutArtifact([]byte("# report\n"), kt0)
 	seq, err := s.Append(core.Event{Room: "comms", Author: "human:bcm",
-		Kind: core.KindFinding, Body: map[string]any{"text": "see", "severity": "p2"},
+		Kind: core.Kind("finding"), Body: map[string]any{"text": "see", "severity": "p2"},
 		Attachments: []core.Attachment{{Hash: hash, Title: "r.md"}},
-		Lane:        core.LaneOf(core.KindFinding)}, "ref1", kt0)
+		Lane:        core.Ambient}, "ref1", kt0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestArtifactRefIndex(t *testing.T) {
 	// Redacting the event drops the reference — the artifact is served to nobody.
 	redactSeq, _ := s.Append(core.Event{Room: "comms", Author: "human:bcm",
 		Kind: core.KindRedact, Refs: []string{itoa(seq)},
-		Body: map[string]any{"text": "leak"}, Lane: core.LaneOf(core.KindRedact)}, "red1", kt0)
+		Body: map[string]any{"text": "leak"}, Lane: core.Ambient}, "red1", kt0)
 	if err := s.ApplyRedaction(seq, redactSeq, "human:bcm", kt0); err != nil {
 		t.Fatal(err)
 	}
@@ -57,9 +57,9 @@ func TestArtifactRefIndex(t *testing.T) {
 	defer s2.Close()
 	h2, _ := s2.PutArtifact([]byte("# other\n"), kt0)
 	if _, err := s2.Append(core.Event{Room: "comms", Author: "human:bcm",
-		Kind: core.KindFinding, Body: map[string]any{"text": "x", "severity": "p2"},
+		Kind: core.Kind("finding"), Body: map[string]any{"text": "x", "severity": "p2"},
 		Attachments: []core.Attachment{{Hash: h2, Title: "o.md"}},
-		Lane:        core.LaneOf(core.KindFinding)}, "ref2", kt0); err != nil {
+		Lane:        core.Ambient}, "ref2", kt0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s2.db.Exec(`DELETE FROM artifact_ref WHERE hash = ?`, h2); err != nil {
@@ -84,7 +84,7 @@ func TestPurgeDropsArtifactRefGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seq, err := s.Append(core.Event{Room: "core", Author: "agent:a", Kind: core.KindFinding,
+	seq, err := s.Append(core.Event{Room: "core", Author: "agent:a", Kind: core.Kind("finding"),
 		Body:        map[string]any{"text": "see attached", "severity": "p2"},
 		Attachments: []core.Attachment{{Hash: h, Title: "report.md"}},
 		Lane:        core.Ambient}, "pa1", time.Now())

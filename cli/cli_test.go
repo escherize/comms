@@ -199,13 +199,13 @@ func TestRejectionCarriesARetryThatWorks(t *testing.T) {
 
 	var c capture
 	code := Run(c.env(t, srv.URL, ""),
-		[]string{"post", "finding", "--as", seat, "--text", "auth.py:88 flakes under -race"})
+		[]string{"post", "--as", seat})
 	if code != ExitRejected {
-		t.Fatalf("a finding with no severity must exit 3, got %d: %s", code, c.out.String())
+		t.Fatalf("a post with no text must exit 3, got %d: %s", code, c.out.String())
 	}
 	m := c.last(t)
-	if m["invariant"] != "body.severity.invalid" {
-		t.Errorf("want body.severity.invalid, got %v", m["invariant"])
+	if m["invariant"] != "body.text.required" {
+		t.Errorf("want body.text.required, got %v", m["invariant"])
 	}
 	if m["schema"] == nil || m["schema"] == "" {
 		t.Error("the refusal must carry the schema")
@@ -215,9 +215,8 @@ func TestRejectionCarriesARetryThatWorks(t *testing.T) {
 		t.Fatal("the refusal must carry a corrected invocation")
 	}
 
-	// Run the corrected invocation. strings.Fields would split the --text value
-	// on its spaces, so rebuild the args faithfully rather than parsing them.
-	args := []string{"post", "finding", "--as", seat, "--text", "auth.py:88 flakes under -race", "--severity", "p2"}
+	// The corrected invocation, with text supplied, must succeed.
+	args := []string{"post", "--as", seat, "--text", "auth.py:88 flakes under -race"}
 	var c2 capture
 	if code := Run(c2.env(t, srv.URL, ""), args); code != ExitOK {
 		t.Errorf("the corrected invocation must succeed, got %d: %s", code, c2.out.String())
@@ -261,7 +260,7 @@ func postTIL(t *testing.T, server, text string) map[string]any {
 	t.Helper()
 	var c capture
 	if code := Run(c.env(t, server, ""),
-		[]string{"post", "til", "--as", seat, "--text", text}); code != ExitOK {
+		[]string{"post", "--as", seat, "--text", text}); code != ExitOK {
 		t.Fatalf("post failed: %d %s", code, c.out.String())
 	}
 	return c.last(t)
@@ -284,26 +283,6 @@ func TestWhoamiReportsIdentityNotTheKey(t *testing.T) {
 	priv, _ := LoadSeat(seat)
 	if strings.Contains(strings.ToLower(c.out.String()+c.err.String()), strings.ToLower(hexOf(priv))) {
 		t.Error("whoami leaked the private key")
-	}
-}
-
-// A kind the server does not know is refused locally, with the list.
-func TestUnknownKindIsRefusedLocally(t *testing.T) {
-	isolateKeys(t)
-	srv, st := liveServer(t)
-	enrol(t, srv, st)
-
-	var c capture
-	code := Run(c.env(t, srv.URL, ""), []string{"post", "claim", "--as", seat, "--text", "x"})
-	if code != ExitUsage {
-		t.Fatalf("an unknown kind must exit 2, got %d", code)
-	}
-	m := c.last(t)
-	if m["invariant"] != "kind.unknown" {
-		t.Errorf("want kind.unknown, got %v", m["invariant"])
-	}
-	if d, _ := m["detail"].(string); !strings.Contains(d, "finding") {
-		t.Error("the refusal must list the kinds that do exist")
 	}
 }
 
@@ -469,8 +448,8 @@ func TestServerFlagOverridesTheDefault(t *testing.T) {
 	// Point the Env at a dead hub; --server must redirect the post to the live
 	// one. If the flag were ignored, the post would fail transport, not accept.
 	for _, form := range [][]string{
-		{"post", "chat", "--as", seat, "--text", "via space form", "--server", srv.URL},
-		{"post", "chat", "--as", seat, "--text", "via equals form", "--server=" + srv.URL},
+		{"post", "--as", seat, "--text", "via space form", "--server", srv.URL},
+		{"post", "--as", seat, "--text", "via equals form", "--server=" + srv.URL},
 	} {
 		var c capture
 		if code := Run(c.env(t, "http://127.0.0.1:1", ""), form); code != ExitOK {
@@ -480,7 +459,7 @@ func TestServerFlagOverridesTheDefault(t *testing.T) {
 
 	// A bare --server with nothing after it is a usage error.
 	var c capture
-	if code := Run(c.env(t, srv.URL, ""), []string{"post", "chat", "--server"}); code != ExitUsage {
+	if code := Run(c.env(t, srv.URL, ""), []string{"post", "--server"}); code != ExitUsage {
 		t.Errorf("bare --server must be a usage error, got exit %d", code)
 	}
 }
@@ -494,7 +473,7 @@ func TestKindAsVerbWithPositionalText(t *testing.T) {
 
 	var c capture
 	if code := Run(c.env(t, srv.URL, ""),
-		[]string{"status", "--as", seat, "shipped the fix, tests green"}); code != ExitOK {
+		[]string{"post", "--as", seat, "shipped the fix, tests green"}); code != ExitOK {
 		t.Fatalf("kind-as-verb post failed: %d %s", code, c.out.String())
 	}
 	if m := c.last(t); m["outcome"] != "accepted" {
@@ -504,7 +483,7 @@ func TestKindAsVerbWithPositionalText(t *testing.T) {
 	// Giving the entry twice is refused, not silently merged.
 	var c2 capture
 	if code := Run(c2.env(t, srv.URL, ""),
-		[]string{"chat", "--as", seat, "--text", "one", "two"}); code != ExitUsage {
+		[]string{"post", "--as", seat, "--text", "one", "two"}); code != ExitUsage {
 		t.Fatalf("positional + --text must be text.contested, got %d: %s", code, c2.out.String())
 	}
 }
