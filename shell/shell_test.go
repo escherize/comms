@@ -740,3 +740,50 @@ func TestHubServesTheInstaller(t *testing.T) {
 		}
 	}
 }
+
+// recipient.unknown is the refusal a typo produces, so it must carry the way
+// out: the closest enrolled spellings, and — when the address was parsed from
+// a leading @token — how prose escapes being an address at all.
+func TestRecipientUnknownCarriesDidYouMeanAndOrigin(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "human:sarah")
+
+	// A typo'd --to gets a suggestion.
+	code, out := post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+		`"body":{"text":"is 0031 safe?"},"recipient":"human:sarrah","idem":"dym1"}`)
+	if code == http.StatusOK {
+		t.Fatal("a typo'd recipient must be refused")
+	}
+	detail, _ := out["detail"].(string)
+	if !strings.Contains(detail, "Did you mean human:sarah") {
+		t.Errorf("the refusal must suggest the closest enrolled seat, got %q", detail)
+	}
+	if !strings.Contains(detail, "nothing was posted") {
+		t.Errorf("the refusal must say the post was not kept, got %q", detail)
+	}
+
+	// A leading @token that names nobody explains where the address came from.
+	code, out = post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+		`"body":{"text":"@lru_cache on the fetch fn fixed it"},"idem":"dym2"}`)
+	if code == http.StatusOK {
+		t.Fatal("an unknown leading @token must be refused, not silently demoted")
+	}
+	detail, _ = out["detail"].(string)
+	if !strings.Contains(detail, "leading @lru_cache") || !strings.Contains(detail, "prose") {
+		t.Errorf("the refusal must explain the leading-@ origin and the prose way out, got %q", detail)
+	}
+
+	// Nothing close: point at the roster instead of guessing.
+	code, out = post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+		`"body":{"text":"x"},"recipient":"human:zzzzzzzz","idem":"dym3"}`)
+	if code == http.StatusOK {
+		t.Fatal("an unknown recipient must be refused")
+	}
+	detail, _ = out["detail"].(string)
+	if strings.Contains(detail, "Did you mean") {
+		t.Errorf("a far spelling must not produce a guess, got %q", detail)
+	}
+	if !strings.Contains(detail, "comms room") {
+		t.Errorf("with no close match the refusal must point at the roster, got %q", detail)
+	}
+}

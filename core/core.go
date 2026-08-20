@@ -187,9 +187,9 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 	// admissible, and both clients must get the same answer.
 	if c.Recipient != "" && s.ActorEnrolled != nil && !s.ActorEnrolled(c.Recipient) {
 		return nil, &Rejection{"recipient.unknown",
-			"no seat " + string(c.Recipient) + " is enrolled; addressing an event to a " +
-				"seat that does not exist waits for an answer nobody was asked for. " +
-				"Run: comms room"}
+			"nothing was posted: no seat named " + string(c.Recipient) + " is enrolled, " +
+				"and an event addressed to a seat that does not exist would wait forever " +
+				"for an answer nobody was asked for"}
 	}
 
 	// The lane is two boolean reads of the deliberate address (ADR-0016 rule

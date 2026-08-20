@@ -507,6 +507,13 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 	state := s.decisionState()
 	events, rej := core.Decide(state, cmd)
 	if rej != nil {
+		// The core refuses with what it knows; the shell knows more. A
+		// recipient.unknown gets the roster's closest spellings and — when the
+		// address came from a leading @token — the way out for prose that was
+		// never meant to address anyone.
+		if rej.Invariant == "recipient.unknown" {
+			rej.Detail = s.recipientUnknownDetail(cmd, rej.Detail)
+		}
 		attempts, exhausted := s.correct.rejected(cmd.Author, rej.Invariant)
 		if exhausted {
 			// Not a different rejection — the same one, for the third time. The
@@ -607,6 +614,90 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		s.fanout(ev.Room, seq)
 	}
 	writeJSON(w, http.StatusOK, acceptedResponse{Seq: last, Applied: true})
+}
+
+// recipientUnknownDetail upgrades the core's recipient.unknown with what only
+// the shell holds: the roster, for a did-you-mean, and whether the address was
+// parsed from a leading @token in the text — a typo'd --to and prose that
+// happens to open with @something need different corrections, and an error
+// that cannot tell them apart sends the author to fix the wrong one.
+func (s *Server) recipientUnknownDetail(cmd core.Command, base string) string {
+	d := base
+	if near := s.similarSeats(string(cmd.Recipient), 3); len(near) > 0 {
+		d += ". Did you mean " + strings.Join(near, ", ") + "?"
+	} else {
+		d += ". comms room lists every enrolled seat"
+	}
+	if leadingAt(cmd.Body) == string(cmd.Recipient) {
+		d += ". This address came from the leading @" + string(cmd.Recipient) +
+			" in your text: fix the spelling if you meant to address someone, or " +
+			"reword so the text does not open with @ if it was prose — a mid-prose " +
+			"@name mentions without interrupting"
+	}
+	return d
+}
+
+// similarSeats returns up to max enrolled seats whose spelling is close to the
+// failed recipient — full string or bare name, one or two edits apart. Close
+// is deliberately tight: a wrong suggestion sends an interrupt to the wrong
+// person, which is worse than no suggestion.
+func (s *Server) similarSeats(target string, max int) []string {
+	rows, err := s.st.Actors()
+	if err != nil {
+		return nil
+	}
+	bare := func(a string) string {
+		a = strings.TrimPrefix(strings.TrimPrefix(a, "human:"), "agent:")
+		if i := strings.LastIndex(a, "/"); i != -1 {
+			a = a[i+1:]
+		}
+		return strings.ToLower(a)
+	}
+	forms := []string{strings.ToLower(target), bare(target)}
+	var out []string
+	for _, r := range rows {
+		cands := []string{strings.ToLower(r.Actor), bare(r.Actor)}
+		best := -1
+		for _, f := range forms {
+			for _, c := range cands {
+				if d := editDistance(f, c); best == -1 || d < best {
+					best = d
+				}
+			}
+		}
+		limit := 2
+		if len(bare(target)) < 5 {
+			limit = 1 // short names are two edits from everything
+		}
+		if best >= 0 && best <= limit {
+			out = append(out, r.Actor)
+			if len(out) == max {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// editDistance is plain Levenshtein over bytes; seat names are ASCII.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	cur := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, min(cur[j-1]+1, prev[j-1]+cost))
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(b)]
 }
 
 // schemaFor lets a rejected agent self-correct without a human.
