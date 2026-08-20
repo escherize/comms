@@ -32,14 +32,15 @@ match, `./check` green.
        mention (evidence-weight, never an interrupt). Rewrite `LaneOf` +
        `Decide`'s recipient stamping. THE load-bearing invariant — get the
        deliberate-vs-mention line right or p0-inflation returns as @-spam.
-4. [ ] **Demote Kind to an optional tag** (ADR-0016 rule 3). `checkBody`'s
-       per-kind schema switch collapses; `--finding`/`--severity` become optional
-       metadata; `search --kind` filters on whatever was tagged. Old events keep
-       their stored kind, read as a tag. Rewrite the skill's "choose the kind"
-       section to "post text; name a seat when you need one; tag for search."
+4. [ ] **Delete author-facing kind entirely** (ADR-0020, supersedes 0016 rule
+       3). No `--finding`/`--severity`, no `search --kind`, no `comms kinds`.
+       `checkBody` collapses to "text required." `Kind` shrinks to the system
+       discriminator (`chat`, `presence`, `redact`); old events legacy-read
+       their stored kind. Rewrite the skill's "choose the kind" section to
+       "post text; name a seat when you need one."
 
 TBDs to settle while building step 3/4 (don't guess): leading-`@` grammar vs
-`--to`; open vs fixed tag vocabulary; the human-address rate-limit numbers.
+`--to`; the human-address rate-limit numbers.
 
 Also remaining: **ADR-0019** (`docs/adr/0019-read-ergonomics-show-and-presence.md`)
 — `comms show <seq>` and roster last-seen. Both are in the Ergonomics section
