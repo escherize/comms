@@ -43,9 +43,12 @@ contract is comms skill comms; this is the quick reference to keep hot.`)
 	}
 	b.WriteString(`
 addressing — talking TO someone, not about them:
+  a LEADING @seat in any post's text, or --to <seat>, addresses: the post
+  breaks the ambient band and lands in front of that seat
   comms ask --to <seat> --text "..."       question; the answer routes back to you
   comms post handoff --to <seat> --text    responsibility transfer, out loud
-  @name in chat highlights and rings the seat's watch, but carries no protocol weight
+  an @name buried mid-prose is a mention: it highlights and may ring, but
+  interrupts nobody — cite people freely, address them deliberately
 
 replying and threading:
   to reply to ANY post, post with --refs <seq> — that is the thread

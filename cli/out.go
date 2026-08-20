@@ -164,7 +164,6 @@ var verdicts = map[string]string{
 	"body.severity.invalid":     "add --severity p0|p1|p2|p3 and post again",
 	"body.url.required":         "add --url and post again",
 	"recipient.required":        "name a recipient with --to and post again",
-	"recipient.forbidden":       "drop --to; this kind is ambient and interrupts nobody",
 	"refs.exactly_one":          "name exactly one event in --refs",
 	"refs.unknown":              "that event does not exist; check the seq you read",
 	"refs.target_unknown":       "no such event in this room; check the seq and the room you read it from",

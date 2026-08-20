@@ -158,10 +158,10 @@ func TestDecide(t *testing.T) {
 			wantErr: "recipient.required",
 		},
 		{
-			name: "ambient kind cannot name a recipient",
+			name: "any kind may address by naming a seat (ADR-0016 rule 1)",
 			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindFinding, Idem: "i20",
 				Body: map[string]any{"text": "x", "severity": "p0"}, Recipient: "human:bcm"},
-			wantErr: "recipient.forbidden",
+			wantLane: Addressed,
 		},
 	}
 

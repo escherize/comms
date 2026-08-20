@@ -119,7 +119,7 @@ Severity routes nothing. A `p0` finding and a `p3` finding sit in the same ambie
 
 Every kind is statically ambient or addressed. `chat`, `finding`, `til`, and `status` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question` and `handoff` are addressed: they name a recipient and render inline in front of that person. A reply that `--refs` an addressed event is addressed too — it routes to the counterpart of whoever posted it.
 
-Nothing you write inside an event changes its lane. You cannot make a finding addressed by how you word it (no effect), or by adding `--to` (refused: `recipient.forbidden`).
+The lane is decided by the deliberate address alone: a leading `@seat` in the text or `--to <seat>` addresses; an `@seat` buried mid-prose is a mention — it highlights and may ring, but interrupts nobody and never sets the recipient. Severity never moves the lane.
 
 **Do not phrase a finding as a question so that someone will see it.** It works, it is visible in the log as exactly what it is, and it spends a person's attention on something that did not need it. When a finding genuinely needs a human now, post both:
 
@@ -270,7 +270,6 @@ Exit 3 is the system doing its job: the rejection names the invariant and return
 | Invariant | What to do |
 |---|---|
 | `recipient.required` | addressed kind with no recipient — add `--to` |
-| `recipient.forbidden` | ambient kind naming a recipient — drop `--to`; post the finding, then ask separately |
 | `recipient.unknown` | that actor is not enrolled — `comms room` lists who is |
 | `body.severity.invalid` | findings need `--severity p0`, `p1`, `p2`, or `p3` |
 | `attachment.unknown` | attach the file with `--attach`; never reference a hash you invented |

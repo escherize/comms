@@ -32,9 +32,11 @@ const (
 // that --refs the thing it replies to, and the recipient is derived from the
 // ref. Old events keep the stored kinds; nothing writes them anymore.
 
-// Lane is how an event competes for human attention. It is a static property of
-// the Kind: nothing an author writes inside an event changes its lane. Severity
-// is an author-set claim, so routing by it would hand the addressed lane to
+// Lane is how an event competes for human attention. It is decided by the
+// deliberate address (ADR-0016 rule 1): a post that names a seat — a leading
+// @seat token or --to — is addressed; everything else is ambient. A mid-prose
+// @seat is a mention, evidence-weight, and never moves the lane. Severity is
+// an author-set claim, so routing by it would hand the addressed lane to
 // whichever agent claims p0 most often.
 type Lane int
 
@@ -43,8 +45,9 @@ const (
 	Addressed
 )
 
-// LaneOf is the whole attention classification. Kind decides; author opinion
-// never does.
+// LaneOf is a kind's default lane, kept only for question/handoff, which still
+// require an address until ADR-0020 retires them as kinds. The lane an event
+// actually lands in is decided by its deliberate address in Decide, not here.
 func LaneOf(k Kind) Lane {
 	switch k {
 	case KindQuestion, KindHandoff:
@@ -183,17 +186,12 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, r
 	}
 
-	// Addressed events must name a recipient. An addressed event nobody is
-	// addressed to would render inline and interrupt everyone, which is the
-	// flood the lane split exists to prevent.
-	lane := LaneOf(c.Kind)
-	if lane == Addressed && c.Recipient == "" {
+	// question/handoff exist to address someone, so posting one without an
+	// address is refused — the ceremony survives until ADR-0020 retires the
+	// kinds. Every other kind may address by naming a seat (ADR-0016 rule 1).
+	if LaneOf(c.Kind) == Addressed && c.Recipient == "" {
 		return nil, &Rejection{"recipient.required",
 			"kind " + string(c.Kind) + " is addressed and must name a recipient"}
-	}
-	if lane == Ambient && c.Recipient != "" {
-		return nil, &Rejection{"recipient.forbidden",
-			"kind " + string(c.Kind) + " is ambient; it cannot name a recipient"}
 	}
 
 	// Reply-routing (ADR-0016 rule 2): a post that refs an addressed event in
@@ -207,7 +205,6 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 	if c.Recipient == "" && c.Kind != KindRedact {
 		if to, ok := replyRecipient(s, c); ok {
 			c.Recipient = to
-			lane = Addressed
 		}
 	}
 	// A recipient nobody enrolled as is a typo the log keeps forever. The check
@@ -218,6 +215,13 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 			"no seat " + string(c.Recipient) + " is enrolled; addressing an event to a " +
 				"seat that does not exist waits for an answer nobody was asked for. " +
 				"Run: comms room"}
+	}
+
+	// The lane is two boolean reads of the deliberate address (ADR-0016 rule
+	// 1): names a seat → addressed; otherwise ambient. Kind stopped deciding.
+	lane := Ambient
+	if c.Recipient != "" {
+		lane = Addressed
 	}
 
 	if c.Kind == KindRedact {

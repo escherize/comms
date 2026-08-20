@@ -349,6 +349,16 @@ func parseCommand(raw []byte) (core.Command, error) {
 		atts = append(atts, core.Attachment{Hash: a.Hash, Title: a.Title})
 	}
 
+	// A leading @seat token is the deliberate address (ADR-0016 rule 1),
+	// parsed exactly once, here at the boundary — the same door --to comes
+	// through, so both spellings hit the same resolution and the same
+	// enrolment check. Only the leading token addresses: an @seat buried
+	// mid-prose is a mention, evidence-weight, and never sets the recipient.
+	// An explicit --to wins over the text.
+	if w.Recipient == "" && w.Kind != string(core.KindRedact) {
+		w.Recipient = leadingAt(w.Body)
+	}
+
 	return core.Command{
 		Room:        w.Room,
 		Author:      core.Actor(w.Author),
@@ -359,6 +369,32 @@ func parseCommand(raw []byte) (core.Command, error) {
 		Recipient:   core.Actor(w.Recipient),
 		Attachments: atts,
 	}, nil
+}
+
+// leadingAt extracts the seat a body's text deliberately addresses: an @token
+// at position zero, ending at the first non-seat character ("@sarah," and
+// "@sarah:" address sarah). A bare "@" is prose. A leading token that names no
+// enrolled seat is refused downstream as recipient.unknown rather than
+// silently demoted to a mention — a missed interrupt is the failure the
+// addressed lane exists to prevent, so the failure mode is loud, same as a
+// typo'd --to.
+func leadingAt(body map[string]any) string {
+	text, _ := body["text"].(string)
+	if !strings.HasPrefix(text, "@") {
+		return ""
+	}
+	isSeatChar := func(c byte) bool {
+		return c == ':' || c == '_' || c == '/' || c == '.' || c == '-' ||
+			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+	}
+	end := 1
+	for end < len(text) && isSeatChar(text[end]) {
+		end++
+	}
+	if end == 1 {
+		return "" // a bare "@" is prose
+	}
+	return strings.TrimRight(text[1:end], ".") // "@sarah." ends a sentence
 }
 
 // ---------------------------------------------------------------- commands
@@ -450,40 +486,6 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The posting budget. Distinct from the rate limit above and refused
-	// differently, because the remedy differs: too fast is answered by waiting,
-	// too much is answered by saying it once. The charge is provisional until
-	// an event is actually kept: any exit before then refunds the slot, so a
-	// rejected command does not spend attention nobody received.
-	kept := false
-	if s.posting != nil {
-		if remaining, oldest, ok := s.posting.charge(cmd.Author, cmd.Room, cmd.Kind); !ok {
-			_ = remaining
-			writeJSON(w, http.StatusTooManyRequests, map[string]any{
-				"ok": false, "outcome": "throttled", "exit": 6,
-				"invariant": "budget.exhausted",
-				"detail": fmt.Sprintf(
-					"this seat has added %d ambient entries to %s in the last %s. "+
-						"Nothing was posted and nothing was lost",
-					PostingBudget, cmd.Room, PostingWindow),
-				"retry_after_ms": oldest.Milliseconds(),
-				"kept":           false,
-				"next": "you are not posting too fast, you are posting too much to read. " +
-					"Combine what is left into one summarizing finding and post that, or " +
-					"attach the detail and post the summary. task.* and offer.* are never " +
-					"budgeted, so work coordination is unaffected",
-			})
-			return
-		}
-		// Armed only after a successful charge: the exhausted exit above
-		// stamped nothing, so it must refund nothing.
-		defer func() {
-			if !kept {
-				s.posting.release(cmd.Author, cmd.Room, cmd.Kind)
-			}
-		}()
-	}
-
 	// A shorthand recipient is expanded here, at the boundary, so the browser's
 	// /ask @sarah and the client's --to sarah name the same seat. The core sees
 	// a canonical actor or a rejection, never a guess.
@@ -525,6 +527,42 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.correct.accepted(cmd.Author)
+
+	// The posting budget. Distinct from the rate limit above and refused
+	// differently, because the remedy differs: too fast is answered by
+	// waiting, too much is answered by saying it once. It charges only the
+	// ambient lane, and the lane is known only after Decide (a reply derives
+	// its recipient from its refs there) — so the charge sits here, after
+	// acceptance. It is provisional until an event is actually kept: any exit
+	// before then refunds the slot, so a failed append does not spend
+	// attention nobody received.
+	kept := false
+	if s.posting != nil && len(events) > 0 && events[0].Lane == core.Ambient {
+		if _, oldest, ok := s.posting.charge(cmd.Author, cmd.Room, cmd.Kind); !ok {
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{
+				"ok": false, "outcome": "throttled", "exit": 6,
+				"invariant": "budget.exhausted",
+				"detail": fmt.Sprintf(
+					"this seat has added %d ambient entries to %s in the last %s. "+
+						"Nothing was posted and nothing was lost",
+					PostingBudget, cmd.Room, PostingWindow),
+				"retry_after_ms": oldest.Milliseconds(),
+				"kept":           false,
+				"next": "you are not posting too fast, you are posting too much to read. " +
+					"Combine what is left into one summarizing finding and post that, or " +
+					"attach the detail and post the summary. task.* and offer.* are never " +
+					"budgeted, so work coordination is unaffected",
+			})
+			return
+		}
+		// Armed only after a successful charge: the exhausted exit above
+		// stamped nothing, so it must refund nothing.
+		defer func() {
+			if !kept {
+				s.posting.release(cmd.Author, cmd.Room, cmd.Kind)
+			}
+		}()
+	}
 
 	var last int64
 	for _, ev := range events {

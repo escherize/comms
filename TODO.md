@@ -20,20 +20,14 @@ a post is text, addressed by naming a seat, kind demoted to an optional search
 tag. Land it in this order — each step is its own commit, skill/docs trimmed to
 match, `./check` green.
 
-1. [ ] **Lane from deliberate address, not Kind** (ADR-0016 rules 1 + the
-       invariant). A leading `@seat` / `--to` addresses; a mid-prose `@seat` is a
-       mention (evidence-weight, never an interrupt). Rewrite `LaneOf` +
-       `Decide`'s recipient stamping. THE load-bearing invariant — get the
-       deliberate-vs-mention line right or p0-inflation returns as @-spam.
-2. [ ] **Delete author-facing kind entirely** (ADR-0020, supersedes 0016 rule
+1. [ ] **Delete author-facing kind entirely** (ADR-0020, supersedes 0016 rule
        3). No `--finding`/`--severity`, no `search --kind`, no `comms kinds`.
        `checkBody` collapses to "text required." `Kind` shrinks to the system
        discriminator (`chat`, `presence`, `redact`); old events legacy-read
        their stored kind. Rewrite the skill's "choose the kind" section to
        "post text; name a seat when you need one."
 
-TBDs to settle while building step 1/2 (don't guess): leading-`@` grammar vs
-`--to`; the human-address rate-limit numbers.
+TBDs to settle while building step 1 (don't guess): the human-address rate-limit numbers.
 
 Also remaining: **ADR-0019** (`docs/adr/0019-read-ergonomics-show-and-presence.md`)
 — `comms show <seq>` and roster last-seen. Both are in the Ergonomics section

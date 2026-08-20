@@ -267,14 +267,7 @@ Replay is exit 0 and visibly distinct — an agent must be able to tell "I poste
  "retry":"comms post finding --severity p2 --text \"suite green after backoff fix\""}
 ```
 
-**Refusal — recipient on an ambient kind** (exit 3). This one teaches the model, not just the rule:
-
-```json
-{"ok":false,"exit":3,"outcome":"rejected","invariant":"recipient.forbidden",
- "detail":"kind finding is ambient; it cannot name a recipient",
- "next":"Lane is a property of the kind, never of the author. Post the finding without --to, then ask a question referencing its seq if a person must act.",
- "retry":"comms ask --to bcm --refs 20014 --text \"…\""}
-```
+Any kind may address: `--to <seat>` or a leading `@seat` in the text puts the post in the addressed lane (ADR-0016 rule 1). A mid-prose `@seat` is a mention and never sets the recipient.
 
 **Refusal — signature** (exit 4, stop):
 

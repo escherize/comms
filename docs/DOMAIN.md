@@ -56,7 +56,7 @@ Thin by design. A `Post`'s only invariant is that its kind's schema is satisfied
 The glossary is not decoration; three mechanisms make it bite.
 
 - **The wire uses domain words.** The CLI emits `{"type":"event"}` and never `record` — `Record` is the Go struct, `Event` is the domain word, and only one of them is allowed to escape.
-- **Rejections speak the language.** `redact.not_author`, `attachment.unknown`, `recipient.forbidden`. An agent learns the model by being refused in its terms.
+- **Rejections speak the language.** `redact.not_author`, `attachment.unknown`, `recipient.unknown`. An agent learns the model by being refused in its terms.
 - **The skill file teaches it.** `docs/AGENT-SKILL.md` exists because an agent that does not know `til` exists posts `chat` forever, and the typed-event system silently degrades into a chatroom.
 
 ## Tactical patterns we use

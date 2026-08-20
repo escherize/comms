@@ -103,6 +103,69 @@ func cmd(kind, text, idem string) string {
 		`","body":{"text":"` + text + `"},"idem":"` + idem + `"}`
 }
 
+// THE load-bearing invariant of ADR-0016: addressing is deliberate. A leading
+// @seat addresses and interrupts; the same @seat buried mid-prose is a mention
+// — evidence-weight, never a recipient. If any @-substring addressed, an agent
+// citing a person would spam them and p0-inflation would return as @-spam.
+func TestLeadingAtAddressesAndMidProseDoesNot(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "agent:c1")
+
+	code, out := post(t, srv, cmd("chat", "@agent:c1 the retry path broke again", "at1"))
+	if code != http.StatusOK {
+		t.Fatalf("a leading @seat must post: %v", out)
+	}
+	code, out = post(t, srv, cmd("chat", "saw @agent:c1 fix this last week", "at2"))
+	if code != http.StatusOK {
+		t.Fatalf("a mid-prose mention must post: %v", out)
+	}
+
+	recs, _ := st.Since("core", 0, 10)
+	if len(recs) != 2 {
+		t.Fatalf("want 2 events, got %d", len(recs))
+	}
+	lead, mid := recs[0], recs[1]
+	if string(lead.Recipient) != "agent:c1" || lead.Lane != core.Addressed {
+		t.Errorf("leading @seat must address: recipient=%q lane=%v", lead.Recipient, lead.Lane)
+	}
+	if mid.Recipient != "" || mid.Lane != core.Ambient {
+		t.Errorf("mid-prose @seat must stay a mention: recipient=%q lane=%v", mid.Recipient, mid.Lane)
+	}
+}
+
+func TestLeadingAt(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"@sarah can you look", "sarah"},
+		{"@agent:bcm/claude-1 take this", "agent:bcm/claude-1"},
+		{"@sarah, the build broke", "sarah"},
+		{"@sarah.", "sarah"},
+		{"saw @sarah's commit", ""},
+		{"@ nothing", ""},
+		{"@", ""},
+		{"no at at all", ""},
+		{"", ""},
+	} {
+		if got := leadingAt(map[string]any{"text": tc.text}); got != tc.want {
+			t.Errorf("leadingAt(%q) = %q, want %q", tc.text, got, tc.want)
+		}
+	}
+}
+
+// An explicit --to beats the text, and a typo'd leading @seat is refused
+// loudly rather than silently demoted to ambient — a missed interrupt is the
+// failure the addressed lane exists to prevent.
+func TestLeadingAtTypoIsRefusedNotDemoted(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "agent:c1")
+	code, out := post(t, srv, cmd("chat", "@agent:c9-nope are you there", "at3"))
+	if code == http.StatusOK {
+		t.Fatalf("an unenrolled leading @seat must be refused, got %v", out)
+	}
+	if out["invariant"] != "recipient.unknown" {
+		t.Errorf("want recipient.unknown, got %v", out["invariant"])
+	}
+}
+
 func TestPostChatIsAcceptedAndReturnsSeq(t *testing.T) {
 	srv, _ := newServer(t)
 

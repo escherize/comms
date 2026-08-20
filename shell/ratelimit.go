@@ -160,11 +160,12 @@ func newPosting(now func() time.Time) *posting {
 	return &posting{spent: map[postingKey][]time.Time{}, now: now}
 }
 
-// charge records an ambient post and reports what is left. Addressed kinds are
-// not charged here: they are priced by the rate limit and by the fact that a
-// person is named, which is a cost the author already feels.
+// charge records an ambient post and reports what is left. The caller charges
+// only ambient events — an addressed post is priced by the rate limit and by
+// the fact that a person is named, which is a cost the author already feels —
+// and the lane is the deliberate address's, so it is known after Decide.
 func (p *posting) charge(actor core.Actor, room string, kind core.Kind) (remaining int, oldest time.Duration, ok bool) {
-	if exemptFromBudget(kind) || core.LaneOf(kind) == core.Addressed {
+	if exemptFromBudget(kind) {
 		return PostingBudget, 0, true
 	}
 
@@ -191,12 +192,12 @@ func (p *posting) charge(actor core.Actor, room string, kind core.Kind) (remaini
 }
 
 // release refunds the newest stamp when the charged post kept nothing — a
-// rejection, replay, or failed append. Without it a refused command burned an
-// ambient slot, and the refusal's "nothing was lost" was false about the
-// budget. Mirrors charge's exemptions, so an uncharged kind cannot refund a
-// stamp some other post paid for.
+// replay or failed append. Without it a refused command burned an ambient
+// slot, and the refusal's "nothing was lost" was false about the budget.
+// Mirrors charge's exemption, so an uncharged kind cannot refund a stamp some
+// other post paid for.
 func (p *posting) release(actor core.Actor, room string, kind core.Kind) {
-	if exemptFromBudget(kind) || core.LaneOf(kind) == core.Addressed {
+	if exemptFromBudget(kind) {
 		return
 	}
 	p.mu.Lock()

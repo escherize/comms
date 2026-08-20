@@ -418,7 +418,7 @@ func runPost(e *Env, args []string) int {
 	text := fs.String("text", "", "the entry")
 	severity := fs.String("severity", "", "p0|p1|p2|p3, findings only")
 	about := fs.String("about", "", "what this concerns: a ticket, a file, a ref")
-	to := fs.String("to", "", "recipient, addressed kinds only")
+	to := fs.String("to", "", "address a seat; a leading @seat in the text does the same")
 	refs := fs.String("refs", "", "comma-separated refs")
 	step := fs.Int("step", 0, "status only")
 	of := fs.Int("of", 0, "status only")
@@ -701,19 +701,6 @@ func retryFor(invariant string, kind core.Kind, args []string) string {
 		return base("--text", "<what you found>")
 	case "recipient.required":
 		return base("--to", "<someone>")
-	case "recipient.forbidden":
-		// Drop the flag and its value together. Removing only the flag leaves
-		// the recipient behind as a bare positional, so the corrected command
-		// fails a second time in a new way.
-		var kept []string
-		for i := 0; i < len(rest); i++ {
-			if rest[i] == "--to" || rest[i] == "-to" {
-				i++
-				continue
-			}
-			kept = append(kept, rest[i])
-		}
-		return "comms post " + string(kind) + " " + shellJoin(kept)
 	}
 	return ""
 }
