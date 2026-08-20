@@ -104,7 +104,7 @@ comms serve --as human:you                   # also enrol yourself as owner
 
 `--as SEAT` enrols that seat as the hub owner at startup, collapsing the token dance for the person on the box: serve registers the public key directly, grants `invite` (the same capability the first browser seat gets by claiming an empty hub), and writes the private key locally exactly as `comms enrol` would, pinned to this hub — so the seat can post from this machine immediately and bring the rest of the team on. It is idempotent: re-serving with the same `--as` when the seat is already enrolled here is a no-op, so it is safe in a restart command. A seat enrolled *elsewhere* with no local key is refused rather than silently re-keyed.
 
-Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Operator actions that are not "run the hub" — `--invite`, `--purge`, `--grant`, `--rebuild`, `--reembed`, `--verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
+Every operator flag is listed by `comms --h-server` (or `comms serve -h`). Operator actions that are not "run the hub" — `--invite`, `--purge`, `--grant`, `--rebuild`, `--verify` — stay flags rather than verbs, because they act on other actors' events and the only credential they need is holding the database.
 
 ---
 
@@ -459,10 +459,10 @@ Searches the room you are in; `--all-rooms` searches every room. Maps onto `stor
 
 ```json
 {"type":"event","seq":19882,…}
-{"ok":true,"outcome":"searched","hits":3,"lanes":["lexical"],"vector":"not_built","note":"lexical only — the vector index is not built (ticket 07)"}
+{"ok":true,"outcome":"searched","hits":3}
 ```
 
-`vector` is not decoration. Story 20 requires index staleness be visible with labelled fallback, and an agent that concludes "the room does not know this" after a lexical-only search over an absent semantic lane has drawn a false conclusion from a true result.
+Search is full-text (FTS5, bm25-ranked) — the words people wrote, nothing else (ADR-0017 cut the vector lane; it was a token-hash stub, a lossy mirror of FTS5). "No hits" therefore means no full-text match, weaker evidence than it looks: a synonym or rephrasing the poster used instead of your query words will not surface.
 
 Empty result is exit 0 with `hits:0` and stderr `0 hits — this looks new to the room.` An empty query is exit 2: `store.Search` returns nil on an empty `ftsQuery`, so filters alone cannot match.
 

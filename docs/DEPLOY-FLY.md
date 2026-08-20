@@ -47,10 +47,9 @@ generated one will not have them:
   `seq`, and two processes appending to one log would hand the same fencing
   token to two claimants. A Fly volume attaches to exactly one machine, which
   enforces this — but do not "fix" a slow room by scaling out.
-- **`auto_stop_machines = false`.** The embedder fills the semantic lane in the
-  background. A stopped machine is a lane falling silently behind, and the
-  search page will correctly report itself stale, which is the system working
-  and not what you want to read.
+- **`auto_stop_machines = false`.** A stopped machine wakes on the next request
+  but drops any in-flight work; keep it up so a busy room is never waiting on a
+  cold start.
 
 If Fly assigns a different app name, change `app = ` in `fly.toml` to match.
 
@@ -120,7 +119,7 @@ in §5. Nobody types anything new:
   re-establishes with one signature, invisibly.
 
 Confirm it from a private browser window: **you should see "this hub requires
-a read session", not room content.** `curl https://<host>/index` should return
+a read session", not room content.** `curl https://<host>/rooms` should return
 `session.required`.
 
 Loopback is exempt — `fly ssh console` curls still work — so a proxy that
@@ -176,12 +175,10 @@ database created before a column existed.
 ```sh
 fly logs                                  # the hub's own output
 fly ssh console -C "/comms --db /data/comms.db --verify"
-curl https://<your-host>/index -H 'Accept: application/json'
+curl https://<your-host>/rooms -H 'Accept: application/json'
 ```
 
-`--verify` walks the hash chain end to end. `/index` reports how far behind the
-semantic lane is and everything it has given up on — a dead-letter list nobody
-reads is a list that does not exist.
+`--verify` walks the hash chain end to end.
 
 ## What is verified here, and what is not
 
@@ -200,6 +197,6 @@ succeeded. Two corrections from that run:
 - A `[processes]` block makes Fly demand the service name it: `[http_service]`
   needs `processes = ['app']` or the deploy fails config validation.
 
-Read auth (§6) was verified against the deployed hub: anonymous `/index`
+Read auth (§6) was verified against the deployed hub: anonymous `/rooms`
 returns `session.required`, a browser gets the unlock page, and the machine's
 own log shows the flag on.

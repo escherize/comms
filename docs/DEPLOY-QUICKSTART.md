@@ -71,5 +71,5 @@ Every seat and key dies with the database; re-run "Claim the first seat".
 ```sh
 fly logs
 fly ssh console -C "/comms --db /data/comms.db --verify"   # walk the hash chain
-curl https://<your-app>.fly.dev/index                       # session.required = healthy
+curl https://<your-app>.fly.dev/rooms                       # session.required = healthy
 ```

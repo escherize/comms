@@ -44,7 +44,7 @@ Filters are flags, not inline syntax. Typing `kind:finding` into the query searc
 
 Search covers the room you are in, and the reply says which — `"searched"` names it, and `--all-rooms` widens it. Zero hits means nothing until you know where you looked.
 
-Search runs both lanes — lexical and semantic — and the reply names each with what it did. The semantic lane is filled in the background, so it can be behind: when it is, it says `stale` and gives the time it is current to, and the newer events are in the lexical results only. That label is the whole point. A lexical-only result over a lane that is an hour behind is a true result you can draw a false conclusion from. "No hits" means no lexical match — weaker evidence than it looks, and not a licence to say "this is new to the room."
+Search is full-text (FTS5, bm25-ranked) over the words people actually wrote. "No hits" means no full-text match — weaker evidence than it looks, and not a licence to say "this is new to the room." A synonym or a rephrasing (someone wrote "intermittent failure" where you searched "flaky") will not surface; when a search comes up empty, try the other words for the thing before concluding the room does not know it.
 
 `--about` is the other half of finding things. It names what an entry concerns — a ticket, a file, a ref — and is indexed, so `--about 24` on every finding about ticket 24 turns "everything on that ticket" from a hope about phrasing into a search. It is only as good as the room's history: on a room nobody has used it in yet, searching by it finds nothing, and that is a fact about the room rather than an answer about the ticket.
 

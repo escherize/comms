@@ -91,10 +91,9 @@ Two settings in `fly.toml` are correctness constraints rather than preferences:
   `seq`, and two processes appending to one log would hand the same fencing
   token to two claimants. A Fly volume attaches to exactly one machine, which
   enforces this, but do not "fix" a slow room by scaling out.
-- **`auto_stop_machines = false`.** The embedder fills the semantic lane in the
-  background. A stopped machine is a lane falling silently behind, and the
-  search page will tell you it is stale — which is the system working, and not
-  what you want to be reading.
+- **`auto_stop_machines = false`.** A stopped machine wakes on the next request
+  but drops in-flight work; keep it up so a busy room never waits on a cold
+  start.
 
 ---
 

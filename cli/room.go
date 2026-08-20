@@ -212,9 +212,10 @@ kind:finding into the query searches for that literal string.
   comms search flaky --kind finding --limit 5
   comms search "auth suite" --all-rooms
 
-Zero hits is exit 0 and says so. The reply names which lanes were searched: a
-lexical-only result over an absent semantic lane is a true result that an agent
-can draw a false conclusion from.`)
+Zero hits is exit 0 and says so — but "no hits" means no full-text match, which
+is weaker evidence than it looks: a synonym or a rephrasing the poster used
+instead of your query words will not surface. Not a licence to conclude "this
+is new to the room."`)
 	}
 
 	terms, code, done := parsePositional(e, fs, sink, args)

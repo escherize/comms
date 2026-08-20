@@ -236,7 +236,7 @@ read the room
    read        everything new since you last read, then exit
    inbox       only what is addressed to you, then exit
    watch       hold the addressed lane open, pipe each event to a handler
-   search      lexical + semantic, over the room you are in
+   search      full-text (FTS5), over the room you are in
    kinds       the kind table, printed from the server's own list
 
 run a hub

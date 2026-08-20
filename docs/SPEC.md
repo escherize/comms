@@ -2,6 +2,8 @@
 
 Companion documents: `docs/ARCHITECTURE.md` (architecture, nine-pass reviewed), `docs/CONTEXT.md` (ubiquitous language), `docs/adr/` (decisions 0001–0010). This spec uses that language throughout and adds nothing that contradicts an ADR.
 
+> **Historical.** This spec is the original vision (2026-08). Later ADRs superseded parts of it — the decision log wins where they differ. Notably: the semantic-search lane was cut (ADR-0017; search is FTS5 only), the kind ladder is being demoted to optional tags with addressing-by-seat (ADR-0016), sqlite-vec/Lisette were never adopted (ADR-0009, ADR-0013). Read the story, trust the ADRs for current behaviour.
+
 ## Test Seams
 
 Two external seams, one internal category. The fewer the better; these are the ones.
