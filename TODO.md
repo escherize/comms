@@ -1,65 +1,99 @@
-# TODO
+# Build queue
 
-The backlog lives here — plain markdown, versioned with the code, greppable.
-Not a tracker: no assignees, no states beyond checked/unchecked. When an item
-grows a real design, it becomes an ADR under `docs/adr/`; when it ships, delete
-the line (the git history is the record). Severity in brackets: p2 = worth a
-release, p3 = whenever.
+What we implement next, in order. Not a feature tracker — this is *our* backlog.
+Ordered top-to-bottom by what to do first; dependencies noted inline. When an
+item ships, delete the line (git history is the record). When a design item
+grows a real decision it gets an ADR under `docs/adr/` and the line points at it.
 
-Most of these came out of the agent-crew review studies
-(`docs/research/2026-08-19-crew-studies.md`); the confirmed p2 bugs from those
-studies are already fixed and are not listed here.
+The order is deliberate: **simplify before adding, and cut leaves before the
+trunk.** Every "add a feature" idea from this session sits below the
+simplification that must land first, or it just gets un-built.
 
-## Bugs
+---
 
-- [ ] [p3] `shell/digest.go` — `lastDigestSeq` uses a 2000-record lookback, so
-      after a >2000-event gap the digest re-summarizes the *oldest* 2000 events
-      ("since 0"), not the newest.
+## Now — the simplification (ADR-0016), in dependency order
 
-## Doc / comment rot (crew-confirmed, low value each — one sweep)
+ADR-0016 (`docs/adr/0016-addressing-replaces-the-kind-ladder.md`) is the plan:
+a post is text, addressed by naming a seat, kind demoted to an optional search
+tag. Land it in this order — each step is its own commit, skill/docs trimmed to
+match, `./check` green.
 
-- [ ] [p3] Dead functions with stale comments: `store.PurgeArtifact`,
-      `store.DropVector`, `RecordProgress` (the last has a divergent fold that
-      is harmless only because it is unreachable — delete or wire it).
-- [ ] [p3] Misattached / stacked doc comments flagged across store/shell/cli
-      (e.g. a doc comment sitting above the wrong function). Fix only the ones
-      confirmable by reading.
-- [ ] [p3] `ftsQuery` doc says AND, code does OR — reconcile.
-- [ ] [p3] Several `first_undelivered_seq` / cursor comments describe the field
-      as "last delivered" or vice versa — pick one truth and match the code.
+1. [ ] **Cut `escalate` + the escalation budget.** Smallest, already grilled,
+       unblocks ADR-0016 rule 4. Remove the verb, the budget (reserve/release,
+       `escalation.exhausted`), ADR-0008's apparatus. Replace with: a norm in
+       AGENT-SKILL.md ("address a human only for a decision; don't ping the hell
+       out of them") + the existing `s.limit` rate-limiter applied to
+       human-addressed posts. Retire ADR-0008 as superseded.
+2. [ ] **Fold `pr.link` into a plain post.** One kind gone, and the url-scheme
+       validation surface (the XSS class) shrinks to "a url in body text is
+       linkified through the sanitizer." [core, render.go]
+3. [ ] **Reply-routing from `--refs`, not Kind** (ADR-0016 rule 2). A post that
+       `--refs` an addressed event inherits its counterpart as recipient. Retire
+       `answer`/`decline` as distinct kinds; replying is `post --refs <seq>`.
+       Keep `authorOfReferenced`, trigger it on the ref not the kind.
+4. [ ] **Lane from deliberate address, not Kind** (ADR-0016 rules 1 + the
+       invariant). A leading `@seat` / `--to` addresses; a mid-prose `@seat` is a
+       mention (evidence-weight, never an interrupt). Rewrite `LaneOf` +
+       `Decide`'s recipient stamping. THE load-bearing invariant — get the
+       deliberate-vs-mention line right or p0-inflation returns as @-spam.
+5. [ ] **Demote Kind to an optional tag** (ADR-0016 rule 3). `checkBody`'s
+       per-kind schema switch collapses; `--finding`/`--severity` become optional
+       metadata; `search --kind` filters on whatever was tagged. Old events keep
+       their stored kind, read as a tag. Rewrite the skill's "choose the kind"
+       section to "post text; name a seat when you need one; tag for search."
 
-## Design gaps (need an ADR before code)
+TBDs to settle while building step 4/5 (don't guess): leading-`@` grammar vs
+`--to`; open vs fixed tag vocabulary; the human-address rate-limit numbers.
 
-- [ ] Issues / tasks. Today there is no issue store; SPEC §23-27 + ADR-0007
-      designed a Linear-mirror path that was never built. Decide: (a) Linear
-      stays the store and comms mirrors it via webhook + outbox, or (b) a
-      native `task` kind with an open→claimed→done lifecycle folded into a
-      projection (the `question`/`handoff` shape), claimed via the addressed
-      lane with consensus-`--idem` for exactly-one-claimant. This file is the
-      interim answer.
-- [ ] Severity is an unenforced human-interrupt claim: any agent can file `p0`
-      with no gate, no named human, no rate limit. Policy question — decide
-      whether `p0`/`p1` require a named recipient before adding a check.
-- [ ] Handoff has no "seen/claimed" signal: "nobody declined and nobody posted"
-      is indistinguishable from "nobody noticed." A read-receipt cuts against
-      the ambient-lane philosophy — decide deliberately.
-- [ ] [shelved] Room scratchpad — mutable structured state (a keyed table) per
-      room, written by signed `scratch` events and folded into a projection
-      (the fix for "the log can't hold a mutable backlog/checklist/claim
-      table"). Product doc: `docs/research/2026-08-19-room-scratchpad.md`.
-      Needs an ADR (scratch-as-projection, structured-op-not-raw-SQL for
-      determinism, tight keyed vocabulary first). This is where a
-      backlog/issues home eventually lives on the hub. Big feature — parked.
-- [ ] [shelved, bigger] Agent-authored views/dashboards over the scratchpad —
-      declarative template + query, rendered server-side through the existing
-      artifact sanitizer, live via SSE. Guardrail: agents contribute data +
-      declarative templates, NEVER executable code in another actor's session
-      (the XSS class). Depends on the scratchpad; a big jump beyond it.
+## Next — the honest cut we punted (grill first)
 
-## Ergonomics (crew-requested, small)
+- [ ] **Vector/semantic search lane — decide whether to cut.** ~700 LOC, the
+      app's largest subsystem, and prod ships `HashEmbedder` (the stub) not a
+      real model, so the "semantic lane" is lexical token-overlap dressed as
+      meaning — a slower duplicate of FTS5, and the source of this session's two
+      `--since` bugs. Grilled once (points to cutting); punted for now. If cut:
+      an ADR superseding ADR-0013, delete `store/vector.go`, `shell/embed.go`,
+      the `vector` table, `--reembed`, fusion. Search stays lexical (the
+      `s.embed == nil` branch already exists). Revisit after ADR-0016 lands.
+- [ ] **`digest` — cut or keep.** Kind + bot + `shell/digest.go`, operator-gated,
+      no agent posts it, carries the lookback bug below. A summary is a
+      `read --since` an agent already runs. Lean toward delete.
+
+## Bugs (fix in passing, low value each)
+
+- [ ] [p3] `shell/digest.go` `lastDigestSeq` 2000-record lookback: after a
+      >2000-event gap the digest re-summarizes the *oldest* 2000, not the newest.
+      (Moot if digest is cut.)
+- [ ] [p3] Doc/comment rot sweep — the study-6 tail: `ftsQuery` doc says AND,
+      code does OR; `first_undelivered_seq` / cursor comments describe the field
+      backwards; a few misattached doc comments. One pass, fix only what reading
+      confirms. (Dead functions `PurgeArtifact`/`DropVector`/`RecordProgress`
+      already removed.)
+
+## Ergonomics (crew-requested, small, do anytime)
 
 - [ ] `comms show <seq>` — fetch one event's full body by seq. Previews
-      truncate; agents currently round-trip `read --from <seq> --full`, and
-      `read` says `preview` while `search` says `body` (inconsistent field).
-- [ ] Roster presence: a last-seen timestamp per seat so "is anyone working
-      right now" is answerable without reconstructing it from the log.
+      truncate; agents round-trip `read --from <seq> --full`, and `read` says
+      `preview` while `search` says `body` (inconsistent field). Cheap win, the
+      study-5 crew's loudest ask.
+- [ ] Roster presence — a last-seen timestamp per seat, so "is anyone working
+      right now" is answerable without folding the log.
+
+## Later / parked (need design, don't start yet)
+
+- [ ] **Task/work queue on the hub** — claimable unaddressed work (the crew's
+      "claim this file"). Grilled once: it is NOT a message kind (ADR-0016
+      demotes those) but a *lifecycle aggregate* (open→claimed→done) — the line
+      ADR-0016 draws is "routing kinds → tags, lifecycle kinds → first-class,"
+      and a task is the second. Atomic claim = the single-writer log + consensus
+      `--idem` (the review-crew race, already validated). Build AFTER ADR-0016,
+      on the simplified model. Needs its own ADR.
+- [ ] [parked] Room scratchpad — mutable structured state per room, writes as
+      signed `scratch` events folded into a projection. Product doc:
+      `docs/research/2026-08-19-room-scratchpad.md`. The general form of "the log
+      can't hold a mutable table." Big feature; the task queue is the narrow
+      version that probably suffices — prefer that first.
+- [ ] [parked, bigger] Agent-authored declarative views over the scratchpad,
+      rendered through the artifact sanitizer, live via SSE. Depends on the
+      scratchpad. Guardrail: data + declarative templates only, never executable
+      code in another actor's session (the XSS class). A jump — shelved.
