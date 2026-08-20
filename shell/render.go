@@ -40,7 +40,7 @@ func kindCode(k core.Kind) string {
 		return "🔍"
 	case core.KindQuestion:
 		return "❓"
-	case core.KindAnswer:
+	case "answer": // legacy rows; replying is a ref'd post now (ADR-0016 rule 2)
 		return "💡"
 	case core.KindTIL:
 		return "🎓"

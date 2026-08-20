@@ -369,14 +369,15 @@ func (s *Store) RoomHeads() (map[string]int64, error) {
 	return out, rows.Err()
 }
 
-// EventKind backs the decider's ref lookups.
-func (s *Store) EventKind(ref string) (core.Kind, bool) {
-	var k string
-	err := s.db.QueryRow(`SELECT kind FROM envelope WHERE seq = ?`, ref).Scan(&k)
+// EventRecipient backs the decider's reply-routing: who a prior event was
+// addressed to, "" when it was ambient.
+func (s *Store) EventRecipient(ref string) (core.Actor, bool) {
+	var r string
+	err := s.db.QueryRow(`SELECT recipient FROM envelope WHERE seq = ?`, ref).Scan(&r)
 	if err != nil {
 		return "", false
 	}
-	return core.Kind(k), true
+	return core.Actor(r), true
 }
 
 // EventAuthor backs the decider's redaction authorization.
@@ -570,14 +571,21 @@ func (s *Store) Append(ev core.Event, idem string, now time.Time) (int64, error)
 			next, ev.Room, string(ev.Author), string(ev.Recipient), ts); err != nil {
 			return 0, err
 		}
-	case core.KindAnswer:
-		// First answer wins: a question is open or it is not, and later answers
-		// do not reopen it.
-		for _, ref := range ev.Refs {
-			if _, err := tx.Exec(
-				`UPDATE question SET answer_seq = ?, answered_at = ?
-				 WHERE seq = ? AND answer_seq = 0`, next, ts, ref); err != nil {
-				return 0, err
+	default:
+		// A reply routed back to a question's author closes the question
+		// (ADR-0016 rule 2: the ref carries the relationship; there is no
+		// answer kind). First reply wins: a question is open or it is not,
+		// and later replies do not reopen it. Legacy answer events match this
+		// same shape — recipient set to the asker, ref to the question — so
+		// rebuild folds them identically.
+		if ev.Recipient != "" {
+			for _, ref := range ev.Refs {
+				if _, err := tx.Exec(
+					`UPDATE question SET answer_seq = ?, answered_at = ?
+					 WHERE seq = ? AND answer_seq = 0 AND author = ?`,
+					next, ts, ref, string(ev.Recipient)); err != nil {
+					return 0, err
+				}
 			}
 		}
 	}

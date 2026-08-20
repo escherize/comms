@@ -44,7 +44,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "answer", "attach", "decline", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "ref", "skill", "skills", "hook"}
+var Verbs = []string{"serve", "kinds", "invite", "join", "enrol", "post", "redact", "ask", "attach", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "ref", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -112,12 +112,8 @@ func Run(e *Env, args []string) int {
 		return runInbox(e, args[1:])
 	case "ask":
 		return runAsk(e, args[1:])
-	case "answer":
-		return runAnswer(e, args[1:])
 	case "attach":
 		return runAttach(e, args[1:])
-	case "decline":
-		return runDecline(e, args[1:])
 	case "serve":
 		// The binary intercepts this before the client sees it. The client
 		// still answers --help for it, because a verb in the list that cannot
@@ -224,10 +220,14 @@ say something
    post        one typed entry: finding, til, status, chat
                (the ambient kinds are verbs too: comms status --as <seat> "…")
    ask         a question, addressed to a person who can answer it
-   answer      reply to a question by its seq
    attach      store long content by hash; reference it from a post
-   decline     refuse a handoff, out loud
    redact      suppress a body you posted (the record remains)
+
+Replying is a post that --refs what it replies to: the recipient is derived
+from the referenced event, so a reply to a question reaches whoever asked and
+a put-down handoff reaches whoever handed it over.
+
+   comms chat --refs <seq> "yes — 0029 is idempotent"
 
 read the room
    read        everything new since you last read, then exit
@@ -927,66 +927,6 @@ question can tell in a glance whether it is new.`)
 	return send(e, NewClient(e.Server, seat, priv), cmd, "question", nil)
 }
 
-// ---------------------------------------------------------------- answer
-
-func runAnswer(e *Env, args []string) int {
-	fs, sink := newFlags("answer")
-	idem := fs.String("idem", "", "reuse a natural key you already have")
-	actor := fs.String("as", "", "the seat answering")
-	room := fs.String("room", "", "room the question is in")
-	toQuestion := fs.String("to-question", "", "the seq of the question you are answering")
-	text := fs.String("text", "", "the answer, or - to read stdin")
-	textFile := fs.String("text-file", "", "read the answer from a file")
-	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms answer --as <seat> --to-question <seq> --text "<answer>"
-
-No recipient: the server derives it from the question's author, so an answer
-always reaches whoever asked.
-
-  comms answer --as human:bcm --to-question 20014 --text "yes, 0029 is idempotent"`)
-	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return usageOK(e)
-		}
-		return e.Out.Fail(ExitUsage, "usage", "flags.invalid", strings.TrimSpace(sink.String()))
-	}
-	if *toQuestion == "" {
-		return e.Out.Fail(ExitUsage, "usage", "to_question.required",
-			"name the question you are answering with --to-question <seq>")
-	}
-	body, code := resolveText(e, *text, *textFile, "")
-	if code != 0 {
-		return code
-	}
-	if body == "" {
-		return e.Out.Fail(ExitUsage, "usage", "text.required",
-			"say the answer with --text, --text-file, or --text -")
-	}
-	seat, code := resolveSeat(e, *actor)
-	if code != 0 {
-		return code
-	}
-	if code := CheckServer(e, seat); code != 0 {
-		return code
-	}
-	drainFirst(e, seat)
-	inRoom := resolveRoom(seat, *room)
-	priv, err := LoadSeat(seat)
-	if err != nil {
-		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
-	}
-
-	// No recipient is sent: the core derives it from the question's author.
-	cmd := map[string]any{
-		"room": inRoom, "author": seat, "kind": "answer",
-		"body": map[string]any{"text": body},
-		"refs": []string{*toQuestion},
-	}
-	applyIdem(e, cmd, *idem)
-	return send(e, NewClient(e.Server, seat, priv), cmd, "answer", nil)
-}
-
 // ---------------------------------------------------------------- attach
 
 func runAttach(e *Env, args []string) int {
@@ -1230,7 +1170,7 @@ func runInbox(e *Env, args []string) int {
 	untilKind := fs.String("until-kind", "", "with --wait, stop when this kind arrives")
 	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
 	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms inbox --as <seat> [--wait 15m --until-kind answer --refs <seq>]
+		e.Out.HelpFS(fs, `comms inbox --as <seat> [--wait 15m --refs <seq>]
 
 Prints only what is addressed to you, in full, then exits. A handoff is not
 ambient chatter: the one message you must act on is the one you must not have
@@ -1239,7 +1179,7 @@ to reconstruct. Use --compact for one line per event.
   comms inbox --as agent:bcm/claude-1
   comms inbox --as agent:bcm/claude-1 --compact
   comms inbox --as agent:bcm/claude-1 --from 50027       # re-read an assignment
-  comms inbox --as agent:bcm/claude-1 --wait 15m --until-kind answer --refs 20014
+  comms inbox --as agent:bcm/claude-1 --wait 15m --refs 20014   # wait for a reply
 
 --wait blocks against a deadline and exits 0 either way. Waiting out the clock
 is the flag doing its job, not a failure — you get a handoff suggestion.`)
@@ -1452,64 +1392,6 @@ func knownKindNames() []string {
 		out = append(out, string(k.Kind))
 	}
 	return out
-}
-
-// ---------------------------------------------------------------- decline
-
-func runDecline(e *Env, args []string) int {
-	fs, sink := newFlags("decline")
-	actor := fs.String("as", "", "the seat declining")
-	room := fs.String("room", "", "room the handoff is in")
-	why := fs.String("why", "", "why you are not taking it")
-	idem := fs.String("idem", "", "reuse a natural key you already have")
-	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms decline <seq> --as <seat> --why "<why not>"
-
-Refuses a handoff, out loud. It goes back to whoever handed the work over, for
-the same reason an answer goes back to whoever asked: the person who needs to
-know is the one who thought the work was covered.
-
-  comms decline 50002 --as agent:bcm/claude-1 \
-      --why "already three deep in the auth suite; this needs someone free"
-
-Declining is not a failure and costs you nothing. Saying nothing does: a
-handoff nobody took and nobody refused looks exactly like a handoff being
-worked on, and the difference is discovered when the work is due.`)
-	}
-
-	seqs, code, done := parsePositional(e, fs, sink, args)
-	if done {
-		return code
-	}
-	if len(seqs) != 1 {
-		return e.Out.Fail(ExitUsage, "usage", "refs.exactly_one",
-			"name the handoff you are refusing: comms decline <seq>")
-	}
-	seat, code := resolveSeat(e, *actor)
-	if code != 0 {
-		return code
-	}
-	if code := CheckServer(e, seat); code != 0 {
-		return code
-	}
-	if *why == "" {
-		return e.Out.Fail(ExitUsage, "usage", "body.text.required",
-			"say why: a refusal without a reason makes the sender ask, which is the "+
-				"round trip declining exists to save")
-	}
-	drainFirst(e, seat)
-
-	priv, err := LoadSeat(seat)
-	if err != nil {
-		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
-	}
-	cmd := map[string]any{
-		"room": resolveRoom(seat, *room), "author": seat, "kind": "decline",
-		"body": map[string]any{"text": *why},
-		"refs": []string{seqs[0]},
-	}
-	applyIdem(e, cmd, *idem)
-	return send(e, NewClient(e.Server, seat, priv), cmd, "decline", nil)
 }
 
 // runServeHelp explains the one verb the client does not run. The binary

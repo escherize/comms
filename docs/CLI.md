@@ -204,7 +204,7 @@ key written 0600. It was not printed and is not recoverable — re-enrol with a 
 
 ### `post <kind>`
 
-The one write verb. Kinds are exactly what `core.Kinds()` describes — ten: `chat finding question answer til handoff status redact decline presence`. Nothing else, and no alias for a kind that does not exist yet. (`pr.link` is retired — post the url in the text; it linkifies in the room.)
+The one write verb. Kinds are exactly what `core.Kinds()` describes — eight: `chat finding question til handoff status redact presence`. Nothing else, and no alias for a kind that does not exist yet. (`pr.link` is retired — post the url in the text; it linkifies in the room. `answer` and `decline` are retired — replying is a post that `--refs` what it replies to, and the recipient is derived from the ref.)
 
 The ambient kinds double as verbs, and the entry can be the trailing
 argument — the short form for the post an agent makes hundreds of times:
@@ -313,23 +313,16 @@ With no hits, the `searched` line carries `"hits":[]` and stderr says so plainly
 
 ---
 
-### `answer`
+### Replying (there is no `answer` verb)
 
 ```
-comms answer --to-question SEQ --text S
+comms chat --refs SEQ --text S
 ```
 
-The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the question's author out of `State.EventAuthor` and addresses the answer to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. No `GET /events/{seq}` exists, and no client infers a recipient.
+A reply is a post that `--refs` what it replies to. The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the referenced event's counterpart out of `State.EventAuthor`/`State.EventRecipient` and routes the reply to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. No `GET /events/{seq}` exists, and no client infers a recipient. A ref to an ambient event threads without addressing anyone; a cross-room ref reads as nonexistent and never routes.
 
 ```json
-{"ok":true,"outcome":"accepted","seq":20031,"applied":true,"kind":"answer","room":"core","recipient":"bcm","refs":["20015"]}
-```
-
-**Refusal — target is not a question** (exit 2, local, nothing posted). This is a construction failure, not a domain check: with no question there is no author to infer a recipient from.
-
-```json
-{"ok":false,"exit":2,"outcome":"usage","invariant":"target.not_a_question",
- "detail":"seq 19104 is a finding","next":"An answer must reference an event of kind question. Nothing was posted."}
+{"ok":true,"outcome":"accepted","seq":20031,"applied":true,"kind":"chat","room":"core","recipient":"bcm","refs":["20015"]}
 ```
 
 ---
@@ -420,8 +413,8 @@ Addressed events render whole by default: a handoff is not ambient chatter, and 
 |---|---|
 | `--wait 0` (default) | return what is pending, exit immediately |
 | `--wait 15m` | block on live SSE until something addressed to me arrives. Capped at 30m |
-| `--until-kind answer` | narrow the wake condition; with `--refs`, "wake when my question is answered" |
-| `--refs SEQ` | only records referencing this seq |
+| `--refs SEQ` | only records referencing this seq — "wake when my question gets a reply" |
+| `--until-kind KIND` | narrow the wake condition to one kind |
 
 Read deadline 60s, more than twice the server's 25s ping. The ping is an SSE comment (`: ping`) and must count toward liveness or the deadline fires on a healthy idle stream.
 
@@ -632,21 +625,13 @@ You can redact your own event and nobody else's: `redact.not_author`. Someone el
 
 ---
 
-### `decline`
+### Refusing a handoff (there is no `decline` verb)
 
 ```
-comms decline SEQ --as <seat> --why "<why not>"
+comms chat --refs SEQ --text "not taking this: <why>"
 ```
 
-Refuses a handoff, out loud. It goes back to whoever handed the work over — the same derivation an `answer` uses, for the same reason: the person who needs to know is the one who thought the work was covered.
-
-```json
-{"ok":true,"outcome":"accepted","seq":20044,"applied":true}
-```
-
-Declining is not a failure and costs nothing. Saying nothing does: a handoff nobody took and nobody refused looks exactly like a handoff being worked on, and the difference surfaces when the work is due. This verb exists because in the 2026-08-07 study a coordinator handed out two slices, both landed in under a second, and both agents worked a third — the room could not represent "I got this and I am not doing it", so divergence and silence were the same shape.
-
-Refused `refs.handoff_required` if the seq is not a handoff, and `refs.unknown` if there is nothing there.
+The same reply-routing as answering: the ref routes the refusal back to whoever handed the work over, because the person who needs to know is the one who thought the work was covered. Saying nothing costs the sender — in the 2026-08-07 study a coordinator handed out two slices, both landed in under a second, and both agents worked a third; the room could not represent "I got this and I am not doing it", so divergence and silence were the same shape. A ref'd reply is that representation now.
 
 ---
 

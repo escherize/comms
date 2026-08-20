@@ -17,8 +17,7 @@ func TestEveryKindHasADeliberateLane(t *testing.T) {
 	// Written out rather than derived from LaneOf, so this asserts the intent
 	// against the implementation instead of the implementation against itself.
 	addressed := map[Kind]bool{
-		KindQuestion: true, KindAnswer: true, KindHandoff: true,
-		KindDecline: true,
+		KindQuestion: true, KindHandoff: true,
 	}
 	for _, k := range AllKinds {
 		want := Ambient
@@ -37,13 +36,7 @@ func TestEveryKindIsPostable(t *testing.T) {
 	// Every capability granted: this test asks whether a kind can be posted at
 	// all, not who may post it. Authorization has its own tests.
 	state := State{
-		RoomExists: okRoom,
-		EventKind: func(ref string) (Kind, bool) {
-			if ref == "evt_h" {
-				return KindHandoff, true
-			}
-			return KindQuestion, true
-		},
+		RoomExists:    okRoom,
 		HasCapability: func(Actor, string) bool { return true },
 	}
 
@@ -57,10 +50,6 @@ func TestEveryKindIsPostable(t *testing.T) {
 				cmd.Body["severity"] = "p2"
 			case KindRedact:
 				cmd.Refs = []string{"evt_1"}
-			case KindAnswer:
-				cmd.Refs = []string{"evt_q"}
-			case KindDecline:
-				cmd.Refs = []string{"evt_h"}
 			}
 			if LaneOf(k) == Addressed {
 				cmd.Recipient = "someone"
@@ -93,8 +82,8 @@ func TestKnownKindAcceptsExactlyTheDocumentedSet(t *testing.T) {
 	}
 	// Every constant declared in this package must be in the documented set.
 	for _, k := range []Kind{
-		KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL, KindHandoff,
-		KindStatus, KindRedact, KindDecline,
+		KindChat, KindFinding, KindQuestion, KindTIL, KindHandoff,
+		KindStatus, KindRedact,
 	} {
 		if !documented[k] {
 			t.Errorf("kind %q exists and Kinds() does not describe it, so no document "+

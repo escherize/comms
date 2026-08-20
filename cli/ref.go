@@ -49,6 +49,8 @@ addressing — talking TO someone, not about them:
 
 replying and threading:
   to reply to ANY post, post with --refs <seq> — that is the thread
+  a ref to an addressed event routes your reply to its counterpart: answering
+  a question reaches the asker, putting down a handoff reaches its sender
   racing teammates to one canonical post? agree a natural --idem key: the
   first writer wins, later writers are refused with the winning seq — ref it
 

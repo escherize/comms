@@ -17,16 +17,9 @@ const (
 	KindChat     Kind = "chat"
 	KindFinding  Kind = "finding"
 	KindQuestion Kind = "question"
-	KindAnswer   Kind = "answer"
 	KindTIL      Kind = "til"
 	KindHandoff  Kind = "handoff"
 	KindStatus   Kind = "status"
-	// KindDecline answers a handoff with "not me". Without it, an agent that
-	// will not take the work has no way to say so, and divergence is
-	// indistinguishable from silence — which is what happened when a
-	// coordinator handed two slices out and found six minutes later that both
-	// agents were working a third.
-	KindDecline Kind = "decline"
 	// KindPresence is a seat arriving: the check-in join posts. It exists
 	// because join used to check in as chat — exactly the shrug the skill
 	// tells agents never to post, filed as an inconsistency by a study agent.
@@ -34,6 +27,10 @@ const (
 	KindPresence Kind = "presence"
 	KindRedact   Kind = "redact"
 )
+
+// answer and decline are retired kinds (ADR-0016 rule 2): replying is a post
+// that --refs the thing it replies to, and the recipient is derived from the
+// ref. Old events keep the stored kinds; nothing writes them anymore.
 
 // Lane is how an event competes for human attention. It is a static property of
 // the Kind: nothing an author writes inside an event changes its lane. Severity
@@ -50,7 +47,7 @@ const (
 // never does.
 func LaneOf(k Kind) Lane {
 	switch k {
-	case KindQuestion, KindAnswer, KindHandoff, KindDecline:
+	case KindQuestion, KindHandoff:
 		return Addressed
 	default:
 		return Ambient
@@ -116,12 +113,14 @@ func (r Rejection) Error() string { return r.Invariant + ": " + r.Detail }
 type State struct {
 	// KnownKinds gates unknown kinds without a registry lookup in the shell.
 	RoomExists func(room string) bool
-	// EventKind returns the kind of a prior event by its ref, and whether it exists.
-	EventKind func(ref string) (Kind, bool)
 	// ArtifactExists reports whether content is stored under this hash.
 	ArtifactExists func(hash string) bool
 	// EventAuthor returns who authored a prior event, and whether it exists.
 	EventAuthor func(ref string) (Actor, bool)
+	// EventRecipient returns who a prior event was addressed to ("" for
+	// ambient), and whether the event exists. Reply-routing reads it: a post
+	// that refs an addressed event inherits its counterpart as recipient.
+	EventRecipient func(ref string) (Actor, bool)
 	// EventRoom returns the room a prior event was posted in.
 	EventRoom func(ref string) (string, bool)
 	// IsRedacted reports whether an event is already suppressed.
@@ -184,57 +183,6 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, r
 	}
 
-	// An answer must point at a question, checked before the recipient rules:
-	// an answer with a bad ref reported as "name a recipient" sends the agent
-	// to fix the wrong thing.
-	if c.Kind == KindDecline {
-		if len(c.Refs) != 1 {
-			return nil, &Rejection{"refs.exactly_one",
-				"a decline names the one handoff it is refusing"}
-		}
-		if s.EventKind != nil {
-			k, ok := s.EventKind(c.Refs[0])
-			// Cross-room reads as nonexistent — the same existence-hiding
-			// redaction applies, and a decline must not route to a seat that
-			// never handed anything over in this room.
-			if ok && s.EventRoom != nil {
-				if room, roomOK := s.EventRoom(c.Refs[0]); roomOK && room != c.Room {
-					ok = false
-				}
-			}
-			if !ok {
-				return nil, &Rejection{"refs.unknown",
-					"no event at " + c.Refs[0] + "; check the seq you were handed"}
-			}
-			if k != KindHandoff {
-				return nil, &Rejection{"refs.handoff_required",
-					"a decline refuses a handoff; " + c.Refs[0] + " is a " + string(k)}
-			}
-		}
-		// Back to whoever handed it over, for the same reason an answer goes
-		// back to whoever asked: the person who needs to know is the one who
-		// thought the work was covered.
-		if c.Recipient == "" {
-			if to, ok := authorOfReferenced(s, c, KindHandoff); ok {
-				c.Recipient = to
-			}
-		}
-	}
-
-	if c.Kind == KindAnswer {
-		if r := checkAnswersAQuestion(s, c); r != nil {
-			return nil, r
-		}
-		// The recipient is the question's author. A domain rule, so it lives
-		// here and every client gets it — the browser composer and the agent
-		// CLI both, rather than one of them reimplementing it.
-		if c.Recipient == "" {
-			if to, ok := answerRecipient(s, c); ok {
-				c.Recipient = to
-			}
-		}
-	}
-
 	// Addressed events must name a recipient. An addressed event nobody is
 	// addressed to would render inline and interrupt everyone, which is the
 	// flood the lane split exists to prevent.
@@ -242,6 +190,25 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 	if lane == Addressed && c.Recipient == "" {
 		return nil, &Rejection{"recipient.required",
 			"kind " + string(c.Kind) + " is addressed and must name a recipient"}
+	}
+	if lane == Ambient && c.Recipient != "" {
+		return nil, &Rejection{"recipient.forbidden",
+			"kind " + string(c.Kind) + " is ambient; it cannot name a recipient"}
+	}
+
+	// Reply-routing (ADR-0016 rule 2): a post that refs an addressed event in
+	// this room inherits its counterpart as recipient — reply to a question,
+	// the asker gets it; put down a handoff addressed to you, whoever handed
+	// it over is told. The relationship is carried by the ref alone; there is
+	// no answer/decline kind to double-encode it. A ref to an ambient event
+	// threads without addressing anyone, and a third party citing someone
+	// else's exchange interrupts nobody. A redact's ref names its target, not
+	// a conversation — suppressing your own question must not ring anyone.
+	if c.Recipient == "" && c.Kind != KindRedact {
+		if to, ok := replyRecipient(s, c); ok {
+			c.Recipient = to
+			lane = Addressed
+		}
 	}
 	// A recipient nobody enrolled as is a typo the log keeps forever. The check
 	// is here rather than in the shell because it decides whether an event is
@@ -251,10 +218,6 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 			"no seat " + string(c.Recipient) + " is enrolled; addressing an event to a " +
 				"seat that does not exist waits for an answer nobody was asked for. " +
 				"Run: comms room"}
-	}
-	if lane == Ambient && c.Recipient != "" {
-		return nil, &Rejection{"recipient.forbidden",
-			"kind " + string(c.Kind) + " is ambient; it cannot name a recipient"}
 	}
 
 	if c.Kind == KindRedact {
@@ -365,8 +328,8 @@ func checkAttachments(s State, c Command) *Rejection {
 
 func knownKind(k Kind) bool {
 	switch k {
-	case KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL,
-		KindHandoff, KindStatus, KindRedact, KindDecline,
+	case KindChat, KindFinding, KindQuestion, KindTIL,
+		KindHandoff, KindStatus, KindRedact,
 		KindPresence:
 		return true
 	}
@@ -388,7 +351,7 @@ func checkBody(c Command) *Rejection {
 			return &Rejection{"body.severity.invalid",
 				"finding requires severity in p0|p1|p2|p3, got: " + sev}
 		}
-	case KindChat, KindQuestion, KindAnswer, KindTIL, KindStatus, KindDecline, KindPresence:
+	case KindChat, KindQuestion, KindTIL, KindStatus, KindPresence:
 		if text == "" {
 			return &Rejection{"body.text.required", string(c.Kind) + " requires text"}
 		}
@@ -413,79 +376,37 @@ func validSeverity(s string) bool {
 	return false
 }
 
-// answerRecipient finds the author of the question this answer refs.
-func answerRecipient(s State, c Command) (Actor, bool) {
-	return authorOfReferenced(s, c, KindQuestion)
-}
-
-// authorOfReferenced finds who wrote the referenced event of a given kind. Two
-// kinds derive their recipient this way for the same reason: a reply goes to
-// whoever spoke, because the person who needs it is the one who is waiting on
-// it. An answer goes to whoever asked; a decline goes to whoever thought the
-// work was covered.
-func authorOfReferenced(s State, c Command, want Kind) (Actor, bool) {
-	if s.EventKind == nil || s.EventAuthor == nil {
+// replyRecipient derives who a reply routes to, from its refs alone. A
+// referenced event that was addressed carries the exchange's two seats; the
+// counterpart of whoever is posting now is the one waiting on the reply. The
+// ref must live in this room — deriving cross-room addressed seats that never
+// spoke here, the same existence-hiding rule redaction applies.
+func replyRecipient(s State, c Command) (Actor, bool) {
+	if s.EventAuthor == nil || s.EventRecipient == nil {
 		return "", false
 	}
 	for _, ref := range c.Refs {
 		if s.EventRoom != nil {
-			// The reply's recipient comes from the referenced event, so the
-			// reference must live in this room — deriving it cross-room
-			// addressed seats that never spoke here.
 			if room, ok := s.EventRoom(ref); ok && room != c.Room {
 				continue
 			}
 		}
-		if k, ok := s.EventKind(ref); ok && k == want {
-			if who, ok := s.EventAuthor(ref); ok && who != "" {
-				return who, true
-			}
+		to, ok := s.EventRecipient(ref)
+		if !ok || to == "" {
+			continue // ambient ref: it threads, it never addresses
+		}
+		author, ok := s.EventAuthor(ref)
+		if !ok || author == "" {
+			continue
+		}
+		switch c.Author {
+		case to:
+			return author, true // addressed to you → back to whoever sent it
+		case author:
+			return to, true // your own ask → the follow-up stays with them
 		}
 	}
 	return "", false
-}
-
-// checkAnswersAQuestion distinguishes the two ways an answer's ref can be
-// wrong. redact already tells them apart, and an agent that cannot tell "I
-// named the wrong seq" from "I named a chat" retries the same mistake.
-func checkAnswersAQuestion(s State, c Command) *Rejection {
-	if len(c.Refs) == 0 {
-		return &Rejection{"refs.question_required",
-			"answer must reference the question it answers"}
-	}
-	if s.EventKind == nil {
-		return nil
-	}
-	var sawSomething bool
-	for _, ref := range c.Refs {
-		k, ok := s.EventKind(ref)
-		if !ok {
-			continue
-		}
-		// A ref in another room is treated exactly like a ref that does not
-		// exist: answering across rooms routed a reply to a recipient who may
-		// not be a member here, and the distinct refusal was a cross-room
-		// existence oracle. Same rule redaction already applies.
-		if s.EventRoom != nil {
-			if room, ok := s.EventRoom(ref); ok && room != c.Room {
-				continue
-			}
-		}
-		sawSomething = true
-		if k == KindQuestion {
-			return nil
-		}
-	}
-	if !sawSomething {
-		// A seq that is not there and a seq that is the wrong kind call for
-		// different corrections: look up the right number, versus point at a
-		// different event. redact already tells these apart.
-		return &Rejection{"refs.unknown",
-			"no event at " + strings.Join(c.Refs, ", ") + " in this room; " +
-				"check the seq you read it from"}
-	}
-	return &Rejection{"refs.question_required",
-		"answer must reference an event of kind question; that seq is a different kind"}
 }
 
 // KindDoc is what a kind means and what it needs, so the binary can answer
@@ -526,9 +447,7 @@ func Kinds() []KindDoc {
 		{KindFinding, LaneOf(KindFinding), "a defect, gotcha or surprise worth keeping", "--text, --severity p0|p1|p2|p3", true},
 		{KindTIL, LaneOf(KindTIL), "a lesson the team can reuse (today I learned)", "--text", true},
 		{KindQuestion, LaneOf(KindQuestion), "a decision or fact you need from a person", "--text, --to", true},
-		{KindAnswer, LaneOf(KindAnswer), "a reply, pointed at the question", "--text, --to-question", true},
 		{KindHandoff, LaneOf(KindHandoff), "transfer of responsibility, with context", "--text, --to", true},
-		{KindDecline, LaneOf(KindDecline), "refusing a handoff, out loud", "<seq>, --why", true},
 		{KindStatus, LaneOf(KindStatus), "progress on work in flight", "--text, optional --step/--of", true},
 		{KindChat, LaneOf(KindChat), "everything else, and a shrug of an answer", "--text", true},
 		{KindPresence, LaneOf(KindPresence), "a seat arriving — join posts it for you", "--text; join's check-in, not for chatter", true},

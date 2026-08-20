@@ -320,16 +320,21 @@ func TestRoomProjection(t *testing.T) {
 	}
 }
 
-func TestEventKindLookup(t *testing.T) {
+func TestEventRecipientLookup(t *testing.T) {
 	s := newStore(t)
 	seq := mustAppend(t, s, core.Event{Room: "core", Author: "agent:c1", Kind: core.KindQuestion,
 		Body: map[string]any{"text": "?"}, Recipient: "human:bcm", Lane: core.Addressed}, "i1")
 
-	k, ok := s.EventKind(itoa(seq))
-	if !ok || k != core.KindQuestion {
-		t.Errorf("EventKind(%d) = %v, %v; want question, true", seq, k, ok)
+	r, ok := s.EventRecipient(itoa(seq))
+	if !ok || r != "human:bcm" {
+		t.Errorf("EventRecipient(%d) = %v, %v; want human:bcm, true", seq, r, ok)
 	}
-	if _, ok := s.EventKind("999999"); ok {
+	amb := mustAppend(t, s, core.Event{Room: "core", Author: "agent:c1", Kind: core.KindChat,
+		Body: map[string]any{"text": "hi"}}, "i2")
+	if r, ok := s.EventRecipient(itoa(amb)); !ok || r != "" {
+		t.Errorf("an ambient event's recipient must read as empty, got %q, %v", r, ok)
+	}
+	if _, ok := s.EventRecipient("999999"); ok {
 		t.Error("unknown ref must report not found")
 	}
 }

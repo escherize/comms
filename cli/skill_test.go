@@ -277,7 +277,8 @@ func TestEverySkillCommandRuns(t *testing.T) {
 // run as written.
 func withSeat(args []string) []string {
 	needsSeat := map[string]bool{
-		"post": true, "ask": true, "answer": true, "decline": true,
+		"post": true, "ask": true,
+		"chat": true, "finding": true, "til": true, "status": true,
 		"read": true, "inbox": true, "redact": true, "whoami": true,
 		"room": true, "search": true,
 	}
@@ -475,10 +476,13 @@ func TestTheThreeSurfaceDocsAgreeOnTheVerbs(t *testing.T) {
 		t.Error("the README's agent onboarding must be enrol")
 	}
 
-	// The skill teaches a subset, and every verb it teaches must exist.
+	// The skill teaches a subset, and every verb it teaches must exist. The
+	// ambient kinds double as verbs (comms chat|finding|til|status …), so they
+	// count alongside the Verbs list.
+	kindVerbs := map[string]bool{"chat": true, "finding": true, "til": true, "status": true}
 	for _, m := range regexp.MustCompile(`comms ([a-z]+)`).FindAllStringSubmatch(skill, -1) {
 		verb := m[1]
-		var known bool
+		known := kindVerbs[verb]
 		for _, v := range Verbs {
 			if v == verb {
 				known = true
@@ -490,10 +494,10 @@ func TestTheThreeSurfaceDocsAgreeOnTheVerbs(t *testing.T) {
 	}
 }
 
-// answer --to-question belongs on the teaching path, not buried in a recovery
+// Replying with --refs belongs on the teaching path, not buried in a recovery
 // table: an agent that only meets it after a rejection has already got it wrong
 // once for no reason.
-func TestTheSkillTeachesAnswerBeforeItRecoversFromIt(t *testing.T) {
+func TestTheSkillTeachesReplyingBeforeItRecoversFromIt(t *testing.T) {
 	doc := mustReadSkill(t)
 	teaching := strings.Index(doc, "## Answering someone")
 	recovery := strings.Index(doc, "| Invariant | What to do |")
@@ -501,14 +505,14 @@ func TestTheSkillTeachesAnswerBeforeItRecoversFromIt(t *testing.T) {
 		t.Fatal("the skill must teach answering")
 	}
 	if recovery != -1 && teaching > recovery {
-		t.Error("answer is taught only after the recovery table; it belongs on the path")
+		t.Error("replying is taught only after the recovery table; it belongs on the path")
 	}
 	section := doc[teaching:]
 	if idx := strings.Index(section, "\n## "); idx != -1 {
 		section = section[:idx]
 	}
-	if !strings.Contains(section, "--to-question") {
-		t.Error("the teaching section must show --to-question")
+	if !strings.Contains(section, "--refs") {
+		t.Error("the teaching section must show --refs replying")
 	}
 }
 

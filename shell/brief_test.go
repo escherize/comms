@@ -47,7 +47,7 @@ func TestRoomBriefAnswersWhatIsInFlight(t *testing.T) {
 	qseq := int64(out["seq"].(float64))
 	post(t, srv, `{"room":"core","author":"agent:c9","kind":"question",`+
 		`"body":{"text":"who owns the runner image?"},"recipient":"human:bcm","idem":"b4"}`)
-	post(t, srv, `{"room":"core","author":"human:bcm","kind":"answer",`+
+	post(t, srv, `{"room":"core","author":"human:bcm","kind":"chat",`+
 		`"body":{"text":"yes"},"refs":["`+itoa(qseq)+`"],"idem":"b5"}`)
 
 	status, body := getJSON(t, srv.URL+"/rooms/core")
@@ -832,10 +832,11 @@ func TestOnlyAddressedDeliveryIsPublished(t *testing.T) {
 	}
 }
 
-// A decline is a fact in the log, addressed back to whoever handed the work
-// over. Without it, "I got this and I am not doing it" has no shape and
-// divergence is indistinguishable from silence.
-func TestADeclineGoesBackToWhoeverHandedItOver(t *testing.T) {
+// Putting a handoff down is a routed reply (ADR-0016 rule 2): a post that refs
+// the handoff routes back to whoever handed the work over. Without it, "I got
+// this and I am not doing it" has no shape and divergence is indistinguishable
+// from silence.
+func TestAHandoffRefusalRoutesBackToWhoeverHandedItOver(t *testing.T) {
 	srv, st := newServer(t)
 	seedActor(t, st, "agent:c1")
 	seedActor(t, st, "agent:c2")
@@ -846,38 +847,28 @@ func TestADeclineGoesBackToWhoeverHandedItOver(t *testing.T) {
 	}
 	handoff := itoa(int64(out["seq"].(float64)))
 
-	code, out = post(t, srv, `{"room":"core","author":"agent:c1","kind":"decline",`+
-		`"body":{"text":"already three deep in the auth suite"},"refs":["`+handoff+`"],"idem":"dc1"}`)
+	code, out = post(t, srv, `{"room":"core","author":"agent:c1","kind":"chat",`+
+		`"body":{"text":"already three deep in the auth suite; not taking this"},"refs":["`+handoff+`"],"idem":"dc1"}`)
 	if code != http.StatusOK {
-		t.Fatalf("a decline must be accepted: %v", out)
+		t.Fatalf("a refusal must be accepted: %v", out)
 	}
 
 	recs, _ := st.Since("core", 0, 50)
 	var found bool
 	for _, r := range recs {
-		if r.Kind != core.KindDecline {
+		if len(r.Refs) != 1 || r.Refs[0] != handoff {
 			continue
 		}
 		found = true
 		if string(r.Recipient) != "agent:c2" {
-			t.Errorf("a decline goes back to whoever handed it over, got %q", r.Recipient)
+			t.Errorf("a refusal goes back to whoever handed it over, got %q", r.Recipient)
 		}
 		if r.Lane != core.Addressed {
-			t.Error("a decline is addressed; the sender needs to see it")
+			t.Error("a refusal is addressed; the sender needs to see it")
 		}
 	}
 	if !found {
-		t.Fatal("the decline was not stored")
-	}
-
-	// It refuses a handoff, not anything else.
-	code, out = post(t, srv, `{"room":"core","author":"agent:c1","kind":"decline",`+
-		`"body":{"text":"no"},"refs":["`+itoa(int64(9999))+`"],"idem":"dc2"}`)
-	if code == http.StatusOK {
-		t.Error("a decline naming nothing must be refused")
-	}
-	if out["invariant"] != "refs.unknown" {
-		t.Errorf("want refs.unknown, got %v", out["invariant"])
+		t.Fatal("the refusal was not stored")
 	}
 }
 

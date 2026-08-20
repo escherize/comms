@@ -302,7 +302,10 @@ func generateLog(t *testing.T, s *Store, rng *rand.Rand, n int) {
 			if len(questions) == 0 {
 				continue
 			}
-			ev.Kind = core.KindAnswer
+			// A routed reply (ADR-0016 rule 2): chat + ref + recipient is the
+			// shape that closes a question; there is no answer kind.
+			ev.Kind = core.KindChat
+			ev.Lane = core.Addressed
 			target := questions[rng.Intn(len(questions))]
 			ev.Refs = []string{itoa(target)}
 			ev.Recipient = "agent:c1"

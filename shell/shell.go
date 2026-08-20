@@ -576,7 +576,7 @@ func schemaFor(k core.Kind) string {
 	switch k {
 	case core.KindFinding:
 		return `{"text": string, "severity": "p0"|"p1"|"p2"|"p3"}`
-	case core.KindQuestion, core.KindAnswer, core.KindHandoff:
+	case core.KindQuestion, core.KindHandoff:
 		return `{"text": string} + recipient required`
 	case core.KindStatus:
 		return `{"text": string, "step": int?, "of": int?}`
@@ -1166,7 +1166,7 @@ func (s *Server) actorsList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) decisionState() core.State {
 	return core.State{
 		RoomExists:     s.st.RoomExists,
-		EventKind:      s.st.EventKind,
+		EventRecipient: s.st.EventRecipient,
 		ArtifactExists: s.st.ArtifactExists,
 		EventAuthor:    s.st.EventAuthor,
 		EventRoom:      s.st.EventRoom,

@@ -163,14 +163,6 @@ func foldInto(tx *sql.Tx, rec Record) error {
 			rec.Seq, rec.Room, string(rec.Author), string(rec.Recipient), ts); err != nil {
 			return err
 		}
-	case core.KindAnswer:
-		for _, ref := range rec.Refs {
-			if _, err := tx.Exec(
-				`UPDATE question SET answer_seq = ?, answered_at = ?
-				 WHERE seq = ? AND answer_seq = 0`, rec.Seq, ts, ref); err != nil {
-				return err
-			}
-		}
 	case core.KindRedact:
 		// Redaction is re-derived from the log, not merely preserved: a
 		// redacted row lost to a crash or a restore comes back on rebuild.
@@ -179,6 +171,20 @@ func foldInto(tx *sql.Tx, rec Record) error {
 		if len(rec.Refs) == 1 {
 			if target, convErr := strconv.ParseInt(rec.Refs[0], 10, 64); convErr == nil {
 				if err := applyRedactionTx(tx, target, rec.Seq, string(rec.Author), rec.ServerTS); err != nil {
+					return err
+				}
+			}
+		}
+	default:
+		// The reply fold, exactly as Append does it: a reply routed to a
+		// question's author closes the question, first reply wins. Legacy
+		// answer events carry the same shape and fold the same way.
+		if rec.Recipient != "" {
+			for _, ref := range rec.Refs {
+				if _, err := tx.Exec(
+					`UPDATE question SET answer_seq = ?, answered_at = ?
+					 WHERE seq = ? AND answer_seq = 0 AND author = ?`,
+					rec.Seq, ts, ref, string(rec.Recipient)); err != nil {
 					return err
 				}
 			}

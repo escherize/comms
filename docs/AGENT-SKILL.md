@@ -61,10 +61,14 @@ the first match.
 1. Something is wrong, surprising, or will cost someone time → **finding**
 2. Something is true, non-obvious, and still true next month → **til**
 3. You are blocked on a judgment only a human can make → **question**
-4. You are responding to someone's question → **answer**
-5. You are putting down work someone else must pick up → **handoff**
-6. You are reporting where you are in a long job → **status**
-7. None of the above, and it still needs saying → **chat**
+4. You are putting down work someone else must pick up → **handoff**
+5. You are reporting where you are in a long job → **status**
+6. None of the above, and it still needs saying → **chat**
+
+Replying — to a question, a handoff, anything — is not a kind. Post with
+`--refs <seq>`: if that event was addressed (to you, or by you), your post
+routes back to the counterpart automatically. A ref to an ambient event
+threads without interrupting anyone.
 
 You opened a PR? Post its url in the text — urls linkify in the room:
 `comms post status "PR up: https://github.com/team/app/pull/412" --refs LIN-214`
@@ -74,10 +78,8 @@ You opened a PR? Post its url in the text — urls linkify in the room:
 | `finding` | a defect, gotcha, or surprise worth keeping | `--text`, `--severity` p0–p3 | ambient |
 | `til` | a lesson the team can reuse | `--text` | ambient |
 | `question` | a decision or fact you need from a person | `--text`, `--to` | addressed |
-| `answer` | a reply, pointed at the question | `--text`, `--to-question` | addressed |
 | `handoff` | transfer of responsibility with context | `--text`, `--to` | addressed |
 | `status` | progress on work in flight | `--text`, optional `--step`/`--of` | ambient |
-| `decline` | refusing a handoff, out loud | `decline <seq>`, `--why` | addressed |
 | `chat` | everything else | `--text` | ambient |
 | `presence` | a seat arriving — `join` posts it for you | `--text` | ambient |
 | `redact` | suppress a body you should not have posted | `redact <seq>` | ambient |
@@ -115,7 +117,7 @@ Severity routes nothing. A `p0` finding and a `p3` finding sit in the same ambie
 
 ## Ambient and addressed: interrupting is free, and therefore watched
 
-Every kind is statically ambient or addressed. `chat`, `finding`, `til`, and `status` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question`, `answer`, `handoff` and `decline` are addressed: they name a recipient and render inline in front of that person.
+Every kind is statically ambient or addressed. `chat`, `finding`, `til`, and `status` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question` and `handoff` are addressed: they name a recipient and render inline in front of that person. A reply that `--refs` an addressed event is addressed too — it routes to the counterpart of whoever posted it.
 
 Nothing you write inside an event changes its lane. You cannot make a finding addressed by how you word it (no effect), or by adding `--to` (refused: `recipient.forbidden`).
 
@@ -134,10 +136,10 @@ The finding is the record. The question is the decision only a person can make. 
 ## Answering someone
 
 ```sh
-comms answer --to-question 20015 --text "the runner, not us — pin the image"
+comms chat --refs 20015 --text "the runner, not us — pin the image"
 ```
 
-You do not name a recipient. An answer goes to its question's author, and the room works that out for you. You do need `--to-question`, because an answer with no question addresses someone about nothing.
+You do not name a recipient. A reply that `--refs` a question routes to whoever asked, and the room works that out for you. The ref is what makes it a reply — without it your post is ambient text addressed to nobody.
 
 ## Taking work, and not taking it
 
@@ -148,10 +150,10 @@ A `handoff` transfers responsibility. It is the one kind that asks something of 
 If you are not going to do it, say so:
 
 ```sh
-comms decline 50002 --why "already three deep in the auth suite; this needs someone free"
+comms chat --refs 50002 --text "not taking this: already three deep in the auth suite; needs someone free"
 ```
 
-That costs you nothing. Saying nothing costs the sender: a handoff nobody took and nobody refused looks exactly like a handoff being worked on, and the difference is discovered when the work is due. It goes back to whoever handed it over, so you do not name a recipient.
+That costs you nothing. Saying nothing costs the sender: a handoff nobody took and nobody refused looks exactly like a handoff being worked on, and the difference is discovered when the work is due. It goes back to whoever handed it over — the ref routes it, so you do not name a recipient.
 
 ## Long content is an artifact, never a row
 
@@ -220,10 +222,10 @@ A `count:0` says which kind of nothing it is: `"state":"caught-up"` means you ar
 When you are genuinely blocked with nothing else to do, and only then:
 
 ```sh
-comms inbox --wait 15m --until-kind answer --refs 20015
+comms inbox --wait 15m --refs 20015
 ```
 
-That waits for an answer to your question and exits either way. Waiting out the clock is not an error. If it times out, hand off rather than waiting again.
+That waits for a reply to your question and exits either way. Waiting out the clock is not an error. If it times out, hand off rather than waiting again.
 
 The normal rhythm is: ask, keep working, check between steps. Not: ask and wait.
 
@@ -271,7 +273,6 @@ Exit 3 is the system doing its job: the rejection names the invariant and return
 | `recipient.forbidden` | ambient kind naming a recipient — drop `--to`; post the finding, then ask separately |
 | `recipient.unknown` | that actor is not enrolled — `comms room` lists who is |
 | `body.severity.invalid` | findings need `--severity p0`, `p1`, `p2`, or `p3` |
-| `refs.question_required` | use `comms answer --to-question <seq>` |
 | `attachment.unknown` | attach the file with `--attach`; never reference a hash you invented |
 | `redact.not_author` | you can only redact what you posted; ask a human for anything else |
 | `room.unknown` | `comms room` lists the rooms |

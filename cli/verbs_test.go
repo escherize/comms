@@ -30,11 +30,9 @@ func TestKnownKindNamesMatchesCoreKinds(t *testing.T) {
 	}
 }
 
-// The concrete regression: presence and decline must be accepted client-side.
-func TestKnownKindAcceptsPresenceAndDecline(t *testing.T) {
-	for _, k := range []core.Kind{core.KindPresence, core.KindDecline} {
-		if !knownKind(k) {
-			t.Errorf("knownKind(%q) = false; the client refuses a kind the server accepts", k)
-		}
+// The concrete regression: presence must be accepted client-side.
+func TestKnownKindAcceptsPresence(t *testing.T) {
+	if !knownKind(core.KindPresence) {
+		t.Error("knownKind(presence) = false; the client refuses a kind the server accepts")
 	}
 }

@@ -1687,11 +1687,12 @@ const composeScript = `
       return {kind:'question', body:{text:m[2]}, recipient:m[1]};
     },
     answer: function(rest){
-      // No recipient: the core derives it from the question's author, so the
-      // browser and the CLI share one rule instead of each inferring their own.
+      // Sugar for a ref'd post: no recipient and no answer kind — the core
+      // derives the recipient from the ref (ADR-0016 rule 2), so the browser
+      // and the CLI share one rule instead of each inferring their own.
       var m=rest.match(/^#?(\d+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /answer <seq> <your answer>'};
-      return {kind:'answer', body:{text:m[2]}, refs:[m[1]]};
+      return {kind:'chat', body:{text:m[2]}, refs:[m[1]]};
     },
     handoff: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);

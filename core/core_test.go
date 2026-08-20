@@ -16,12 +16,23 @@ func chat(text string) map[string]any { return map[string]any{"text": text} }
 func TestDecide(t *testing.T) {
 	state := State{
 		RoomExists: okRoom,
-		EventKind: func(ref string) (Kind, bool) {
+		// evt_q is an addressed event (a question from agent:claude-2 to
+		// human:bcm); evt_chat is ambient. Reply-routing reads these.
+		EventAuthor: func(ref string) (Actor, bool) {
 			switch ref {
 			case "evt_q":
-				return KindQuestion, true
+				return "agent:claude-2", true
 			case "evt_chat":
-				return KindChat, true
+				return "human:bcm", true
+			}
+			return "", false
+		},
+		EventRecipient: func(ref string) (Actor, bool) {
+			switch ref {
+			case "evt_q":
+				return "human:bcm", true
+			case "evt_chat":
+				return "", true
 			}
 			return "", false
 		},
@@ -51,10 +62,16 @@ func TestDecide(t *testing.T) {
 			wantLane: Addressed,
 		},
 		{
-			name: "answer referencing a question is accepted",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindAnswer, Idem: "i4",
-				Body: chat("yes"), Recipient: "agent:claude-2", Refs: []string{"evt_q"}},
+			name: "a reply refs an addressed event and routes to its counterpart",
+			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindChat, Idem: "i4",
+				Body: chat("yes"), Refs: []string{"evt_q"}},
 			wantLane: Addressed,
+		},
+		{
+			name: "a reply whose ref is ambient stays ambient",
+			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindChat, Idem: "i4b",
+				Body: chat("agreed"), Refs: []string{"evt_chat"}},
+			wantLane: Ambient,
 		},
 		{
 			name:     "til is accepted and ambient",
@@ -145,20 +162,6 @@ func TestDecide(t *testing.T) {
 			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindFinding, Idem: "i20",
 				Body: map[string]any{"text": "x", "severity": "p0"}, Recipient: "human:bcm"},
 			wantErr: "recipient.forbidden",
-		},
-
-		// --- rejections: answer must answer something ---
-		{
-			name: "answer without refs is rejected",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindAnswer, Idem: "i21",
-				Body: chat("yes"), Recipient: "agent:claude-2"},
-			wantErr: "refs.question_required",
-		},
-		{
-			name: "answer referencing a non-question is rejected",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindAnswer, Idem: "i22",
-				Body: chat("yes"), Recipient: "agent:claude-2", Refs: []string{"evt_chat"}},
-			wantErr: "refs.question_required",
 		},
 	}
 
@@ -358,7 +361,7 @@ func TestActorIsAgent(t *testing.T) {
 }
 
 func TestLaneOf(t *testing.T) {
-	addressed := []Kind{KindQuestion, KindAnswer, KindHandoff}
+	addressed := []Kind{KindQuestion, KindHandoff}
 	ambient := []Kind{KindChat, KindFinding, KindTIL, KindStatus, KindRedact}
 
 	for _, k := range addressed {
@@ -373,57 +376,76 @@ func TestLaneOf(t *testing.T) {
 	}
 }
 
-// An answer's recipient is the question's author. The rule lives in the core so
-// every client gets it, rather than one client reimplementing what the browser
-// does not share.
-func TestAnswerRecipientIsDerivedFromTheQuestion(t *testing.T) {
+// A reply's recipient is derived from the ref's counterpart (ADR-0016 rule 2).
+// The rule lives in the core so every client gets it, rather than one client
+// reimplementing what the browser does not share.
+func TestReplyRecipientIsDerivedFromTheRef(t *testing.T) {
+	// evt_q: agent:claude-2 asked human:bcm.
 	state := State{
 		RoomExists: okRoom,
-		EventKind: func(ref string) (Kind, bool) {
-			if ref == "evt_q" {
-				return KindQuestion, true
-			}
-			return KindChat, true
-		},
 		EventAuthor: func(ref string) (Actor, bool) {
 			if ref == "evt_q" {
 				return "agent:claude-2", true
 			}
-			return "someone", true
+			return "", false
+		},
+		EventRecipient: func(ref string) (Actor, bool) {
+			if ref == "evt_q" {
+				return "human:bcm", true
+			}
+			return "", false
 		},
 	}
 
-	events, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindAnswer,
+	// The addressee replies: back to whoever asked.
+	events, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindChat,
 		Body: chat("yes, safe"), Refs: []string{"evt_q"}, Idem: "a1"})
 	if rej != nil {
-		t.Fatalf("an answer with no recipient must derive one: %v", rej)
+		t.Fatalf("a reply with no recipient must derive one: %v", rej)
 	}
 	if events[0].Recipient != "agent:claude-2" {
-		t.Errorf("recipient should be the question's author, got %q", events[0].Recipient)
+		t.Errorf("recipient should be the ref's author, got %q", events[0].Recipient)
+	}
+	if events[0].Lane != Addressed {
+		t.Error("a routed reply must land addressed")
 	}
 
-	// An explicit recipient still wins — deriving is a default, not a rewrite.
-	events, rej = Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindAnswer,
-		Body: chat("cc"), Refs: []string{"evt_q"}, Recipient: "human:sarah", Idem: "a2"})
+	// The asker follows up: stays with the person they asked.
+	events, rej = Decide(state, Command{Room: "core", Author: "agent:claude-2", Kind: KindChat,
+		Body: chat("also — the backfill?"), Refs: []string{"evt_q"}, Idem: "a2"})
 	if rej != nil {
 		t.Fatal(rej)
 	}
-	if events[0].Recipient != "human:sarah" {
-		t.Errorf("an explicit recipient must not be overwritten, got %q", events[0].Recipient)
+	if events[0].Recipient != "human:bcm" {
+		t.Errorf("a follow-up should route to the original recipient, got %q", events[0].Recipient)
+	}
+
+	// A third party citing the exchange interrupts nobody.
+	events, rej = Decide(state, Command{Room: "core", Author: "agent:codex-3", Kind: KindChat,
+		Body: chat("relevant to my slice too"), Refs: []string{"evt_q"}, Idem: "a3"})
+	if rej != nil {
+		t.Fatal(rej)
+	}
+	if events[0].Recipient != "" || events[0].Lane != Ambient {
+		t.Errorf("a third-party ref must stay ambient, got recipient=%q", events[0].Recipient)
 	}
 }
 
-// Deriving does not weaken the rule that an answer answers something.
-func TestAnswerStillNeedsAQuestion(t *testing.T) {
+// A redact's ref names its target, not a conversation: suppressing your own
+// addressed event must not route the redact to the person you had addressed.
+func TestRedactDoesNotReplyRoute(t *testing.T) {
 	state := State{
-		RoomExists:  okRoom,
-		EventKind:   func(string) (Kind, bool) { return KindChat, true },
-		EventAuthor: func(string) (Actor, bool) { return "someone", true },
+		RoomExists:     okRoom,
+		EventAuthor:    func(string) (Actor, bool) { return "agent:claude-2", true },
+		EventRecipient: func(string) (Actor, bool) { return "human:bcm", true },
 	}
-	_, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindAnswer,
-		Body: chat("hm"), Refs: []string{"evt_chat"}, Idem: "a3"})
-	if rej == nil || rej.Invariant != "refs.question_required" {
-		t.Fatalf("an answer pointing at a non-question must still be refused, got %v", rej)
+	events, rej := Decide(state, Command{Room: "core", Author: "agent:claude-2", Kind: KindRedact,
+		Body: chat("pasted a token"), Refs: []string{"77"}, Idem: "r1"})
+	if rej != nil {
+		t.Fatal(rej)
+	}
+	if events[0].Recipient != "" || events[0].Lane != Ambient {
+		t.Errorf("a redact must stay ambient, got recipient=%q", events[0].Recipient)
 	}
 }
 
@@ -464,29 +486,24 @@ func TestRecipientCheckIsSkippedOnlyWhenNoRosterIsWired(t *testing.T) {
 	}
 }
 
-// An answer's ref must live in the answer's room. Cross-room refs read as
-// nonexistent — the distinct refusal was an existence oracle, and the derived
-// recipient could be a non-member of the room the answer lands in.
-func TestAnswerRefsAreRoomScoped(t *testing.T) {
+// A reply's ref must live in the reply's room to route. A cross-room ref reads
+// as nonexistent — deriving from it would address a seat that never spoke
+// here, and a distinct refusal would be a cross-room existence oracle.
+func TestReplyRoutingIsRoomScoped(t *testing.T) {
 	s := State{
-		RoomExists: okRoom,
-		EventKind: func(ref string) (Kind, bool) {
-			if ref == "42" {
-				return KindQuestion, true
-			}
-			return "", false
-		},
-		EventAuthor: func(ref string) (Actor, bool) { return "human:q", true },
-		EventRoom:   func(ref string) (string, bool) { return "other-room", true },
+		RoomExists:     okRoom,
+		EventAuthor:    func(ref string) (Actor, bool) { return "human:q", true },
+		EventRecipient: func(ref string) (Actor, bool) { return "agent:a", true },
+		EventRoom:      func(ref string) (string, bool) { return "other-room", true },
 	}
-	_, rej := Decide(s, Command{
-		Room: "core", Author: "agent:a", Kind: KindAnswer,
+	events, rej := Decide(s, Command{
+		Room: "core", Author: "agent:a", Kind: KindChat,
 		Refs: []string{"42"}, Body: map[string]any{"text": "yes"}, Idem: "x1",
 	})
-	if rej == nil {
-		t.Fatal("an answer referencing another room's question must be refused")
+	if rej != nil {
+		t.Fatal(rej)
 	}
-	if rej.Invariant != "refs.unknown" {
-		t.Fatalf("cross-room must read as nonexistent (refs.unknown), got %s", rej.Invariant)
+	if events[0].Recipient != "" || events[0].Lane != Ambient {
+		t.Errorf("a cross-room ref must not route; got recipient=%q", events[0].Recipient)
 	}
 }

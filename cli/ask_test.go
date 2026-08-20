@@ -82,8 +82,9 @@ func TestAskPostsEvenWithNoPriorContext(t *testing.T) {
 	}
 }
 
-// answer sends no recipient; the core derives one from the question's author.
-func TestAnswerNeedsNoRecipient(t *testing.T) {
+// A reply sends no recipient; the core derives one from the ref's counterpart
+// (ADR-0016 rule 2) — replying is a post that --refs the question.
+func TestReplyNeedsNoRecipient(t *testing.T) {
 	isolateKeys(t)
 	srv, st := liveServer(t)
 	enrol(t, srv, st)
@@ -97,24 +98,27 @@ func TestAnswerNeedsNoRecipient(t *testing.T) {
 	}
 
 	var c capture
-	code := Run(c.env(t, srv.URL, ""), []string{"answer", "--as", seat,
-		"--to-question", itoa(qseq), "--text", "yes, 0029 is idempotent"})
+	code := Run(c.env(t, srv.URL, ""), []string{"chat", "--as", seat,
+		"--refs", itoa(qseq), "--text", "yes, 0029 is idempotent"})
 	if code != ExitOK {
-		t.Fatalf("answer failed: %d %s", code, c.out.String())
+		t.Fatalf("reply failed: %d %s", code, c.out.String())
 	}
 
 	recs, _ := st.Since("core", 0, 100)
 	var found bool
 	for _, r := range recs {
-		if r.Kind == core.KindAnswer {
+		if len(r.Refs) == 1 && r.Refs[0] == itoa(qseq) {
 			found = true
 			if string(r.Recipient) != "agent:asker" {
-				t.Errorf("the answer should reach whoever asked, got %q", r.Recipient)
+				t.Errorf("the reply should reach whoever asked, got %q", r.Recipient)
+			}
+			if r.Lane != core.Addressed {
+				t.Error("a routed reply must land addressed")
 			}
 		}
 	}
 	if !found {
-		t.Fatal("the answer was not stored")
+		t.Fatal("the reply was not stored")
 	}
 }
 
