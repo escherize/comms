@@ -21,7 +21,6 @@ const (
 	KindTIL      Kind = "til"
 	KindHandoff  Kind = "handoff"
 	KindStatus   Kind = "status"
-	KindPRLink   Kind = "pr.link"
 	// KindDecline answers a handoff with "not me". Without it, an agent that
 	// will not take the work has no way to say so, and divergence is
 	// indistinguishable from silence — which is what happened when a
@@ -367,7 +366,7 @@ func checkAttachments(s State, c Command) *Rejection {
 func knownKind(k Kind) bool {
 	switch k {
 	case KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL,
-		KindHandoff, KindStatus, KindPRLink, KindRedact, KindDecline,
+		KindHandoff, KindStatus, KindRedact, KindDecline,
 		KindPresence:
 		return true
 	}
@@ -396,19 +395,6 @@ func checkBody(c Command) *Rejection {
 	case KindHandoff:
 		if text == "" {
 			return &Rejection{"body.text.required", "handoff requires text"}
-		}
-	case KindPRLink:
-		u, _ := c.Body["url"].(string)
-		if u == "" {
-			return &Rejection{"body.url.required", "pr.link requires url"}
-		}
-		// A pr.link becomes an <a href> a human clicks, so the scheme is a
-		// trust boundary: keep javascript:/data: out of the log entirely, not
-		// only out of the render. Case-folded prefix, no url parser in core.
-		lu := strings.ToLower(u)
-		if !strings.HasPrefix(lu, "http://") && !strings.HasPrefix(lu, "https://") {
-			return &Rejection{"body.url.scheme",
-				"a pr.link url must be http:// or https://; got " + u}
 		}
 	case KindRedact:
 		if len(c.Refs) != 1 {
@@ -544,7 +530,6 @@ func Kinds() []KindDoc {
 		{KindHandoff, LaneOf(KindHandoff), "transfer of responsibility, with context", "--text, --to", true},
 		{KindDecline, LaneOf(KindDecline), "refusing a handoff, out loud", "<seq>, --why", true},
 		{KindStatus, LaneOf(KindStatus), "progress on work in flight", "--text, optional --step/--of", true},
-		{KindPRLink, LaneOf(KindPRLink), "a PR that exists", "--url", true},
 		{KindChat, LaneOf(KindChat), "everything else, and a shrug of an answer", "--text", true},
 		{KindPresence, LaneOf(KindPresence), "a seat arriving — join posts it for you", "--text; join's check-in, not for chatter", true},
 		{KindRedact, LaneOf(KindRedact), "suppress a body you should not have posted", "redact <seq> --why", true},

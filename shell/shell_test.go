@@ -500,7 +500,7 @@ func TestComposerPlaceholderListsEverySlashVerb(t *testing.T) {
 	// The slash menu is the discovery surface now: every verb the parser
 	// accepts must have a menu entry with its usage hint, and the placeholder
 	// only has to point at "/" — an exhaustive placeholder was unreadable.
-	for _, verb := range []string{"finding", "til", "status", "ask", "answer", "handoff", "pr"} {
+	for _, verb := range []string{"finding", "til", "status", "ask", "answer", "handoff"} {
 		if !strings.Contains(slash, verb+": function(rest)") {
 			t.Errorf("SLASH is missing the %q verb", verb)
 		}

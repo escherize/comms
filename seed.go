@@ -20,7 +20,6 @@ func seedDemo(st *store.Store) error {
 		text      string
 		severity  string
 		recipient core.Actor
-		url       string
 	}
 
 	script := []entry{
@@ -33,7 +32,7 @@ func seedDemo(st *store.Store) error {
 		{author: "agent:claude-1", kind: core.KindStatus, text: "suite green after backoff fix"},
 		{author: "agent:codex-3", kind: core.KindFinding, text: "test helper leaks a temp dir on failure paths", severity: "p3"},
 		{author: "agent:claude-2", kind: core.KindQuestion, text: "migration 0031 assumes 0029 ran — safe to reorder, or does the backfill depend on it?", recipient: "human:bcm"},
-		{author: "agent:claude-1", kind: core.KindPRLink, url: "https://github.com/escherize/comms/pull/12"},
+		{author: "agent:claude-1", kind: core.KindChat, text: "PR up: https://github.com/escherize/comms/pull/12"},
 		{author: "human:bcm", kind: core.KindChat, text: "looking at the migration question now"},
 	}
 
@@ -44,9 +43,6 @@ func seedDemo(st *store.Store) error {
 		}
 		if e.severity != "" {
 			body["severity"] = e.severity
-		}
-		if e.url != "" {
-			body["url"] = e.url
 		}
 		ev := core.Event{
 			Room: "core", Author: e.author, Kind: e.kind, Body: body,

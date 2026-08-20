@@ -68,12 +68,6 @@ func TestDecide(t *testing.T) {
 			wantLane: Addressed,
 		},
 		{
-			name: "pr.link with url is accepted",
-			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindPRLink, Idem: "i7",
-				Body: map[string]any{"url": "https://github.com/x/y/pull/1"}},
-			wantLane: Ambient,
-		},
-		{
 			name: "redact referencing one event is accepted",
 			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindRedact, Idem: "i8",
 				Body: chat("leaked key"), Refs: []string{"evt_chat"}},
@@ -125,12 +119,6 @@ func TestDecide(t *testing.T) {
 			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindFinding, Idem: "i15",
 				Body: map[string]any{"text": "x"}},
 			wantErr: "body.severity.invalid",
-		},
-		{
-			name: "pr.link requires url",
-			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindPRLink, Idem: "i16",
-				Body: map[string]any{}},
-			wantErr: "body.url.required",
 		},
 		{
 			name: "redact must reference exactly one event",
@@ -371,7 +359,7 @@ func TestActorIsAgent(t *testing.T) {
 
 func TestLaneOf(t *testing.T) {
 	addressed := []Kind{KindQuestion, KindAnswer, KindHandoff}
-	ambient := []Kind{KindChat, KindFinding, KindTIL, KindStatus, KindPRLink, KindRedact}
+	ambient := []Kind{KindChat, KindFinding, KindTIL, KindStatus, KindRedact}
 
 	for _, k := range addressed {
 		if LaneOf(k) != Addressed {
@@ -500,29 +488,5 @@ func TestAnswerRefsAreRoomScoped(t *testing.T) {
 	}
 	if rej.Invariant != "refs.unknown" {
 		t.Fatalf("cross-room must read as nonexistent (refs.unknown), got %s", rej.Invariant)
-	}
-}
-
-// A pr.link becomes an <a href> a human clicks, so a javascript:/data: scheme
-// must be refused at the boundary, never persisted to be rendered later.
-func TestPRLinkRejectsDangerousSchemes(t *testing.T) {
-	state := State{RoomExists: okRoom}
-	for _, bad := range []string{
-		"javascript:alert(document.cookie)",
-		"data:text/html,<script>alert(1)</script>",
-		"vbscript:msgbox",
-		"  javascript:alert(1)",
-	} {
-		_, rej := Decide(state, Command{Room: "core", Author: "agent:a", Kind: KindPRLink,
-			Body: map[string]any{"url": bad}, Idem: "u1"})
-		if rej == nil || rej.Invariant != "body.url.scheme" {
-			t.Errorf("scheme %q must be refused body.url.scheme, got %v", bad, rej)
-		}
-	}
-	for _, good := range []string{"https://github.com/x/y/pull/1", "http://localhost:7777"} {
-		if _, rej := Decide(state, Command{Room: "core", Author: "agent:a", Kind: KindPRLink,
-			Body: map[string]any{"url": good}, Idem: "u2"}); rej != nil {
-			t.Errorf("scheme %q must be accepted, got %v", good, rej)
-		}
 	}
 }

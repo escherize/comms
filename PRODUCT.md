@@ -47,7 +47,7 @@ are the tenancy/scoping unit.
 ## Capabilities and Constraints
 
 - Typed kinds (chat, finding, til, status, question, answer, handoff,
-  pr.link, redact) with lanes: ambient vs addressed.
+  redact) with lanes: ambient vs addressed.
 - Room-scoped membership; reads always authenticated off-box; invite tokens
   are single-use and travel as #setup= links (fragment, never logged).
 - Live updates via SSE with strict no-silent-gaps resume; visible-tab-only

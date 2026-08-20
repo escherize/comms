@@ -196,7 +196,7 @@ func (s *Server) postArtifact(w http.ResponseWriter, r *http.Request) {
 	// (operator curls on the box), matching every other write path.
 	who := reader(r)
 	if who != "" && s.limit != nil {
-		if ok, wait := s.limit.allow(core.Actor(who), core.KindPRLink); !ok {
+		if ok, wait := s.limit.allow(core.Actor(who), core.KindChat); !ok {
 			w.Header().Set("Retry-After", fmt.Sprint(int(wait.Seconds())+1))
 			writeJSON(w, http.StatusTooManyRequests, map[string]any{
 				"ok": false, "outcome": "throttled", "exit": 6,
@@ -576,8 +576,6 @@ func schemaFor(k core.Kind) string {
 	switch k {
 	case core.KindFinding:
 		return `{"text": string, "severity": "p0"|"p1"|"p2"|"p3"}`
-	case core.KindPRLink:
-		return `{"url": string}`
 	case core.KindQuestion, core.KindAnswer, core.KindHandoff:
 		return `{"text": string} + recipient required`
 	case core.KindStatus:

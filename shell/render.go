@@ -12,11 +12,12 @@ import (
 	"github.com/escherize/comms/store"
 )
 
-// safeHref reports whether a pr.link URL may render as a clickable anchor.
-// html.EscapeString does not neutralize a javascript: (or data:) scheme, so a
-// hand-built href was a stored-XSS sink in the hub origin — the same schemes
-// the artifact policy already blocks, applied to the one link the renderer
-// builds itself.
+// safeHref reports whether a legacy pr.link row's URL may render as a
+// clickable anchor. html.EscapeString does not neutralize a javascript: (or
+// data:) scheme, so a hand-built href was a stored-XSS sink in the hub origin —
+// the same schemes the artifact policy already blocks, applied to the one link
+// the renderer builds itself. New posts carry urls in text and go through
+// linkifyEscape, which anchors http/https only.
 func safeHref(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -47,7 +48,7 @@ func kindCode(k core.Kind) string {
 		return "🤝"
 	case core.KindStatus:
 		return "🛠️"
-	case core.KindPRLink:
+	case "pr.link": // legacy rows; the kind is retired (ADR-0016 step 1)
 		return "🔗"
 	case core.KindRedact:
 		return "✂️"
@@ -145,9 +146,9 @@ func renderRow(r store.Record) string {
 		if txt := r.Text(); txt != "" {
 			body.WriteString(renderEntryText(txt, r.Seq))
 		} else if u := r.URL(); u != "" {
-			// A pr.link carries a url, not text. Rendering r.Text() alone left
-			// the entry column blank. Only http/https/mailto become a live
-			// link; anything else renders as inert escaped text, so a
+			// A legacy pr.link carries a url, not text. Rendering r.Text()
+			// alone left the entry column blank. Only http/https/mailto become
+			// a live link; anything else renders as inert escaped text, so a
 			// javascript: url cannot execute in a reader's session.
 			if safeHref(u) {
 				body.WriteString(`<a href="` + html.EscapeString(u) + `">` +
@@ -511,19 +512,50 @@ const entryLineCeiling = 12
 func renderEntryText(txt string, seq int64) string {
 	lines := strings.Split(txt, "\n")
 	if len(lines) <= entryLineCeiling {
-		return html.EscapeString(txt)
+		return linkifyEscape(txt)
 	}
 
 	id := fmt.Sprintf("more%d", seq)
 	shown := strings.Join(lines[:entryLineCeiling], "\n")
 	rest := strings.Join(lines[entryLineCeiling:], "\n")
 
-	return html.EscapeString(shown) +
+	return linkifyEscape(shown) +
 		`<button class="carried more" type="button" aria-expanded="false" aria-controls="` +
 		id + `"><span class="cf">` +
 		fmt.Sprintf("%d more line(s)", len(lines)-entryLineCeiling) +
 		`</span></button><span class="more-body" id="` + id + `" hidden>` +
-		html.EscapeString("\n"+rest) + `</span>`
+		linkifyEscape("\n"+rest) + `</span>`
+}
+
+// linkifyEscape escapes a body and turns its http/https urls into anchors —
+// the whole of what pr.link existed for (ADR-0016 step 1 folded the kind into
+// plain text). The scheme allowlist is by construction: only a token starting
+// http:// or https:// ever becomes an href, so a javascript: or data: url in
+// prose stays inert escaped text. A url runs to the next whitespace or angle
+// bracket; trailing prose punctuation is left outside the link.
+func linkifyEscape(txt string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(txt, "http://")
+		if j := strings.Index(txt, "https://"); j != -1 && (i == -1 || j < i) {
+			i = j
+		}
+		if i == -1 {
+			b.WriteString(html.EscapeString(txt))
+			return b.String()
+		}
+		b.WriteString(html.EscapeString(txt[:i]))
+		rest := txt[i:]
+		end := strings.IndexFunc(rest, func(r rune) bool {
+			return r == ' ' || r == '\n' || r == '\t' || r == '<' || r == '>' || r == '"'
+		})
+		if end == -1 {
+			end = len(rest)
+		}
+		u := strings.TrimRight(rest[:end], ".,;:!?)]'")
+		b.WriteString(`<a href="` + html.EscapeString(u) + `">` + html.EscapeString(u) + `</a>`)
+		txt = rest[len(u):]
+	}
 }
 
 // searchHitRow renders one search hit with its rank — the lexical position, one

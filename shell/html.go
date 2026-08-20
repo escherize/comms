@@ -1461,7 +1461,6 @@ const composeScript = `
       ['finding', 'p0|p1|p2|p3 <what you found>'],
       ['til',     '<what you learned>'],
       ['status',  '[3/7] <what you are doing>'],
-      ['pr',      '<url>'],
     ];
     function closeMenu(){ menu.hidden=true; mitems=[]; msel=0; }
     function paintMenu(){
@@ -1698,10 +1697,6 @@ const composeScript = `
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /handoff @someone <what they are taking over>'};
       return {kind:'handoff', body:{text:m[2]}, recipient:m[1]};
-    },
-    pr: function(rest){
-      if(!/^https?:\/\//.test(rest)) return {error:'usage: /pr <url>'};
-      return {kind:'pr.link', body:{url:rest}};
     }
   };
 

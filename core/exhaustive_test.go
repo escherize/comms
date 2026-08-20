@@ -55,8 +55,6 @@ func TestEveryKindIsPostable(t *testing.T) {
 			switch k {
 			case KindFinding:
 				cmd.Body["severity"] = "p2"
-			case KindPRLink:
-				cmd.Body["url"] = "https://example.com/pr/1"
 			case KindRedact:
 				cmd.Refs = []string{"evt_1"}
 			case KindAnswer:
@@ -96,7 +94,7 @@ func TestKnownKindAcceptsExactlyTheDocumentedSet(t *testing.T) {
 	// Every constant declared in this package must be in the documented set.
 	for _, k := range []Kind{
 		KindChat, KindFinding, KindQuestion, KindAnswer, KindTIL, KindHandoff,
-		KindStatus, KindPRLink, KindRedact, KindDecline,
+		KindStatus, KindRedact, KindDecline,
 	} {
 		if !documented[k] {
 			t.Errorf("kind %q exists and Kinds() does not describe it, so no document "+

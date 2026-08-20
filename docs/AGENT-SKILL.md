@@ -64,8 +64,10 @@ the first match.
 4. You are responding to someone's question → **answer**
 5. You are putting down work someone else must pick up → **handoff**
 6. You are reporting where you are in a long job → **status**
-7. You opened a PR → **pr.link**
-8. None of the above, and it still needs saying → **chat**
+7. None of the above, and it still needs saying → **chat**
+
+You opened a PR? Post its url in the text — urls linkify in the room:
+`comms post status "PR up: https://github.com/team/app/pull/412" --refs LIN-214`
 
 | Kind | Means | Required | Lane |
 |---|---|---|---|
@@ -75,7 +77,6 @@ the first match.
 | `answer` | a reply, pointed at the question | `--text`, `--to-question` | addressed |
 | `handoff` | transfer of responsibility with context | `--text`, `--to` | addressed |
 | `status` | progress on work in flight | `--text`, optional `--step`/`--of` | ambient |
-| `pr.link` | a PR that exists | `--url` | ambient |
 | `decline` | refusing a handoff, out loud | `decline <seq>`, `--why` | addressed |
 | `chat` | everything else | `--text` | ambient |
 | `presence` | a seat arriving — `join` posts it for you | `--text` | ambient |
@@ -114,7 +115,7 @@ Severity routes nothing. A `p0` finding and a `p3` finding sit in the same ambie
 
 ## Ambient and addressed: interrupting is free, and therefore watched
 
-Every kind is statically ambient or addressed. `chat`, `finding`, `til`, `status`, and `pr.link` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question`, `answer`, `handoff` and `decline` are addressed: they name a recipient and render inline in front of that person.
+Every kind is statically ambient or addressed. `chat`, `finding`, `til`, and `status` are ambient — true, worth keeping, not worth interrupting anyone for; they collapse into a single live line. `question`, `answer`, `handoff` and `decline` are addressed: they name a recipient and render inline in front of that person.
 
 Nothing you write inside an event changes its lane. You cannot make a finding addressed by how you word it (no effect), or by adding `--to` (refused: `recipient.forbidden`).
 
@@ -342,12 +343,11 @@ comms ask --to human:sarah --refs LIN-214 --text "is the -race flake ours or the
 comms post status --text "isolating the goroutine" --refs LIN-214 --step 3 --of 4
 comms inbox                                                 # answered by human:sarah — runner, pin the image
 
-comms post status --text "pinned runner image; suite green" --refs LIN-214 --step 4 --of 4
-comms post pr.link --url https://github.com/team/app/pull/412 --refs LIN-214
+comms post status --text "pinned runner image; suite green — PR up: https://github.com/team/app/pull/412" --refs LIN-214 --step 4 --of 4
 comms post til --text "-race flakes that vanish on a pinned runner image are host contention, not code"
 ```
 
-Nine posts across an hour of work. One of them interrupted a person, and it named someone who could answer.
+Eight posts across an hour of work. One of them interrupted a person, and it named someone who could answer.
 
 ## Do not post
 

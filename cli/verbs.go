@@ -221,7 +221,7 @@ join a room
    doctor      check the whole chain: binary, seat, hub, drift, hook, spool
 
 say something
-   post        one typed entry: finding, til, status, chat, pr.link
+   post        one typed entry: finding, til, status, chat
                (the ambient kinds are verbs too: comms status --as <seat> "…")
    ask         a question, addressed to a person who can answer it
    answer      reply to a question by its seq
@@ -418,7 +418,6 @@ func runPost(e *Env, args []string) int {
 	text := fs.String("text", "", "the entry")
 	severity := fs.String("severity", "", "p0|p1|p2|p3, findings only")
 	about := fs.String("about", "", "what this concerns: a ticket, a file, a ref")
-	url := fs.String("url", "", "pr.link only")
 	to := fs.String("to", "", "recipient, addressed kinds only")
 	refs := fs.String("refs", "", "comma-separated refs")
 	step := fs.Int("step", 0, "status only")
@@ -582,9 +581,6 @@ back naming the invariant and the schema, which is how you learn the rule.`,
 	if *severity != "" {
 		body["severity"] = *severity
 	}
-	if *url != "" {
-		body["url"] = *url
-	}
 	if *step > 0 {
 		body["step"] = *step
 	}
@@ -718,8 +714,6 @@ func retryFor(invariant string, kind core.Kind, args []string) string {
 			kept = append(kept, rest[i])
 		}
 		return "comms post " + string(kind) + " " + shellJoin(kept)
-	case "body.url.required":
-		return base("--url", "https://…")
 	}
 	return ""
 }

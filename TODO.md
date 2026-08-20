@@ -20,26 +20,23 @@ a post is text, addressed by naming a seat, kind demoted to an optional search
 tag. Land it in this order — each step is its own commit, skill/docs trimmed to
 match, `./check` green.
 
-1. [ ] **Fold `pr.link` into a plain post.** One kind gone, and the url-scheme
-       validation surface (the XSS class) shrinks to "a url in body text is
-       linkified through the sanitizer." [core, render.go]
-2. [ ] **Reply-routing from `--refs`, not Kind** (ADR-0016 rule 2). A post that
+1. [ ] **Reply-routing from `--refs`, not Kind** (ADR-0016 rule 2). A post that
        `--refs` an addressed event inherits its counterpart as recipient. Retire
        `answer`/`decline` as distinct kinds; replying is `post --refs <seq>`.
        Keep `authorOfReferenced`, trigger it on the ref not the kind.
-3. [ ] **Lane from deliberate address, not Kind** (ADR-0016 rules 1 + the
+2. [ ] **Lane from deliberate address, not Kind** (ADR-0016 rules 1 + the
        invariant). A leading `@seat` / `--to` addresses; a mid-prose `@seat` is a
        mention (evidence-weight, never an interrupt). Rewrite `LaneOf` +
        `Decide`'s recipient stamping. THE load-bearing invariant — get the
        deliberate-vs-mention line right or p0-inflation returns as @-spam.
-4. [ ] **Delete author-facing kind entirely** (ADR-0020, supersedes 0016 rule
+3. [ ] **Delete author-facing kind entirely** (ADR-0020, supersedes 0016 rule
        3). No `--finding`/`--severity`, no `search --kind`, no `comms kinds`.
        `checkBody` collapses to "text required." `Kind` shrinks to the system
        discriminator (`chat`, `presence`, `redact`); old events legacy-read
        their stored kind. Rewrite the skill's "choose the kind" section to
        "post text; name a seat when you need one."
 
-TBDs to settle while building step 3/4 (don't guess): leading-`@` grammar vs
+TBDs to settle while building step 2/3 (don't guess): leading-`@` grammar vs
 `--to`; the human-address rate-limit numbers.
 
 Also remaining: **ADR-0019** (`docs/adr/0019-read-ergonomics-show-and-presence.md`)

@@ -62,8 +62,8 @@ func (r Record) Text() string {
 	return s
 }
 
-// URL returns the body's url field, or "". Kinds like pr.link carry a url
-// instead of text.
+// URL returns the body's url field, or "". Legacy pr.link rows carry a url
+// instead of text; the kind is retired (ADR-0016 step 1) but the log keeps them.
 func (r Record) URL() string {
 	if r.Body == nil {
 		return ""

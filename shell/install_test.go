@@ -88,14 +88,37 @@ func TestRejectedPostRefundsTheBudget(t *testing.T) {
 	}
 }
 
-// html.EscapeString does not neutralize a javascript: scheme, so a pr.link's
-// hand-built href was a stored-XSS sink. A dangerous scheme must render as
-// inert text, never a live anchor.
-func TestPRLinkHrefRejectsJavascriptScheme(t *testing.T) {
+// html.EscapeString does not neutralize a javascript: scheme, so a legacy
+// pr.link's hand-built href was a stored-XSS sink. A dangerous scheme must
+// render as inert text, never a live anchor.
+func TestSafeHrefRejectsJavascriptScheme(t *testing.T) {
 	if safeHref("javascript:alert(1)") || safeHref("data:text/html,x") {
 		t.Error("javascript:/data: must not be a safe href")
 	}
 	if !safeHref("https://example.com") || !safeHref("mailto:a@b.c") {
 		t.Error("http/https/mailto must be safe hrefs")
+	}
+}
+
+// linkifyEscape is the fold of pr.link into plain text: a url in a body becomes
+// an anchor, but only http/https ever does — a javascript: or data: url in
+// prose must stay inert escaped text, and markup in the body must stay escaped.
+func TestLinkifyEscape(t *testing.T) {
+	got := linkifyEscape("PR up: https://github.com/x/y/pull/1, review please")
+	want := `PR up: <a href="https://github.com/x/y/pull/1">https://github.com/x/y/pull/1</a>, review please`
+	if got != want {
+		t.Errorf("linkify = %q, want %q", got, want)
+	}
+	for _, inert := range []string{
+		"try javascript:alert(1) now",
+		"data:text/html,<script>x</script>",
+	} {
+		if strings.Contains(linkifyEscape(inert), "<a ") {
+			t.Errorf("dangerous scheme became an anchor: %q", inert)
+		}
+	}
+	if out := linkifyEscape(`<b>hi</b> http://h.co/a?q="x"`); strings.Contains(out, "<b>") ||
+		!strings.Contains(out, `href="http://h.co/a?q=`) {
+		t.Errorf("markup must stay escaped while the url anchors: %q", out)
 	}
 }

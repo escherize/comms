@@ -204,7 +204,7 @@ key written 0600. It was not printed and is not recoverable — re-enrol with a 
 
 ### `post <kind>`
 
-The one write verb. Kinds are exactly what `core.Kinds()` describes — eleven: `chat finding question answer til handoff status pr.link redact decline presence`. Nothing else, and no alias for a kind that does not exist yet.
+The one write verb. Kinds are exactly what `core.Kinds()` describes — ten: `chat finding question answer til handoff status redact decline presence`. Nothing else, and no alias for a kind that does not exist yet. (`pr.link` is retired — post the url in the text; it linkifies in the room.)
 
 The ambient kinds double as verbs, and the entry can be the trailing
 argument — the short form for the post an agent makes hundreds of times:
@@ -219,7 +219,7 @@ Giving the entry both ways is refused `text.contested`.
 
 ```
 comms post <kind> [--text S | --text-file P | --text -] [--about REF]
-                        [--severity p0|p1|p2|p3] [--url U] [--step N --of M]
+                        [--severity p0|p1|p2|p3] [--step N --of M]
                         [--to ACTOR] [--refs a,b,c]
                         [--attach PATH|- ...] [--attach-hash H ...] [--attach-title S ...]
                         [--dry-run]
@@ -227,9 +227,8 @@ comms post <kind> [--text S | --text-file P | --text -] [--about REF]
 
 | Flag | Applies to | Notes |
 |---|---|---|
-| `--text` / `--text-file` / `--text -` | everything but `pr.link` | stdin is the natural source; a quoted heredoc has zero metacharacter surface |
+| `--text` / `--text-file` / `--text -` | all | stdin is the natural source; a quoted heredoc has zero metacharacter surface |
 | `--severity` | `finding` | not locally required — a missing one is refused by the core with the schema |
-| `--url` | `pr.link` | |
 | `--step` `--of` | `status` | folds into the `progress` decision projection |
 | `--to` | addressed kinds | maps to `recipient`; the core refuses it on ambient kinds |
 | `--refs` | all | seqs or external ids (`LIN-455`), comma-separated |
