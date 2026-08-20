@@ -13,57 +13,40 @@ simplification that must land first, or it just gets un-built.
 
 ## Now — the simplification (ADR-0016), in dependency order
 
-ADR-0016 (`docs/adr/0016-addressing-replaces-the-kind-ladder.md`) is the plan:
+Done since this queue was written: ADR-0017 cut the semantic lane, ADR-0018 cut
+`escalate` + the escalation budget and the `digest` kind/bot. What remains of the
+simplification is ADR-0016 (`docs/adr/0016-addressing-replaces-the-kind-ladder.md`):
 a post is text, addressed by naming a seat, kind demoted to an optional search
 tag. Land it in this order — each step is its own commit, skill/docs trimmed to
 match, `./check` green.
 
-1. [ ] **Cut `escalate` + the escalation budget.** Smallest, already grilled,
-       unblocks ADR-0016 rule 4. Remove the verb, the budget (reserve/release,
-       `escalation.exhausted`), ADR-0008's apparatus. Replace with: a norm in
-       AGENT-SKILL.md ("address a human only for a decision; don't ping the hell
-       out of them") + the existing `s.limit` rate-limiter applied to
-       human-addressed posts. Retire ADR-0008 as superseded.
-2. [ ] **Fold `pr.link` into a plain post.** One kind gone, and the url-scheme
+1. [ ] **Fold `pr.link` into a plain post.** One kind gone, and the url-scheme
        validation surface (the XSS class) shrinks to "a url in body text is
        linkified through the sanitizer." [core, render.go]
-3. [ ] **Reply-routing from `--refs`, not Kind** (ADR-0016 rule 2). A post that
+2. [ ] **Reply-routing from `--refs`, not Kind** (ADR-0016 rule 2). A post that
        `--refs` an addressed event inherits its counterpart as recipient. Retire
        `answer`/`decline` as distinct kinds; replying is `post --refs <seq>`.
        Keep `authorOfReferenced`, trigger it on the ref not the kind.
-4. [ ] **Lane from deliberate address, not Kind** (ADR-0016 rules 1 + the
+3. [ ] **Lane from deliberate address, not Kind** (ADR-0016 rules 1 + the
        invariant). A leading `@seat` / `--to` addresses; a mid-prose `@seat` is a
        mention (evidence-weight, never an interrupt). Rewrite `LaneOf` +
        `Decide`'s recipient stamping. THE load-bearing invariant — get the
        deliberate-vs-mention line right or p0-inflation returns as @-spam.
-5. [ ] **Demote Kind to an optional tag** (ADR-0016 rule 3). `checkBody`'s
+4. [ ] **Demote Kind to an optional tag** (ADR-0016 rule 3). `checkBody`'s
        per-kind schema switch collapses; `--finding`/`--severity` become optional
        metadata; `search --kind` filters on whatever was tagged. Old events keep
        their stored kind, read as a tag. Rewrite the skill's "choose the kind"
        section to "post text; name a seat when you need one; tag for search."
 
-TBDs to settle while building step 4/5 (don't guess): leading-`@` grammar vs
+TBDs to settle while building step 3/4 (don't guess): leading-`@` grammar vs
 `--to`; open vs fixed tag vocabulary; the human-address rate-limit numbers.
 
-## Next — the honest cut we punted (grill first)
-
-- [ ] **Vector/semantic search lane — decide whether to cut.** ~700 LOC, the
-      app's largest subsystem, and prod ships `HashEmbedder` (the stub) not a
-      real model, so the "semantic lane" is lexical token-overlap dressed as
-      meaning — a slower duplicate of FTS5, and the source of this session's two
-      `--since` bugs. Grilled once (points to cutting); punted for now. If cut:
-      an ADR superseding ADR-0013, delete `store/vector.go`, `shell/embed.go`,
-      the `vector` table, `--reembed`, fusion. Search stays lexical (the
-      `s.embed == nil` branch already exists). Revisit after ADR-0016 lands.
-- [ ] **`digest` — cut or keep.** Kind + bot + `shell/digest.go`, operator-gated,
-      no agent posts it, carries the lookback bug below. A summary is a
-      `read --since` an agent already runs. Lean toward delete.
+Also remaining: **ADR-0019** (`docs/adr/0019-read-ergonomics-show-and-presence.md`)
+— `comms show <seq>` and roster last-seen. Both are in the Ergonomics section
+below; the ADR is accepted, the code is not landed yet.
 
 ## Bugs (fix in passing, low value each)
 
-- [ ] [p3] `shell/digest.go` `lastDigestSeq` 2000-record lookback: after a
-      >2000-event gap the digest re-summarizes the *oldest* 2000, not the newest.
-      (Moot if digest is cut.)
 - [ ] [p3] Doc/comment rot sweep — the study-6 tail: `ftsQuery` doc says AND,
       code does OR; `first_undelivered_seq` / cursor comments describe the field
       backwards; a few misattached doc comments. One pass, fix only what reading

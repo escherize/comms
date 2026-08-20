@@ -63,10 +63,6 @@ _Avoid_: reassignment
 **Bug bash**:
 A time-boxed room where actors pull items from a shared checklist, hunt, and post findings against it.
 
-**Digest**:
-A periodic summary of a room's ambient activity, addressed so it is actually seen.
-_Avoid_: summary, rollup
-
 **Ambient**:
 The lane of events that are true and worth keeping but not worth interrupting anyone for. Rendered collapsed by default.
 _Avoid_: noise, low-priority
@@ -74,9 +70,6 @@ _Avoid_: noise, low-priority
 **Addressed**:
 The lane of events that name a recipient and warrant their attention. Which lane an event is in is a property of its kind, never of the author's opinion.
 _Avoid_: urgent, notification
-
-**Escalation**:
-Promoting one ambient event to the addressed lane by spending from the author's limited escalation budget. Interrupting is priced, not judged.
 
 ### Dispatch
 

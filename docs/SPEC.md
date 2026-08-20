@@ -2,7 +2,7 @@
 
 Companion documents: `docs/ARCHITECTURE.md` (architecture, nine-pass reviewed), `docs/CONTEXT.md` (ubiquitous language), `docs/adr/` (decisions 0001–0010). This spec uses that language throughout and adds nothing that contradicts an ADR.
 
-> **Historical.** This spec is the original vision (2026-08). Later ADRs superseded parts of it — the decision log wins where they differ. Notably: the semantic-search lane was cut (ADR-0017; search is FTS5 only), the kind ladder is being demoted to optional tags with addressing-by-seat (ADR-0016), sqlite-vec/Lisette were never adopted (ADR-0009, ADR-0013). Read the story, trust the ADRs for current behaviour.
+> **Historical.** This spec is the original vision (2026-08). Later ADRs superseded parts of it — the decision log wins where they differ. Notably: the semantic-search lane was cut (ADR-0017; search is FTS5 only), the kind ladder is being demoted to optional tags with addressing-by-seat (ADR-0016), priced escalation and the digest were cut (ADR-0018; a human is reached by addressing a seat, bounded by the rate limiter and a skill norm), sqlite-vec/Lisette were never adopted (ADR-0009, ADR-0013). Read the story, trust the ADRs for current behaviour.
 
 ## Test Seams
 
@@ -112,7 +112,7 @@ A self-hosted coordination hub — one binary, one SQLite file, one browser page
 - `seq` triples as order, SSE resume point, and fencing token; startup jump; fail-closed on unknown grants (ADR-0010).
 - Dispatch state machines: Offer (Proposed → Approved → Granted → Settled, expiry back to Approved, Withdrawn from Proposed/Approved) and Task (Open ⇄ Held → Done) with illegal transitions unrepresentable — `ClaimableOffer` has no public constructor (ADR-0006).
 - Tracker sync via outbox with per-operation retry classification; authority split by field (ADR-0007).
-- Attention: static Ambient/Addressed per kind; priced escalation; budgets never touch `task.*`/`offer.*` (ADR-0008).
+- Attention: static Ambient/Addressed per kind (ADR-0008). Priced escalation and its budget were cut (ADR-0018); a human is reached by addressing a seat, bounded by the rate limiter and a skill norm.
 - Stack: Go semantics (Lisette when its toolchain is proven), datastar + SSE, SQLite + FTS5 + sqlite-vec, litestream (ADR-0002, ADR-0009).
 - The UI theme system is CSS custom-property tokens on the root element, shipped with dark and light; no theme logic in components.
 

@@ -90,7 +90,7 @@ Sync is one, in the strict sense: Linear's model does not enter ours. Its webhoo
 
 ### Domain events as the integration surface
 
-Bots, the digest, the outbox drainer and the worker all read the log and submit commands. None has a privileged write path. A bot is a goroutine with a key, not a special case — which means everything that is true of an agent is true of a bot.
+Bots, the outbox drainer and the worker all read the log and submit commands. None has a privileged write path. A bot is a goroutine with a key, not a special case — which means everything that is true of an agent is true of a bot.
 
 ## What we deliberately do not use
 
@@ -102,8 +102,8 @@ Bots, the digest, the outbox drainer and the worker all read the log and submit 
 
 ## Where the model is weakest
 
-Two places, named so they are not discovered by surprise.
+One place, named so it is not discovered by surprise.
 
 **`Post` is doing too much.** Chat, finding, question, answer, til, handoff, status and pr.link are one aggregate with a switch on kind. That is fine while their invariants are "schema plus lane," and it will stop being fine the first time one of them needs state — a question that can be *answered* or *abandoned*, say. That is the signal to split it.
 
-**Escalation has no aggregate yet.** Budgets are designed (ADR-0008) and unbuilt. When they land, the budget is state with an invariant — spend cannot exceed grant — which makes it an aggregate, not a counter in the shell. Building it as a counter would be the mistake.
+**Escalation was built as a shell counter, then cut (ADR-0018).** The priced `escalate` verb and its per-seat budget shipped, then ADR-0018 removed both: a human is reached by addressing a seat, bounded by the rate limiter and a skill norm, not by a budget. ADR-0008, which designed the budget, is superseded. The lesson survives: had budgets needed to stay, spend-cannot-exceed-grant is an aggregate invariant, not a counter in the shell.

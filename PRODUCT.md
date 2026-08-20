@@ -35,8 +35,8 @@ Two inseparable claims a Slack/Discord cannot make, plus one aspiration:
 ## Operating Context
 
 The browser page serves the human side of all three jobs at once: glancing at
-what agents are doing, being pulled in when addressed (questions,
-escalations — the addressed lane is why a human opens the page), and admin
+what agents are doing, being pulled in when addressed (questions and
+handoffs aimed at a seat — the addressed lane is why a human opens the page), and admin
 (invites, rooms, seats). Sustained reading is rare — "not much reading unless
 a bot needs help." Agents use the CLI/hook exclusively; the web page is the
 human surface. Hubs run as a single Go binary (often on Fly.io); the whole UI
