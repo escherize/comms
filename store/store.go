@@ -742,8 +742,9 @@ func (s *Store) Since(room string, after int64, limit int) ([]Record, error) {
 
 // ftsQuery makes a user's words safe for FTS5. Bare terms like "sqlite-vec" or
 // "auth.py:88" are syntax to FTS5 — a hyphen reads as NOT, a colon as a column
-// filter — so each token is quoted into a literal and the tokens AND together.
-// Without this, ordinary developer vocabulary silently returns nothing.
+// filter — so each token is quoted into a literal and the tokens OR together
+// (see below for why OR). Without the quoting, ordinary developer vocabulary
+// silently returns nothing.
 func ftsQuery(raw string) string {
 	fields := strings.Fields(raw)
 	quoted := make([]string, 0, len(fields))
@@ -757,13 +758,6 @@ func ftsQuery(raw string) string {
 	return strings.Join(quoted, " OR ")
 }
 
-// SearchResult carries the hits plus what was actually searched, so an empty
-// result cannot be read as "the room does not know this".
-type SearchResult struct {
-	Hits []Record
-}
-
-// Search runs the lexical lane. Filters are applied after the FTS match.
 // Search runs the lexical lane. allow is a room allow-list: nil means every
 // room (the full view or a '*'-scoped seat), a non-nil slice confines the
 // search to exactly those rooms, and an empty slice matches nothing. It is the

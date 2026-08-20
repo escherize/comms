@@ -49,7 +49,7 @@ Open ──claim(actor)──▶ Held ──complete──▶ Done
 
 ### Post, Room, IssueLink
 
-Thin by design. A `Post`'s only invariant is that its kind's schema is satisfied and its lane rules hold. `Room` gates existence. `IssueLink` maps a room's work to a tracker issue and records the tracker's `updatedAt` so a stale webhook cannot regress state.
+Thin by design. A `Post`'s only invariants are that it carries text and that its lane follows its deliberate address (ADR-0020). `Room` gates existence. `IssueLink` maps a room's work to a tracker issue and records the tracker's `updatedAt` so a stale webhook cannot regress state.
 
 ## Ubiquitous language, enforced
 
@@ -57,7 +57,7 @@ The glossary is not decoration; three mechanisms make it bite.
 
 - **The wire uses domain words.** The CLI emits `{"type":"event"}` and never `record` — `Record` is the Go struct, `Event` is the domain word, and only one of them is allowed to escape.
 - **Rejections speak the language.** `redact.not_author`, `attachment.unknown`, `recipient.unknown`. An agent learns the model by being refused in its terms.
-- **The skill file teaches it.** `docs/AGENT-SKILL.md` exists because an agent that does not know `til` exists posts `chat` forever, and the typed-event system silently degrades into a chatroom.
+- **The skill file teaches it.** `docs/AGENT-SKILL.md` exists because an untaught agent posts unmarked chatter forever; the skill teaches the markers (`#finding p2`, `#til`), the address, and the refs that keep the room a searchable record rather than a chatroom.
 
 ## Tactical patterns we use
 

@@ -1089,7 +1089,7 @@ func (s *Server) streamJSON(w http.ResponseWriter, r *http.Request, room string)
 		// Name where the client stopped. Without this the ceiling is a hole
 		// the client cannot see, because seq is gappy by design.
 		writeFrame(w, "truncated", lastSeq, map[string]any{
-			"type": "truncated", "first_undelivered_seq": lastSeq,
+			"type": "truncated", "delivered_through_seq": lastSeq,
 			"detail": "backlog stopped at the ceiling; reconnect with Last-Event-ID to continue",
 		})
 	}

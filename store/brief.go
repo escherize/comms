@@ -68,9 +68,10 @@ type OpenQuestion struct {
 	WaitingMS int64 `json:"waiting_ms"`
 }
 
-// RoomBrief reads the decision projections, never the log. The question fold is
-// maintained in the append transaction, so this is an indexed read rather than
-// a json_each scan over every event's refs.
+// RoomBrief answers orientation from indexed reads: head/count off the
+// envelope's (room, seq) index, the rest from decision projections. The
+// question fold in particular is maintained in the append transaction, so this
+// is never a json_each scan over every event's refs.
 func (s *Store) RoomBrief(room string, now time.Time) (Brief, error) {
 	b := Brief{Room: room, Ambient: map[string]int{}, AsOf: now.UTC()}
 

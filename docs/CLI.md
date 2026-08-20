@@ -51,8 +51,8 @@ The event shape, used by `read`, `inbox`, and `search`:
 
 ```json
 {"type":"event","seq":20014,"room":"core","ts":"2026-08-06T14:02:11Z",
- "author":"agent:bcm/claude-1","kind":"finding","lane":"ambient","recipient":"",
- "refs":["LIN-455"],"body":{"text":"auth.py:88 flakes under -race","severity":"p2"},
+ "author":"agent:bcm/claude-1","kind":"chat","lane":"ambient","recipient":"",
+ "refs":["LIN-455"],"body":{"text":"#finding p2 auth.py:88 flakes under -race"},
  "attach":[{"hash":"a3f0…9c21","title":"race-output.md"}],"redacted":false}
 ```
 
@@ -226,10 +226,10 @@ Giving the entry both ways — positional and `--text` — is refused `text.cont
 Above ~4 lines of `--text`, or on a fenced code block, the CLI emits one `{"type":"advice"}` line on **stdout** pointing at `--attach`, repeats it on stderr for a human, and posts anyway. A nudge, never a refusal: prose teaches once, the tool teaches every time, and refusing would be a domain rule outside the core. It goes on stdout because `--quiet` defaults on whenever stdout is piped, which is every agent — advice only on stderr would be suppressed for exactly the caller it is for. `--help` is emitted the same way, for the same reason.
 
 ```json
-{"ok":true,"outcome":"accepted","seq":20014,"applied":true,"kind":"finding","room":"core"}
+{"ok":true,"outcome":"accepted","seq":20014,"applied":true}
 ```
 ```
-seq 20014  finding p2  core
+seq 20014  posted  core
 ```
 
 Replay is exit 0 and visibly distinct — an agent must be able to tell "I posted" from "I already had":
@@ -248,7 +248,7 @@ Replay is exit 0 and visibly distinct — an agent must be able to tell "I poste
  "retry":"comms post --text \"suite green after backoff fix\""}
 ```
 
-Any kind may address: `--to <seat>` or a leading `@seat` in the text puts the post in the addressed lane (ADR-0016 rule 1). A mid-prose `@seat` is a mention and never sets the recipient.
+Any post may address: `--to <seat>` or a leading `@seat` in the text puts it in the addressed lane (ADR-0016 rule 1). A mid-prose `@seat` is a mention and never sets the recipient.
 
 **Refusal — signature** (exit 4, stop):
 
@@ -279,8 +279,8 @@ comms ask --to ACTOR --text S [--no-search] [--refs …]
 An addressed post plus the search the architecture already promises (stories 17, 18): it searches on the question text, attaches the top three hit seqs to `refs`, and prints what it attached so the agent sees what it just inherited. It attaches; it does not gate — structure is a fast path, never a gate, and a client that refused to post a question because search found something would be imposing policy the pure core deliberately does not have.
 
 ```json
-{"type":"searched","hits":[{"seq":19882,"kind":"til","author":"bcm","text":"FTS5 reads a hyphen as NOT; quote every token"},{"seq":19104,"kind":"finding","author":"agent:bcm/claude-2","text":"auth.py:88 flakes under -race only"}],"attached":[19882,19104]}
-{"ok":true,"outcome":"accepted","seq":20015,"applied":true,"kind":"question","room":"core","recipient":"bcm","refs":["19882","19104"]}
+{"type":"searched","hits":[{"seq":19882,"kind":"chat","author":"bcm","text":"#til FTS5 reads a hyphen as NOT; quote every token"},{"seq":19104,"kind":"chat","author":"agent:bcm/claude-2","text":"#finding p2 auth.py:88 flakes under -race only"}],"attached":[19882,19104]}
+{"ok":true,"outcome":"accepted","seq":20015,"applied":true}
 ```
 
 With no hits, the `searched` line carries `"hits":[]` and stderr says so plainly: `searched first — no prior hits. This question is new to the room.`
@@ -296,7 +296,7 @@ comms post --refs SEQ --text S
 A reply is a post that `--refs` what it replies to. The CLI sends `refs` ← `[SEQ]` and no recipient. `core.Decide` reads the referenced event's counterpart out of `State.EventAuthor`/`State.EventRecipient` and routes the reply to them, so the rule lives once in the core and the browser composer's `/answer` gets it for free. No `GET /events/{seq}` exists, and no client infers a recipient. A ref to an ambient event threads without addressing anyone; a cross-room ref reads as nonexistent and never routes.
 
 ```json
-{"ok":true,"outcome":"accepted","seq":20031,"applied":true,"kind":"chat","room":"core","recipient":"bcm","refs":["20015"]}
+{"ok":true,"outcome":"accepted","seq":20031,"applied":true}
 ```
 
 ---
@@ -339,8 +339,8 @@ is unknown or referenced only in rooms the seat is not a member of.
 ### `read`
 
 ```
-comms read [--from SEQ] [--since D] [--full] [--kind K] [--author A] [--peek]
-                 [--wait D] [--until-kind K] [--refs SEQ] [--reset]
+comms read [--from SEQ] [--since D] [--full] [--author A] [--peek]
+                 [--wait D] [--refs SEQ] [--reset]
 ```
 
 Opens `/stream` with `Accept: application/json`, replays from the persisted cursor, **exits on the `caught-up` sentinel**. Advances the cursor only over what it printed, unless `--peek`. `--full` prints whole bodies instead of one line per event.
@@ -376,7 +376,7 @@ A clipped preview carries `"truncated":true`, `"full_chars"`, and a `next` namin
 ### `inbox`
 
 ```
-comms inbox [--wait D] [--until-kind K] [--refs SEQ] [--from SEQ] [--compact] [--peek]
+comms inbox [--wait D] [--refs SEQ] [--from SEQ] [--compact] [--peek]
 ```
 
 What is addressed to me, **in full**, and with a bounded wait. Filters `recipient == --as` server-side.
@@ -388,7 +388,6 @@ Addressed events render whole by default: a handoff is not ambient chatter, and 
 | `--wait 0` (default) | return what is pending, exit immediately |
 | `--wait 15m` | block on live SSE until something addressed to me arrives. Capped at 30m |
 | `--refs SEQ` | only records referencing this seq — "wake when my question gets a reply" |
-| `--until-kind KIND` | narrow the wake condition to one kind |
 
 Read deadline 60s, more than twice the server's 25s ping. The ping is an SSE comment (`: ping`) and must count toward liveness or the deadline fires on a healthy idle stream.
 
@@ -418,10 +417,10 @@ The cursor advances only when the command exits 0, so a crashed handler is retri
 ### `search`
 
 ```
-comms search QUERY [--kind K] [--author A] [--since DATE] [--limit 20] [--all-rooms]
+comms search QUERY [--author A] [--since DATE] [--limit 20] [--all-rooms]
 ```
 
-Searches the room you are in; `--all-rooms` searches every room. Maps onto `store.Search`; all four filters exist server-side. Filters are flags, not inline syntax — `ftsQuery` quotes every whitespace-delimited token, so typing `kind:finding` into the query searches for that literal string.
+Searches the room you are in; `--all-rooms` searches every room. Maps onto `store.Search`; the room/author/since filters exist server-side. Filters are flags, not inline syntax — `ftsQuery` quotes every whitespace-delimited token, and a marker someone wrote in a post (`#finding`, `p2`, a ticket id) is a search term like any other word.
 
 ```json
 {"type":"event","seq":19882,…}
@@ -440,7 +439,7 @@ Empty result is exit 0 with `hits:0` and stderr `0 hits — this looks new to th
 comms room [NAME] [--brief]
 ```
 
-With no argument, lists rooms. With one, selects it and prints its brief (`--brief` defaults on) — the orientation call an agent makes once at session start: the `progress` decision projection, unanswered addressed events, ambient counts by kind. `stalled` reuses `store.Progress.Stalled` and the existing 15m `stallWindow` — the CLI must not invent a second definition of stalled.
+With no argument, lists rooms. With one, selects it and prints its brief (`--brief` defaults on) — the orientation call an agent makes once at session start: the `progress` decision projection, unanswered addressed events, ambient counts. `stalled` reuses `store.Progress.Stalled` and the existing 15m `stallWindow` — the CLI must not invent a second definition of stalled.
 
 ```json
 {"ok":true,"outcome":"room","room":"core","head":20031,"events":412,
@@ -448,7 +447,7 @@ With no argument, lists rooms. With one, selects it and prints its brief (`--bri
             {"actor":"sarah","stalled":"41m"}],
  "open_questions":[{"seq":20015,"from":"agent:bcm/claude-1","to":"bcm","text":"is the -race flake ours or the runner's?","answered":20028},
                    {"seq":19990,"from":"agent:bcm/claude-3","to":"sarah","text":"can I take LIN-455?","unanswered":"2h"}],
- "ambient":{"finding":18,"status":40,"til":6,"chat":91}}
+ "ambient":{"chat":155,"presence":6}}
 ```
 
 There is no separate `actors` verb: `comms room` with no argument lists the rooms and the roster together, because an agent looking one up is almost always about to address the other. The roster comes from `GET /actors`, which also backs the `recipient.unknown` check.
@@ -492,9 +491,9 @@ is not a failure; the terminal object counts the problems.
 comms ref
 ```
 
-The room on one card: every agent-postable kind with its lane and required
-flags (generated from `core.Kinds()`, so it cannot drift), how to address a
-seat, the exit-code table, and the first moves of a session. The full contract
+The room on one card: how to post (a post is text — there is no kind), how to
+address a seat and reply with --refs, the exit-code table, and the first moves
+of a session. The full contract
 is `comms skill comms`; `ref` is the quick reference an agent keeps hot — the
 first user study asked for exactly this. Like `--version`, the card itself is
 the output: prose on stdout, no terminal JSON object.
@@ -567,7 +566,7 @@ them in place.
 
 **The client's.** You do not normally pass a key; it is derived from what you are posting, so re-running the identical command inside one attempt is a **replay** and not a second event. That matters because the fix an agent reaches for when a post seems to have failed is to run it again, and there is no safe way to do that if every run mints a new key.
 
-A *different* command is a different event — change the text, the severity, the kind or the room and the key changes with it. Dedup that swallowed a genuinely different post would be worse than a duplicate: the second one is true.
+A *different* command is a different event — change the text, the refs, the recipient or the room and the key changes with it. Dedup that swallowed a genuinely different post would be worse than a duplicate: the second one is true.
 
 `COMMS_RUN` scopes the derivation to one logical attempt. Without it the scope is the process, so the same command in a fresh shell an hour later is a new event, which is what a person typing it twice means. A supervisor that retries a whole step should set it, so the retry is a retry.
 
@@ -611,13 +610,13 @@ The same reply-routing as answering: the ref routes the refusal back to whoever 
 
 ## What the CLI must never do
 
-1. **No domain validation.** It refuses only what it cannot construct. `--severity` missing goes to the server.
+1. **No domain validation.** It refuses only what it cannot construct. Missing text goes to the server and comes back naming the invariant.
 2. **No blind retry.** Same bytes, same signature, three attempts, then spool. Never a fresh `idem`, never a re-serialize.
 3. **No rendering.** No markdown-to-HTML, no coloured room view. A second renderer is a second thing to keep in sync with `renderRow`.
 4. **No key on argv, in env, or in any output.** No `--key`, no `sign` verb, no `export`.
 5. **No unbounded blocking.** `inbox --wait` has a deadline; `watch` is the one deliberate loop, and it is a loop around those same bounded waits.
-6. **No `--urgent`, `--priority`, or lane flag.** Lanes are static per kind. A flag that looks like it moves the lane teaches the wrong model.
-7. **No verb whose event kind does not exist.** No `claim` until `task.claimed` does.
+6. **No `--urgent`, `--priority`, or lane flag.** The lane is the deliberate address (leading `@seat` or `--to`) and nothing else. A flag that looks like it moves the lane teaches the wrong model.
+7. **No verb whose event does not exist.** No `claim` until `task.claimed` does.
 8. **No client-side ranking, dedup, or config framework.**
 9. **`--stdin-json`** is accepted as an escape hatch for programmatically generated commands, but flags plus stdin text is the documented path.
 

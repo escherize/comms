@@ -22,9 +22,9 @@ exploitable. You'll get an acknowledgement within a few days; fixes ship on
 - **Invites are single-use bearer tokens** that travel as `#setup=` URL
   fragments so they never reach server logs. Treat a token like the seat it
   mints.
-- **The log is append-only.** Redaction suppresses content (search index,
-  vectors, attachments included, atomically with the redact event) but the
-  record of the act remains.
+- **The log is append-only.** Redaction suppresses content (search index and
+  attachments included, atomically with the redact event) but the record of
+  the act remains.
 - **The browser key is non-extractable** (WebCrypto, IndexedDB); the CLI key
   is a 0600 file outside any git worktree. Neither is ever sent anywhere.
 

@@ -17,7 +17,7 @@ flowchart LR
         CORE["decider (pure)<br/>state × command → events | reject"]
         LOG[("event log — append-only<br/>envelope + body blob<br/>single writer · seq = total order")]
         PROJ["decision projections (same txn)<br/>offers · leases · issues · keys<br/>snapshotted at seq"]
-        DER["derived projections (may lag)<br/>rooms · FTS5 · vec"]
+        DER["derived projections (may lag)<br/>rooms · FTS5"]
         SSE["GET /stream<br/>SSE · Last-Event-ID replay"]
         OUT["outbox drainer<br/>at-least-once → effectively-once"]
     end
@@ -45,7 +45,7 @@ flowchart LR
 - **Server**: Go — one static binary serving the datastar UI, the SSE stream, and the command API. No message broker, no separate DB server, no build step beyond `go build`. (ADR-0009 chose plain Go over [Lisette](https://lisette.run/), which earlier drafts of this document assumed; the paragraphs below survive as the reasoning that led there.)
 - **UI**: [datastar](https://data-star.dev/) (~11 KB). Rooms render server-side; new events arrive as SSE element patches. Humans and agents appear in the same room. Datastar's first-class SDK is Go, which the server imports directly.
 - **LLM calls** (dedup, summarizer bots): direct HTTPS to provider APIs from the shell — a bot is a goroutine that submits commands like anyone else.
-- **Agents**: any CLI agent (Claude Code, Codex, goose) joins through subcommands on the same binary — `enrol`, `post`, `ask`, `answer`, `attach`, `read`, `inbox`, `search`, `room`, `whoami` — which hold one seat key, sign, and send inside one process (ADR-0012, M1.5). One process is a correctness constraint: the signature covers the exact posted bytes, so any boundary between computing a signature and emitting them is where a stray newline becomes `signature.invalid`. `docs/AGENT-SKILL.md` teaches the vocabulary; the core's rejections teach the schema. An MCP server is a post-M3 successor, not a parallel path — a second way in is a second place for the domain rules to drift.
+- **Agents**: any CLI agent (Claude Code, Codex, goose) joins through subcommands on the same binary — `enrol`, `post`, `ask`, `attach`, `read`, `inbox`, `search`, `room`, `whoami` — which hold one seat key, sign, and send inside one process (ADR-0012, M1.5). One process is a correctness constraint: the signature covers the exact posted bytes, so any boundary between computing a signature and emitting them is where a stray newline becomes `signature.invalid`. `docs/AGENT-SKILL.md` teaches the vocabulary; the core's rejections teach the schema. An MCP server is a post-M3 successor, not a parallel path — a second way in is a second place for the domain rules to drift.
 
 Verdict on the stack: datastar + SSE is exactly right for a glorified chatroom, and Go gives the datastar SDK, a pure-Go SQLite driver, and single-binary deploys directly. Lisette was the original choice and ADR-0009 records why it was not taken: the exhaustive-matching it would have bought is substituted by a generated test over `AllKinds`, and the cost of a young compiler between us and the runtime was not worth it for one property.
 
@@ -53,7 +53,7 @@ Verdict on the stack: datastar + SSE is exactly right for a glorified chatroom, 
 
 Four commitments, each doing real work rather than signalling style.
 
-**The log is the system; everything else is derived.** One append-only event log is the only authoritative state. Rooms, leases, issue links, the FTS5 index, and the vector index are all *projections* — pure folds over the log, rebuildable from scratch by replay. Nothing is primary except the log. This is what makes crash recovery boring: replay, don't repair. Projections split into two classes with different consistency guarantees, and which class the decider may read is a correctness rule, not a preference — see Projections.
+**The log is the system; everything else is derived.** One append-only event log is the only authoritative state. Rooms, leases, issue links, and the FTS5 index are all *projections* — pure folds over the log, rebuildable from scratch by replay. Nothing is primary except the log. This is what makes crash recovery boring: replay, don't repair. Projections split into two classes with different consistency guarantees, and which class the decider may read is a correctness rule, not a preference — see Projections.
 
 **Single writer, total order, and no consensus anywhere.** The system is genuinely distributed — laptops that sleep, an external tracker, agents on other people's machines — but the log deliberately is not. One writer assigning a monotonic `seq` is total-order broadcast, which is the primitive that makes the hard parts of DDIA ch. 8–9 unnecessary here. Every distributed-systems problem left over is pushed to the edges, where it is handled by three named techniques and nothing cleverer: **idempotency keys** (duplicate suppression), **fencing tokens** (stale-holder rejection), and an **outbox** (crash-safe external effects). A multi-master or CRDT design would buy availability we do not need at five people and cost merge semantics we would get wrong.
 
@@ -71,7 +71,7 @@ Three bounded contexts. They share the log and nothing else — no shared types 
 
 | Context | Owns | Aggregates |
 |---|---|---|
-| **Coordination** | what the team is saying and learning | `Room`, `Post` (chat/finding/question/answer/til/handoff) |
+| **Coordination** | what the team is saying and learning | `Room`, `Post` (text; addressed by seat, threaded by refs) |
 | **Dispatch** | who is doing what, on whose machine | `Task` (claim + lease), `Offer` (proposed → approved → granted → settled) |
 | **Sync** | the boundary with Linear and GitHub | `IssueLink`, `OutboxEntry` |
 
@@ -103,13 +103,12 @@ Two tables. The envelope is chained and immutable; the body is a blob keyed by `
 ```json
 // envelope
 {"seq": 91422, "server_ts": "...", "room": "bash-2026-08-05",
- "author": "agent:bcm/claude-1", "kind": "finding",
+ "author": "agent:bcm/claude-1", "kind": "chat",
  "refs": ["evt_...", "LIN-123"], "idem": "client-supplied-uuid",
  "body_hash": "...", "prev_hash": "...", "sig": "..."}
 
 // body @ seq 91422
-{"title": "...", "severity": "p2", "file": "auth.py:88",
- "text": "human-readable rendering"}
+{"text": "#finding p2 auth.py:88 flakes under -race", "about": "auth.py"}
 ```
 
 Event kinds: `chat`, `presence`, `task.claimed` *(designed, not built — M3)*, `task.released`, `task.done`, `offer.proposed` *(designed, not built — M4)*, `offer.approved`, `offer.granted`, `offer.settled`, `offer.expired`, `redact`, `redact.purged`, `key.registered`, `key.revoked`, `key.compromised`, `outbox.dispatched`, `outbox.failed`, `command.rejected`. Note the past tense: these are facts, not requests. Commands are a separate vocabulary (`ProposeOffer`, `ApproveOffer`, `ClaimTask`) and never appear in the log. The author surface has no kind (ADR-0020): a post is text, and legacy kinds (`finding`, `question`, `answer`, …) survive only on old rows. `Ambient` or `Addressed` (see Attention) is decided by the deliberate address; a seat reaches a human by addressing an event to a seat, not by crossing lanes.
@@ -136,7 +135,7 @@ It is **aggregated, never one event per rejection**: one `command.rejected` per 
 - **Per-actor keypairs, no relays.** Each human and agent holds a keypair; the client signs, the shell verifies before the core sees a command. Buzz's good idea without its protocol — the point isn't federation, it's answering "which agent, under whose key, did this?" during an incident, which a bearer token answers weakly.
   - *What is signed*: the exact posted command bytes — author, room, kind, refs, `idem`, and the body, together. Not a re-serialized object; JSON canonicalization (key order, unicode, float representation) is a footgun, and signing the body alone would let a swapped `room` or `kind` survive verification. `body_hash` is derived from those same bytes, so a purged body remains provably the one that was signed.
   - *Lifecycle*: keys live in a decision projection with `active_from`/`revoked_at`. Routine revocation rejects new commands and leaves history valid as of its `server_ts`. A leaked key is different: `key.compromised` carries a `suspected_since` timestamp and flags every event that key authored after it, because the question then is not "what happens next" but "what did it already do." When the compromise time is unknown, `suspected_since` is the key's `active_from` and the whole history is flagged — over-flagging is recoverable, under-flagging is not.
-- **Redaction erases without breaking the chain.** Someone will paste an API key or a colleague's medical detail into a room. A `redact` event suppresses the body from renderers, search, and exports, and deletes the corresponding vector row in the same transaction — an embedding is derived from the secret and must not outlive it. For true erasure, the operator flag `comms --purge <seq>` drops the *body blob* and appends `redact.purged` naming who did it. Because the chain covers `body_hash` rather than the body, nothing is rewritten and no trigger is disabled: the log still verifies end to end, and what it now attests is "a body with hash H was here and is gone." That is tamper-evident erasure — strictly better than a re-chain, which would destroy the evidence of its own occurrence. Without this path, the first leak forces someone to disable the triggers at 2am, which destroys the integrity story permanently.
+- **Redaction erases without breaking the chain.** Someone will paste an API key or a colleague's medical detail into a room. A `redact` event suppresses the body from renderers, search, and exports in the same transaction. For true erasure, the operator flag `comms --purge <seq>` drops the *body blob* and appends `redact.purged` naming who did it. Because the chain covers `body_hash` rather than the body, nothing is rewritten and no trigger is disabled: the log still verifies end to end, and what it now attests is "a body with hash H was here and is gone." That is tamper-evident erasure — strictly better than a re-chain, which would destroy the evidence of its own occurrence. Without this path, the first leak forces someone to disable the triggers at 2am, which destroys the integrity story permanently.
 
 ## Projections
 
@@ -144,16 +143,14 @@ Pure folds over the log, rebuilt by replay. None is authoritative. They divide i
 
 **Decision projections** — offer state machines, leases, issue links, key validity. Updated in the **same transaction** as the append, so they are read-your-writes consistent, and **the decider may read only these**. Single-writer serialization orders the appends but not the reads that precede them, so a lease projection that lagged the log by even one event would let two `ClaimTask` commands both observe `Open` and both be accepted. That read-modify-write race is the one bug that would make the whole claim mechanism unsound.
 
-**Derived projections** — FTS5, vectors, room render caches. May lag. **The decider may never read them.** They exist to be looked at, not to be decided on.
+**Derived projections** — FTS5, room render caches. May lag. **The decider may never read them.** They exist to be looked at, not to be decided on.
 
 **Snapshots give the fold a base case.** A projection defined as a fold over the entire log quietly stops working twice as the log grows: restart replay gets slow exactly when you want it fast (after a crash, with workers holding live leases), and archival becomes impossible, because a fold has no base case once its prefix is gone. So decision projections are snapshotted periodically at a named `seq`; replay starts from the most recent snapshot rather than from zero. Archival is then permitted only up to a `seq` covered by a retained snapshot — which turns retention from an architectural question into an operational one. Snapshots are caches, not truth: deleting them all costs a slow startup, never correctness.
 
 - **Rooms and issue links**: rebuilt in-process at startup; cheap at team volume.
 - **Leases**: a decision projection, not a table someone writes to. Restart recovers in-flight leases by replay rather than by trusting mutable state, and expiry is a function of `server_ts`, not a background sweeper.
 - **Lexical search**: FTS5, updated in the same transaction as the append. Read-your-writes consistent, but still derived — never decided on.
-- **Vector search**: float32 blobs scored by brute-force cosine in Go (ADR-0013 — sqlite-vec is a C extension and ADR-0009 chose a pure-Go driver), filled by a background embedder (single-item calls, typically 50–200 ms behind). This lane is eventually consistent: when the provider is slow or down it falls arbitrarily behind, so the lag is shown rather than hidden. An `embedded_through_seq` watermark appears on `/search` ("vector index current to 14:32"), and results degrade to labeled lexical-only when it is stale. One poison event cannot stall it: after three failures an event is marked `embed_failed`, the watermark advances, and it lands on a dead-letter list surfaced in the UI.
-- **Query**: FTS5 top-50 ∪ vec top-50, fused by reciprocal rank. Filters on `kind:`, `room:`, `author:`, `since:`. Each hit shows both ranks and links to the event in room context.
-- Embedding model: start hosted, swap to a local server if cost or privacy demands. Embeddings are throwaway — full re-embed is one command and stays an afternoon's work to ~10⁶ events, incremental past that.
+- **Search is lexical only** (ADR-0017 cut the semantic lane — the vector index was a lossy FTS5 mirror behind a stub embedder). Query: FTS5, bm25-ranked, filters on `room=`, `author=`, `since=`. Each hit links to the event in room context.
 
 Search is the co-learning feature: before an agent asks a question or files a finding, the harness auto-searches and attaches top hits. Bug-bash dedup is a search call.
 
@@ -192,7 +189,7 @@ Two systems both want to be authoritative, and the naive shape (a bot that mutat
 - **Authority is split by field.** Linear owns issue state (status, assignee, labels); the log owns claim and lease state. On conflict — someone drags an issue back to Todo while an agent holds a live claim — Linear wins the field, the core voids the lease, and a `task.released` with reason `external-state-change` tells the room why the agent stopped.
 - **Inbound webhooks are unordered and at-least-once**, so "latest wins" silently regresses state. Each webhook is compared against the stored Linear `updatedAt`; older payloads are recorded and ignored.
 - Webhooks arrive as commands like anything else, so they get the same idempotency and validation path.
-- A project room is a live standup: filter `kind:task.* room:proj-x`.
+- A project room is a live standup: search it, or read its brief.
 
 ## Attention — the thing that decides whether anyone keeps using this
 
@@ -205,7 +202,7 @@ The mechanism is a type distinction, not a UI preference. All of it is enforced 
 - **Rooms render addressed events inline and collapse ambient activity** into a single live line ("14 findings, 3 agents working"). Expanding is one click; the default is quiet.
 - **The posting budget covers the ambient lane** — every post that addresses nobody. It must never touch `task.*` or `offer.*`: those are state transitions a lease is counting on, bounded by the work itself, and batching a `task.done` behind a budget window lets the lease expire on completed work so someone redoes it. Backpressure on chatter is hygiene; backpressure on acknowledgements is a correctness bug. Within its lane the budget forces batching rather than dropping — a chatty agent produces one summarizing post with details in the body, not forty separate ones. Budget breaches are windowed like `command.rejected`, one aggregate event per window, so a breach cannot become its own flood.
 
-The budget bounds embedding spend as a side effect: cost scales with event count, and the same mechanism that protects human attention protects the bill.
+
 
 ## Bug bash mode
 
@@ -221,7 +218,7 @@ The corollary is that the person who owns that box owns restore drills, and the 
 
 The log is the sole record of both team coordination and the work queue, so losing the box loses the team's memory.
 
-- SQLite in WAL mode, single writer. At ~5 people the embedder, drainer, and command path do not meaningfully contend; revisit if write latency shows up as SSE lag.
+- SQLite in WAL mode, single writer. At ~5 people the drainer and command path do not meaningfully contend; revisit if write latency shows up as SSE lag.
 - [litestream](https://litestream.io/) ships the WAL continuously to object storage. Recovery is `litestream restore` onto a fresh box; leases and every other projection come back by replay from the most recent snapshot.
 - **`seq` jumps forward on startup.** Litestream lags by seconds, so a restore loses the log's tail — possibly the grant whose `seq` is a live fencing token. Resuming the count would hand that same value to a second worker while the pre-restore holder is still alive. On every startup `seq` advances by 10,000. Gaps are free; collisions are not. Because `seq` is the only counter, this is the only place the rule is needed.
 - Restore is tested on a schedule, not assumed.

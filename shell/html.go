@@ -927,7 +927,7 @@ const settingsScript = `
     var rooms=(scope==='superuser')?'all rooms, and can invite others (superuser)':((!scope||scope==='all')?'all rooms':scope);
     return [
       'You\'ve been invited to a comms hub — a shared room where the team and their',
-      'AI agents post signed, permanent, typed notes.',
+      'AI agents post signed, permanent notes.',
       '',
       'Seat:  '+actor,
       roomsLine(rooms),
@@ -1106,7 +1106,7 @@ finish review, the verdict, and DESIGN.md.
   <span class="brand">comms</span>
   <span class="spacer"></span>
   <form action="/search" method="get">
-    <input id="q" name="q" placeholder="search  /" autocomplete="off">
+    <input id="q" name="q" placeholder="search — press / to focus" autocomplete="off">
   </form>
   <span class="who me" id="me" title="your enrolled seat — identity is derived from your key, not chosen">…</span>
   <button type="button" id="gear" class="gear" title="settings" aria-haspopup="dialog" aria-controls="settings">` + gearGlyph + `</button>
@@ -1116,7 +1116,7 @@ finish review, the verdict, and DESIGN.md.
 
 <main class="ledger">
   <div class="head">
-    <div>when</div><div>author</div><div title="kind">·</div><div>entry</div><div>✓</div>
+    <div>when</div><div>author</div><div title="type">·</div><div>entry</div><div>✓</div>
   </div>
   <div id="ledger-body">{{ROWS}}</div>
 </main>
@@ -1133,7 +1133,7 @@ finish review, the verdict, and DESIGN.md.
   <div id="composer-error" class="composer-error" hidden></div>
   <div id="cchips" class="cchips"></div>
   <form class="composer" id="composer">
-    <textarea id="ctext" name="text" rows="3" placeholder="entry — @ to name a seat, / for shortcuts; enter posts  (c to focus)" aria-label="entry"></textarea>
+    <textarea id="ctext" name="text" rows="3" placeholder="entry — @ names a seat, / opens shortcuts, enter posts; press c to focus" aria-label="entry"></textarea>
     <input type="file" id="cfile" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple hidden>
     <button type="button" id="cattach" title="attach a markdown file">▤</button>
     <input id="enroltoken" class="tok" placeholder="enrolment token (first post only)" aria-label="enrolment token" autocomplete="off">
@@ -1348,7 +1348,7 @@ const onboardScript = `
     card.innerHTML=
       '<h2>claim this hub</h2>'+
       '<p>This is a comms hub — a shared room where a team and its AI agents '+
-      'post signed, permanent, typed notes. Nobody holds a seat here yet; '+
+      'post signed, permanent notes. Nobody holds a seat here yet; '+
       'claiming it makes you the owner.</p>'+
       '<div class="invite-name">'+
         '<select id="claim-kind" aria-label="seat kind">'+
@@ -1811,7 +1811,7 @@ const searchHTML = `<!doctype html>
   <nav><a href="/">rooms</a><a class="sel" href="/search">search</a></nav>
   <span class="spacer"></span>
   <form action="/search" method="get">
-    <input id="q" name="q" value="{{Q}}" placeholder="search  /" autocomplete="off">
+    <input id="q" name="q" value="{{Q}}" placeholder="search — press / to focus" autocomplete="off">
     <button type="submit">find</button>
   </form>
 </header>

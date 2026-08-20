@@ -27,11 +27,10 @@ below; the ADR is accepted, the code is not landed yet.
 
 ## Bugs (fix in passing, low value each)
 
-- [ ] [p3] Doc/comment rot sweep — the study-6 tail: `ftsQuery` doc says AND,
-      code does OR; `first_undelivered_seq` / cursor comments describe the field
-      backwards; a few misattached doc comments. One pass, fix only what reading
-      confirms. (Dead functions `PurgeArtifact`/`DropVector`/`RecordProgress`
-      already removed.)
+- [ ] [p3] Doc/comment rot sweep — the study-6 tail is done (ftsQuery doc,
+      the backwards truncation field — renamed delivered_through_seq — and the
+      misattached doc comments all fixed in the study-7 batches). What remains:
+      whatever the next read confirms; fix only that.
 
 ## Ergonomics (crew-requested, small, do anytime)
 

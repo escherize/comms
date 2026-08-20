@@ -93,11 +93,12 @@ type Rejection struct {
 
 func (r Rejection) Error() string { return r.Invariant + ": " + r.Detail }
 
-// State is the decision-projection view the decider reads. It is always current
-// — updated in the same transaction as the append — because a lagging view
-// would let two claims both observe an open task and both be accepted.
+// State is the decision-projection view the decider reads. It is always
+// current — updated in the same transaction as the append — because a lagging
+// view would let two commands both observe the same stale fact and both be
+// accepted (the race the future task queue's atomic claim depends on).
 type State struct {
-	// KnownKinds gates unknown kinds without a registry lookup in the shell.
+	// RoomExists reports whether a room has been created.
 	RoomExists func(room string) bool
 	// ArtifactExists reports whether content is stored under this hash.
 	ArtifactExists func(hash string) bool
@@ -111,9 +112,11 @@ type State struct {
 	EventRoom func(ref string) (string, bool)
 	// IsRedacted reports whether an event is already suppressed.
 	IsRedacted func(ref string) bool
-	// HasCapability reports whether a seat holds a named capability. It is the
-	// same shape as the author check on redact: authorization inside the
-	// decider, not a privileged write path around it.
+	// HasCapability reports whether a seat holds a named capability. Nothing
+	// in Decide reads it today — redaction auth compares authors directly —
+	// but the seam stays wired so capability-gated commands (operator grants,
+	// the future task queue) check authorization inside the decider rather
+	// than growing a privileged write path around it.
 	HasCapability func(a Actor, capability string) bool
 	// ActorEnrolled reports whether a seat has ever held a key. An addressed
 	// event to a seat that does not exist is worse than a rejection: it is
@@ -253,8 +256,9 @@ func notAMemberDetail(s State, author Actor) string {
 // and without this, any actor could erase any other actor's event at wire speed.
 //
 // Only the original author may suppress their own event. Someone else's leaked
-// secret is an operator action through the CLI, which holds the database, not a
-// command any actor can send.
+// secret is an operator action on the server binary, which holds the database
+// (--purge; ADR-0012 keeps body lifecycle off the client) — not a command any
+// actor can send.
 func checkRedaction(s State, c Command) *Rejection {
 	if s.EventAuthor == nil {
 		return nil

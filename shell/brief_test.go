@@ -396,7 +396,7 @@ func TestALongBodyIsFoldedNotUnbounded(t *testing.T) {
 	buf.ReadFrom(resp.Body)
 	page := buf.String()
 
-	if !strings.Contains(page, "more line(s)") {
+	if !strings.Contains(page, "more lines") {
 		t.Error("a body past the ceiling must offer to unfold the rest")
 	}
 	if !strings.Contains(page, `class="more-body"`) {
@@ -443,7 +443,7 @@ func TestAShortBodyIsNotFolded(t *testing.T) {
 	defer resp.Body.Close()
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(resp.Body)
-	if strings.Contains(buf.String(), "more line(s)") {
+	if strings.Contains(buf.String(), "more lines") {
 		t.Error("a short body must not be folded")
 	}
 }

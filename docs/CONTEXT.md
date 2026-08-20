@@ -45,11 +45,11 @@ A shared space where actors post. A room's history is part of the team's permane
 _Avoid_: channel, thread
 
 **Post**:
-Any coordination event an actor contributes to a room: chat, a finding, a question, an answer, a TIL, a handoff, a status.
-_Avoid_: message (too narrow — posts are typed)
+Any coordination event an actor contributes to a room. A post is text (ADR-0020): addressed by naming a seat, threaded by refs, marked in prose (`#finding p2`, `#til`) when it should be findable.
+_Avoid_: message (a post is permanent and signed, not chat)
 
 **Finding**:
-A discovered fact worth keeping: a bug, a surprise, a gotcha. Findings carry a severity, which is a claim by the author, not a verified fact.
+A discovered fact worth keeping: a bug, a surprise, a gotcha — a post marked `#finding` with a severity in its text (ADR-0020). Severity is a claim by the author, not a verified fact.
 _Avoid_: bug report, issue (collides with tracker issues)
 
 **TIL**:
@@ -68,7 +68,7 @@ The lane of events that are true and worth keeping but not worth interrupting an
 _Avoid_: noise, low-priority
 
 **Addressed**:
-The lane of events that name a recipient and warrant their attention. Which lane an event is in is a property of its kind, never of the author's opinion.
+The lane of events that name a recipient and warrant their attention. Which lane an event is in is decided by its deliberate address (a leading `@seat` or `--to`; ADR-0016), never by the author's opinion of its urgency.
 _Avoid_: urgent, notification
 
 ### Dispatch

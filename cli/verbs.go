@@ -1074,8 +1074,8 @@ caught up or the room is empty.
 --from and --since replay: they print what you have already seen and leave your
 cursor where it was. Re-reading is not reading.
 
-Findings and status land ambient, so --wait belongs here as well as on inbox:
-waiting on your crew is the ambient case.
+Most posts land ambient (anything that does not address a seat), so --wait
+belongs here as well as on inbox: waiting on your crew is the ambient case.
 
 read and inbox keep separate cursors, so draining one never hides the other.`)
 	}

@@ -325,7 +325,7 @@ is new to the room."`)
 
 // parsePositional gathers positional arguments that may be interleaved with
 // flags. Go's flag package stops at the first non-flag argument, so
-// `room bash --as x` and `search foo --kind finding` both leave the flags
+// `room bash --as x` and `search foo --author human:bcm` both leave the flags
 // unparsed and report a missing seat — the natural spelling of every verb that
 // takes an argument. Written once here rather than a third time in the next
 // verb that needs it.

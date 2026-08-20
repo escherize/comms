@@ -197,8 +197,6 @@ func short(h string) string {
 	return h
 }
 
-// shortActor drops the agent: prefix — the column is narrow and the prefix is
-// the same on every agent row, so it carries no information there.
 // shortActor drops the namespace for display. The namespace decides how a post
 // is read — provenance, lane budgets — but the column is 8 characters wide and
 // every row would spend six of them on the same two words.
@@ -274,7 +272,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		rows.WriteString(fmt.Sprintf(
 			`<button class="carried" type="button" aria-expanded="false" aria-controls="%s">`+
 				`<span class="folio">·</span>`+
-				`<span class="cf">carried forward — %d entries</span></button>`+
+				`<span class="cf">carried forward — expand %d entries</span></button>`+
 				`<div class="carried-body" id="%s" hidden>`, id, run, id))
 		for _, h := range hidden {
 			rows.WriteString(renderRow(h))
@@ -374,7 +372,7 @@ func (s *Server) renderProgress(room string) string {
 				since(now, p.Updated)))
 		}
 	}
-	return `<span>working <b>` + strings.Join(parts, "</b></span> <span><b>") + `</b></span>`
+	return `<span>crew <b>` + strings.Join(parts, "</b></span> <span><b>") + `</b></span>`
 }
 
 func since(now, then time.Time) string {
@@ -521,7 +519,7 @@ func renderEntryText(txt string, seq int64) string {
 	return linkifyEscape(shown) +
 		`<button class="carried more" type="button" aria-expanded="false" aria-controls="` +
 		id + `"><span class="cf">` +
-		fmt.Sprintf("%d more line(s)", len(lines)-entryLineCeiling) +
+		fmt.Sprintf("show %d more lines", len(lines)-entryLineCeiling) +
 		`</span></button><span class="more-body" id="` + id + `" hidden>` +
 		linkifyEscape("\n"+rest) + `</span>`
 }

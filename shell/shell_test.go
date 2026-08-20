@@ -317,7 +317,7 @@ func TestAmbientRunCollapsesAddressedDoesNot(t *testing.T) {
 	buf.ReadFrom(resp.Body)
 	html := buf.String()
 
-	if !strings.Contains(html, "carried forward — 5 entries") {
+	if !strings.Contains(html, "carried forward — expand 5 entries") {
 		t.Error("a run of 5 ambient entries must collapse to a carried-forward row")
 	}
 	if !strings.Contains(html, "retry path is yours") {

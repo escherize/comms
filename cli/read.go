@@ -161,7 +161,7 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 				case "truncated":
 					// Surfaced as a fact, never inferred from a seq delta.
 					meta["truncated"] = true
-					meta["first_undelivered_seq"] = d["first_undelivered_seq"]
+					meta["delivered_through_seq"] = d["delivered_through_seq"]
 				case "lagged":
 					meta["gap_possible"] = true
 					return events, meta, nil
@@ -309,7 +309,7 @@ func emit(e *Env, o readOpts, events []frame, meta map[string]any) int {
 	}
 	if meta["truncated"] == true {
 		term["truncated"] = true
-		term["first_undelivered_seq"] = meta["first_undelivered_seq"]
+		term["delivered_through_seq"] = meta["delivered_through_seq"]
 		term["next"] = "read again to continue from where the backlog stopped"
 	}
 	if meta["gap_possible"] == true {
