@@ -1618,8 +1618,9 @@ const composeScript = `
     return (token ? Promise.resolve(null) : idbGet(actor)).then(function(pair){
       if(pair) return pair;
       if(!token) return Promise.reject(new Error(
-        'first post as '+actor+' needs an enrolment token — run: comms invite '+actor+
-        ' and paste it in the token field'));
+        'first post as '+actor+' needs an enrolment token — ask whoever runs the hub '+
+        'for an invite (they run: comms invite '+actor+') or a setup link, and '+
+        'paste the token in the token field'));
       return crypto.subtle.generateKey({name:'Ed25519'}, false, ['sign','verify'])
         .then(function(kp){
           return crypto.subtle.exportKey('raw', kp.publicKey).then(function(raw){
@@ -1765,7 +1766,7 @@ const composeScript = `
       fetch('/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:payload})
         .then(function(r){ return r.json(); }).then(function(j){
           if(j.invariant){ if(/^(key|enrolment)\./.test(j.invariant) && tokField) tokField.hidden=false;
-        fail(text, j.invariant+': '+j.detail); }
+        fail(text, (j.detail||j.invariant)+(j.next?' — '+j.next:'')+' ('+j.invariant+')'); }
           else { text.value=''; clearFail(text); clearPending(); }
         }).catch(function(err){ fail(text, String(err && err.message || err)); });
       return;
@@ -1788,7 +1789,7 @@ const composeScript = `
         body:payload});
     }).then(function(r){ return r.json(); }).then(function(j){
       if(j.invariant){ if(/^(key|enrolment)\./.test(j.invariant) && tokField) tokField.hidden=false;
-        fail(text, j.invariant+': '+j.detail); }
+        fail(text, (j.detail||j.invariant)+(j.next?' — '+j.next:'')+' ('+j.invariant+')'); }
       else { text.value=''; clearFail(text); clearPending(); }
     }).catch(function(err){ fail(text, String(err && err.message || err)); });
   });

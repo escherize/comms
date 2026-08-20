@@ -129,7 +129,8 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 		}
 		if remaining <= 0 {
 			if !caughtUp {
-				return events, meta, fmt.Errorf("no response within %s", readDeadline)
+				return events, meta, fmt.Errorf(
+					"the stream went quiet for %s mid-read; nothing was lost and the cursor did not advance — run the same command again", readDeadline)
 			}
 			return events, meta, nil
 		}
@@ -195,7 +196,8 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 			}
 		case <-time.After(remaining):
 			if !caughtUp {
-				return events, meta, fmt.Errorf("no response within %s", readDeadline)
+				return events, meta, fmt.Errorf(
+					"the stream went quiet for %s mid-read; nothing was lost and the cursor did not advance — run the same command again", readDeadline)
 			}
 			return events, meta, nil
 		}

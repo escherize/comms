@@ -162,7 +162,10 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, &Rejection{"idem.required", "every command carries an idempotency key"}
 	}
 	if !knownKind(c.Kind) {
-		return nil, &Rejection{"kind.unknown", "unknown kind: " + string(c.Kind)}
+		return nil, &Rejection{"kind.unknown",
+			"nothing was posted: unknown kind " + string(c.Kind) + ". Kinds were removed " +
+				"(ADR-0020) — a post is text; a current client sends the text directly, " +
+				"so a client offering kinds predates the removal and should be updated"}
 	}
 
 	if r := checkBody(c); r != nil {
@@ -281,7 +284,8 @@ func checkRedaction(s State, c Command) *Rejection {
 	// report success for an act that changed nothing.
 	if s.IsRedacted != nil && s.IsRedacted(c.Refs[0]) {
 		return &Rejection{"redact.already_redacted",
-			"event " + c.Refs[0] + " is already redacted; use purge to erase the body permanently"}
+			"event " + c.Refs[0] + " is already redacted and nothing changed; erasing the " +
+				"body permanently is an operator action on the hub (--purge), not a command"}
 	}
 	if author != c.Author {
 		return &Rejection{"redact.not_author",
@@ -302,7 +306,8 @@ func checkAttachments(s State, c Command) *Rejection {
 		}
 		if s.ArtifactExists != nil && !s.ArtifactExists(a.Hash) {
 			return &Rejection{"attachment.unknown",
-				"no artifact stored under hash " + a.Hash + "; POST /artifacts first"}
+				"nothing was posted: no artifact is stored under hash " + a.Hash +
+					". Upload it first — comms attach <file> — then reference the hash it prints"}
 		}
 	}
 	return nil
@@ -324,7 +329,8 @@ func checkBody(c Command) *Rejection {
 	switch c.Kind {
 	case KindChat, KindPresence:
 		if text == "" {
-			return &Rejection{"body.text.required", string(c.Kind) + " requires text"}
+			return &Rejection{"body.text.required",
+				"nothing was posted: a post needs text — pass it as the positional argument or --text"}
 		}
 	case KindRedact:
 		if len(c.Refs) != 1 {

@@ -160,9 +160,7 @@ func stricter(fromServer, local int) bool {
 // rendered here rather than passed through from the server, because a future
 // server invariant must not become a retry storm in an unattended run.
 var verdicts = map[string]string{
-	"body.text.required":        "add --text and post again",
-	"body.severity.invalid":     "add --severity p0|p1|p2|p3 and post again",
-	"body.url.required":         "add --url and post again",
+	"body.text.required":        "a post needs text; pass it as the positional argument or --text, then post again",
 	"recipient.required":        "name a recipient with --to and post again",
 	"refs.exactly_one":          "name exactly one event in --refs",
 	"refs.unknown":              "that event does not exist; check the seq you read",
@@ -172,7 +170,7 @@ var verdicts = map[string]string{
 	"attachment.unknown":        "upload the artifact first with: comms attach",
 	"attachment.title.required": "give the attachment a --title",
 	"room.unknown":              "check the room name; list them with: comms room",
-	"kind.unknown":              "use a kind the server knows; see: comms post --help",
+	"kind.unknown":              "this client sent a kind the server does not know — kinds were removed (ADR-0020). Update the client (the hub serves a matching binary at /comms), then post plain text",
 	"idem.conflict":             "this key already carries an event — if you were racing teammates to one canonical post, you lost: thread onto the seq in detail with --refs. Otherwise, do not reuse keys",
 	"signature.missing":         "stop. The client did not sign. A human must look at this",
 	"signature.invalid":         "stop. The bytes signed and the bytes sent differ; this is a bug in the client, not your key",
@@ -182,7 +180,7 @@ var verdicts = map[string]string{
 	"enrolment.refused":         "stop. Ask a human for a fresh invite token",
 	"token.unknown":             "this invite token is spent, expired, or mistyped; ask the operator for a fresh one: comms invite <seat>",
 	"body.too_large":            "store the content by hash instead: comms attach <file>, then post with --attach-hash",
-	"budget.exhausted":          "combine what is left into one summarizing finding and post that",
+	"budget.exhausted":          "combine what is left into one summarizing post; attach the detail with comms attach",
 	"parse.failed":              "stop. The client built a malformed command; this is a bug here",
 
 	// Usage failures the caller can fix. `next: "stop"` on any of these tells an
@@ -203,12 +201,11 @@ var verdicts = map[string]string{
 	"room.ambiguous":          "name one room",
 	"wait.too_long":           "lower --wait; 30m is the cap",
 	"actor.required":          "name the seat with --as, or set COMMS_ACTOR",
-	"kind.required":           "name a kind: comms post --help lists them",
 	"recipient.unknown":       "comms room lists who is enrolled; fix --to and post again",
 	"recipient.ambiguous":     "use the full seat name from comms room, then post again",
 	"room.not_a_member":       "post into a room this seat belongs to (comms room lists yours), or ask an operator to widen the seat's scope",
 	"artifact.unknown":        "check the hash against the read that printed it; if it is right, this seat's rooms do not reference it",
-	"seat.not_enrolled":       "a human must enrol this seat before it can post",
+	"seat.not_enrolled":       "no key on this machine for this seat; a human mints an invite (comms invite <seat> on the hub), then: echo \"<token>\" | comms enrol --as <seat>",
 	"server.mismatch":         "unset COMMS_SERVER, or enrol a separate seat for the other hub",
 	"rate.exceeded":           "sleep retry_after_ms, then post again; this event was not kept",
 	"transport.failed":        "the server is unreachable; wait and run this again",
@@ -225,7 +222,11 @@ func verdictFor(invariant string, code int) string {
 		// invariant must not loop an unattended agent.
 		return "stop. This refusal is not one this client knows how to correct; a human must look"
 	case ExitSpooled:
-		return "keep working. The bytes are held and will be sent"
+		// Exit 5 is the READ-transport failure: nothing was held and the
+		// cursor did not move (a failed WRITE spools and exits 0). The old
+		// text claimed bytes were held, which is true only of the write path
+		// that never reaches this exit.
+		return "the read did not complete; nothing was lost and your cursor did not move — wait, then run the same command again"
 	case ExitThrottled:
 		// Not "batch": no verb batches, and telling an agent to do something the
 		// tool cannot do is worse than telling it nothing.

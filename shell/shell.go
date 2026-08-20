@@ -533,7 +533,7 @@ func (s *Server) postCommand(w http.ResponseWriter, r *http.Request) {
 				"schema":   schemaFor(cmd.Kind),
 				"attempts": attempts,
 				"next": "stop correcting and ask a person: comms ask --to <human> " +
-					"--text \"I keep getting " + rej.Invariant + " on a " + string(cmd.Kind) + "\"",
+					"--text \"I keep getting " + rej.Invariant + " when I post\"",
 			})
 			return
 		}

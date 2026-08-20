@@ -420,7 +420,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 			"ok": false, "outcome": "rejected", "exit": 3,
 			"invariant": "query.required",
 			"detail":    "search needs a query; filters alone match nothing",
-			"next":      "add words to search for, then filter with room=, kind=, author=, since=",
+			"next":      "add words to search for, then filter with room=, author=, since=",
 		})
 		return
 	}

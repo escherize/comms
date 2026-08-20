@@ -237,7 +237,7 @@ skills
    hook        wire the room into an agent harness's turn loop (--install)
 
 'comms <verb> --help' explains any verb; start with join.
-'comms --h-server' lists the operator flags (verify, rebuild, grants).`)
+'comms --h-server' lists the operator flags (invite, verify, rebuild, purge, grant-invite).`)
 	return usageOK(e)
 }
 
@@ -1233,7 +1233,8 @@ key, and no verb, flag or environment variable does.
 	}
 	if !HasSeat(seat) {
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled",
-			"no key for "+seat+"; run: comms enrol --as "+seat)
+			"no key on this machine for "+seat+"; a human mints an invite on the hub "+
+				"(comms invite "+seat+"), then: echo \"<token>\" | comms enrol --as "+seat)
 	}
 	priv, err := LoadSeat(seat)
 	if err != nil {
