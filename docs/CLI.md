@@ -12,7 +12,7 @@ comms <verb> [args] [flags]
 version, VCS build stamp, Go version, platform — the CLI's only non-JSONL
 output, because `comms --version | head -1` is the whole contract.
 
-Global flags, accepted by every verb:
+Common flags (`--server` is truly global; `--as`/`--room` on every verb that acts as a seat):
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
@@ -29,11 +29,11 @@ Paths, under `COMMS_HOME` (default `~/.config/comms`):
 keys/<flattened-actor>.key            0600, dir 0700, hex ed25519 seed
 state/<flattened-actor>.server        the hub this seat enrolled against (the pin)
 state/<flattened-actor>.cursors.json  read cursors, one file per seat
-state/spool/<ts>-<idem>-*.json        held writes: exact bytes + signature
+state/spool/<ts>-<actor>-<idem>.json  held writes: exact bytes + signature
 sessions/                             cached read-session tokens
 ```
 
-The CLI refuses to run if the key file's mode is not 0600, or if its path resolves inside a git worktree. `COMMS_KEY` is not read; setting it is `key.on_env`, exit 2, with the reason — environment is inherited by every child the agent spawns and `env` is a command agents run casually.
+Keys are written 0600 in a 0700 dir and never printed. `COMMS_KEY` is not read; setting it is `key.on_env`, exit 2, with the reason — environment is inherited by every child the agent spawns and `env` is a command agents run casually.
 
 ## Output contract
 
@@ -64,7 +64,7 @@ They decide whether the agent retries, which is the whole point of having them.
 |---|---|---|---|
 | 0 | `accepted` `replayed` `read` `waited` `stored` `enrolled` | in the log, or a clean empty result | proceed |
 | 1 | `internal` | CLI bug — malformed command, unwritable spool | stop, report |
-| 2 | `usage` | bad flags, unknown kind, missing key, unbuildable command | correct and retry |
+| 2 | `usage` | bad flags, missing key, unbuildable command | correct and retry |
 | 3 | `rejected` | HTTP 422, the decider refused | read `invariant` + `schema`, correct **once**, retry **once**, then stop |
 | 4 | `refused` | HTTP 401, or an unknown invariant | **stop. Never retry.** A human must act |
 | 5 | `unreachable` | transport failed on a read; nothing was lost or held (a failed *write* spools and exits 0) | wait, run it again |
@@ -72,7 +72,7 @@ They decide whether the agent retries, which is the whole point of having them.
 
 Exit 3 versus exit 4 is the load-bearing split. An agent that retries a signature failure loops forever and burns budget; an agent that gives up on a schema failure abandons the self-correction ADR-0004 exists to provide.
 
-Retry budget is per **logical post**, not per attempt: at most two self-corrections, then exit 4 with `next: "post a question addressed to a human"`.
+Retry budget is per **logical post**, not per attempt: at most two self-corrections, then exit 4 with a `next` that says to stop correcting and ask a person (`comms ask --to <human> …`).
 
 ## Idempotency, retry, and the spool
 
@@ -276,14 +276,14 @@ The CLI also drops the spool for that actor on a revocation and says so — spoo
 comms ask --to ACTOR --text S [--no-search]
 ```
 
-An addressed post plus the search the architecture already promises (stories 17, 18): it searches on the question text, attaches the top three hit seqs to `refs`, and prints what it attached so the agent sees what it just inherited. It attaches; it does not gate — structure is a fast path, never a gate, and a client that refused to post a question because search found something would be imposing policy the pure core deliberately does not have.
+An addressed post plus the search the architecture already promises (stories 17, 18): it searches on the question text, cites up to three prior seqs in the question's prose (ADR-0021), and prints what it cited so the agent sees what it just inherited. It cites; it does not gate — structure is a fast path, never a gate, and a client that refused to post a question because search found something would be imposing policy the pure core deliberately does not have.
 
 ```json
-{"type":"searched","hits":[{"seq":19882,"kind":"chat","author":"bcm","text":"#til FTS5 reads a hyphen as NOT; quote every token"},{"seq":19104,"kind":"chat","author":"agent:bcm/claude-2","text":"#finding p2 auth.py:88 flakes under -race only"}],"attached":[19882,19104]}
+{"type":"attached","seq":19882,"kind":"chat","preview":"#til FTS5 reads a hyphen as NOT; quote every token","why":"the room already contains this; it is cited in your question"}
 {"ok":true,"outcome":"accepted","seq":20015,"applied":true}
 ```
 
-With no hits, the `searched` line carries `"hits":[]` and stderr says so plainly: `searched first — no prior hits. This question is new to the room.`
+The question's text gains a trailing `(room already has: 19882, 19104)`; stderr notes `searched "…", cited N prior event(s)`.
 
 ---
 
@@ -313,7 +313,7 @@ Standalone upload, for when the agent wants the hash before deciding what to pos
 {"ok":true,"outcome":"stored","hash":"a3f0…9c21","size":4812,"title":"suite-results.md"}
 ```
 
-Exit 2 on `artifact.too_large` (4 MiB server limit) with `next: "Attach a summary and link the full output."`
+An oversize upload (4 MiB server limit) is refused exit 4 `artifact.rejected`; the detail carries the server's `artifact.too_large`.
 
 The CLI does **not** sniff content or refuse by extension. It sends `Content-Type: text/markdown` because that is what an artifact is; ADR-0011's boundary is the renderer and it holds there. An extension check would be both a domain rule outside the core and wrong — `.html` is not evidence about bytes.
 
@@ -352,13 +352,13 @@ Opens `/stream` with `Accept: application/json`, replays from the persisted curs
 ```json
 {"type":"event","seq":20010,…}
 {"type":"event","seq":20011,…}
-{"ok":true,"outcome":"read","count":6,"head":20031,"cursor_from":19882,"cursor_to":20031,"truncated":false}
+{"ok":true,"outcome":"read","count":6,"room":"core","lane":"read","cursor":20031}
 ```
 ```
 core · 6 new · head 20031 · cursor 19882 → 20031
 ```
 
-`"truncated":true` when the server sent a `truncated` frame at the backlog ceiling — the only way the agent learns there is a hole, since `seq` is deliberately gappy and no client-side arithmetic may infer one.
+`"truncated":true` (with `delivered_through_seq`) rides the terminal object only when the server sent a `truncated` frame at the backlog ceiling — the only way the agent learns there is a hole, since `seq` is deliberately gappy and no client-side arithmetic may infer one.
 
 Nothing new is exit 0 and must be cheap. It also says *which* kind of nothing, because `count:0` otherwise means both "I am current" and "nobody has ever posted here", and an agent waiting on a teammate has to tell those apart:
 
@@ -369,7 +369,7 @@ Nothing new is exit 0 and must be cheap. It also says *which* kind of nothing, b
 
 A clipped preview carries `"truncated":true`, `"full_chars"`, and a `next` naming the `--from … --full` that reads it whole. An ellipsis alone reads as authorial style: an agent that mistakes a clipped handoff for a garbled one asks its lead to re-send a message that arrived intact.
 
-`{"type":"reconnected","after":20014,"gap_possible":true}` is emitted on every reconnect so the agent re-reads state rather than assuming continuity. `{"type":"restarted","boot":"…"}` is emitted from the stream's `hello` frame, as a fact — the client never computes a restart from a seq delta, because `seq` gains 10,000 on every startup by design and a cursor ahead of head after a restore is legal.
+`"gap_possible":true` and `"boot"` ride the terminal object (from the stream's `lagged` and `hello` frames) so the agent re-reads state rather than assuming continuity — the client never computes a restart from a seq delta, because `seq` gains 10,000 on every startup by design and a cursor ahead of head after a restore is legal.
 
 ---
 
@@ -452,12 +452,12 @@ comms room [NAME] [--brief]
 With no argument, lists rooms. With one, selects it and prints its brief (`--brief` defaults on) — the orientation call an agent makes once at session start: the `progress` decision projection, unanswered addressed events, ambient counts. `stalled` reuses `store.Progress.Stalled` and the existing 15m `stallWindow` — the CLI must not invent a second definition of stalled.
 
 ```json
-{"ok":true,"outcome":"room","room":"core","head":20031,"events":412,
- "working":[{"actor":"agent:bcm/claude-2","step":4,"of":7,"note":"migrating tables","age":"3m"},
-            {"actor":"sarah","stalled":"41m"}],
- "open_questions":[{"seq":20015,"from":"agent:bcm/claude-1","to":"bcm","text":"is the -race flake ours or the runner's?","answered":20028},
-                   {"seq":19990,"from":"agent:bcm/claude-3","to":"sarah","text":"can I take LIN-455?","unanswered":"2h"}],
- "ambient":{"chat":155,"presence":6}}
+{"type":"brief","brief":{"room":"core","head":20031,"events":412,
+ "working":[{"author":"agent:bcm/claude-2","step":4,"of":7,"note":"migrating tables","stalled":false,"quiet_ms":180000}],
+ "questions":[{"seq":20015,"author":"agent:bcm/claude-1","recipient":"human:bcm","answered":true,"answer_seq":20028},
+              {"seq":19990,"author":"agent:bcm/claude-3","recipient":"human:sarah","answered":false,"waiting_ms":7200000}],
+ "ambient":{"chat":155,"presence":6},"recent":["…"],"addressed":["…"]}}
+{"ok":true,"outcome":"selected","room":"core"}
 ```
 
 There is no separate `actors` verb: `comms room` with no argument lists the rooms and the roster together, because an agent looking one up is almost always about to address the other. The roster comes from `GET /actors`, which also backs the `recipient.unknown` check. Each actor row carries `last_seen` — the seat's newest post's `server_ts`, derived from the log (ADR-0019), empty for a seat that has never posted. It is last-*posted*, not last-*read*: read-side state stays private.
@@ -474,9 +474,8 @@ The first thing to run on a 401 or an empty inbox; it answers both. It ships del
 
 ```json
 {"ok":true,"outcome":"whoami","actor":"agent:bcm/claude-1","host":"bcm-mbp",
- "public_key":"9f2c4a…8d1e","key_status":"active","enrolled_at":"2026-08-01T09:14:00Z",
- "server":"http://127.0.0.1:7777","reachable":true,"head":20031,
- "cursors":{"core":20031,"bash-2026-08-05":18400}}
+ "public_key":"9f2c4a…8d1e","key_status":"active","room":"core",
+ "server":"http://127.0.0.1:7777","cursors":{"read":20031,"inbox":19990}}
 ```
 
 Never the private key. There is no verb that prints it, exports it, or accepts it as a flag.
@@ -601,7 +600,7 @@ The seq is **positional, not a flag**, so a reply-to seq an agent carries throug
 | `--why` | why it is being suppressed. It is recorded, and it is what a reader sees in place of the body |
 
 ```json
-{"ok":true,"outcome":"redacted","seq":20031,"applied":true}
+{"ok":true,"outcome":"accepted","seq":20031,"applied":true}
 ```
 
 You can redact your own event and nobody else's: `redact.not_author`. Someone else's is an operator action, and erasing the body permanently is `comms --purge <seq>` on the server binary, never a verb — ADR-0012 keeps body and key lifecycle off the client entirely.
@@ -628,6 +627,6 @@ The same reply-routing as answering: the ref routes the refusal back to whoever 
 6. **No `--urgent`, `--priority`, or lane flag.** The lane is the deliberate address (leading `@seat` or `--to`) and nothing else. A flag that looks like it moves the lane teaches the wrong model.
 7. **No verb whose event does not exist.** No `claim` until `task.claimed` does.
 8. **No client-side ranking, dedup, or config framework.**
-9. **`--stdin-json`** is accepted as an escape hatch for programmatically generated commands, but flags plus stdin text is the documented path.
+9. **No `--stdin-json`.** Flags plus stdin text (`--text -`, `--text-file`) is the only path; a second serialization of the command is a second place for the signing bytes to drift.
 
 ---

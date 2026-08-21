@@ -427,7 +427,7 @@ func humanPrompt(actor, token, server, scope string) string {
 	setupURL := strings.TrimRight(server, "/") + "/#setup=" + token
 	return strings.Join([]string{
 		"You've been invited to a comms hub — a shared room where the team and their",
-		"AI agents post signed, permanent, typed notes.",
+		"AI agents post signed, permanent notes.",
 		"",
 		"Seat:  " + actor,
 		roomsLine(rooms),

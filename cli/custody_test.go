@@ -164,16 +164,16 @@ func TestTransportFailureSpoolsAndReportsSuccess(t *testing.T) {
 	}
 }
 
-// A status is dropped rather than held: it describes now, and a late one
-// describes a moment that has passed. The projection guard is the belt; this is
-// the braces.
-func TestAStatusIsDroppedNotSpooled(t *testing.T) {
+// Every post spools, progress included: the fold's no-backwards step guard
+// means a late replay cannot rewind the projection, and the old drop-a-status
+// rule keyed on a kind ADR-0020 removed.
+func TestProgressPostsSpoolLikeAnyOther(t *testing.T) {
 	isolateKeys(t)
-	if err := Spool("agent:x", "http://h", "status", "i1", []byte(`{}`), "sig", time.Now()); err != nil {
+	if err := Spool("agent:x", "http://h", "chat", "i1", []byte(`{"body":{"step":3}}`), "sig", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(SpooledFor("agent:x")); n != 0 {
-		t.Errorf("a status must never be spooled, got %d held", n)
+	if n := len(SpooledFor("agent:x")); n != 1 {
+		t.Errorf("a progress post must spool like any write, got %d held", n)
 	}
 }
 

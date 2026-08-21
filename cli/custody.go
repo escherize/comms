@@ -109,12 +109,6 @@ func spoolDir() string { return filepath.Join(stateDir(), "spool") }
 // in existence to run the command again, and there is no --idem flag to make
 // that safe.
 func Spool(actor, server, kind, idem string, payload []byte, sig string, at time.Time) error {
-	if kind == "status" {
-		// Never spooled. A late --step 2 landing after a live --step 5 would
-		// rewind the progress projection; the server drops it now, but a status
-		// that is minutes stale is noise even when it is ordered correctly.
-		return nil
-	}
 	if err := os.MkdirAll(spoolDir(), 0o700); err != nil {
 		return err
 	}
@@ -222,18 +216,9 @@ func spoolOrFail(e *Env, c *Client, cmd map[string]any, sent Sent, cause error) 
 	kind, _ := cmd["kind"].(string)
 	idem, _ := cmd["idem"].(string)
 
-	if kind == "status" {
-		// Deliberately dropped rather than held. Progress is a fold on the
-		// current state of the work, and a status that lands minutes late says
-		// something that stopped being true before it arrived.
-		e.Out.Note("status dropped: %v", cause)
-		return e.Out.Succeed(Result{
-			Outcome: "dropped", Invariant: "transport.failed",
-			Detail: "a status is not spooled; it describes now, and a late one describes " +
-				"a moment that has passed. Post the next status when the server is back",
-		})
-	}
-
+	// Every post spools, progress included: the fold's no-backwards guard on
+	// step means a late replay cannot rewind the projection, and the old
+	// drop-a-status rule keyed on a kind that no longer exists (ADR-0020).
 	if err := Spool(c.Actor, c.Server, kind, idem, sent.Bytes, sent.Signature, time.Now()); err != nil {
 		return e.Out.Fail(ExitInternal, "internal", "spool.unwritable", err.Error())
 	}

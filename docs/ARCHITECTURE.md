@@ -45,7 +45,7 @@ flowchart LR
 - **Server**: Go — one static binary serving the datastar UI, the SSE stream, and the command API. No message broker, no separate DB server, no build step beyond `go build`. (ADR-0009 chose plain Go over [Lisette](https://lisette.run/), which earlier drafts of this document assumed; the paragraphs below survive as the reasoning that led there.)
 - **UI**: [datastar](https://data-star.dev/) (~11 KB). Rooms render server-side; new events arrive as SSE element patches. Humans and agents appear in the same room. Datastar's first-class SDK is Go, which the server imports directly.
 - **LLM calls** (dedup, summarizer bots): direct HTTPS to provider APIs from the shell — a bot is a goroutine that submits commands like anyone else.
-- **Agents**: any CLI agent (Claude Code, Codex, goose) joins through subcommands on the same binary — `enrol`, `post`, `ask`, `attach`, `read`, `inbox`, `search`, `room`, `whoami` — which hold one seat key, sign, and send inside one process (ADR-0012, M1.5). One process is a correctness constraint: the signature covers the exact posted bytes, so any boundary between computing a signature and emitting them is where a stray newline becomes `signature.invalid`. `docs/AGENT-SKILL.md` teaches the vocabulary; the core's rejections teach the schema. An MCP server is a post-M3 successor, not a parallel path — a second way in is a second place for the domain rules to drift.
+- **Agents**: any CLI agent (Claude Code, Codex, goose) joins through subcommands on the same binary — `join`, `enrol`, `post`, `ask`, `attach`, `read`, `show`, `inbox`, `watch`, `search`, `room`, `redact`, `whoami`, `doctor`, `hook` — which hold one seat key, sign, and send inside one process (ADR-0012, M1.5). One process is a correctness constraint: the signature covers the exact posted bytes, so any boundary between computing a signature and emitting them is where a stray newline becomes `signature.invalid`. `docs/AGENT-SKILL.md` teaches the vocabulary; the core's rejections teach the schema. An MCP server is a post-M3 successor, not a parallel path — a second way in is a second place for the domain rules to drift.
 
 Verdict on the stack: datastar + SSE is exactly right for a glorified chatroom, and Go gives the datastar SDK, a pure-Go SQLite driver, and single-binary deploys directly. Lisette was the original choice and ADR-0009 records why it was not taken: the exhaustive-matching it would have bought is substituted by a generated test over `AllKinds`, and the cost of a young compiler between us and the runtime was not worth it for one property.
 
@@ -104,7 +104,7 @@ Two tables. The envelope is chained and immutable; the body is a blob keyed by `
 // envelope
 {"seq": 91422, "server_ts": "...", "room": "bash-2026-08-05",
  "author": "agent:bcm/claude-1", "kind": "chat",
- "refs": ["evt_...", "LIN-123"], "idem": "client-supplied-uuid",
+ "refs": ["20015"], "idem": "content-derived-key",
  "body_hash": "...", "prev_hash": "...", "sig": "..."}
 
 // body @ seq 91422
@@ -128,7 +128,7 @@ It is **aggregated, never one event per rejection**: one `command.rejected` per 
 - **`seq` is the only ordering**, server-assigned and strictly increasing — **not contiguous**. A room's events have gaps because streams are per-room while `seq` is global, and the whole log gains a 10,000-wide gap at every restart (see Durability). SSE sets `id: {seq}` so a reconnecting client resumes from `Last-Event-ID` and never silently misses events. Chain verification follows `prev_hash`, never `seq` arithmetic: an `assert seq[i+1] == seq[i] + 1` is the natural thing to write and it would report corruption after every legitimate restore — precisely when someone is already anxious about integrity and least able to tell a false alarm from a real one.
 - **`seq` is also the fencing token.** A grant's `seq` is monotonic, server-issued, and already durable, so Dispatch needs no second counter: the settle path accepts a result only if its token equals the current grant's `seq` for that offer. One counter, one recovery rule.
 - **Server clock only.** Leases and expiry are evaluated against `server_ts`. A client timestamp is display metadata and never load-bearing; five laptops that sleep and drift cannot be trusted to agree on time.
-- **Idempotency keys.** Every command carries a client-generated `idem` UUID, unique-indexed. A timed-out-but-succeeded retry returns the original outcome — the key maps to the resulting `seq` (or to the rejection), so the replay is answered from the log rather than re-decided. Keys are retained for the life of the log; at team volume the index is trivial, and a TTL would silently reopen the duplicate window.
+- **Idempotency keys.** Every command carries an idempotency key (content-derived in the CLI, random in the browser), unique-indexed. A timed-out-but-succeeded retry returns the original outcome — the key maps to the resulting `seq` (or to the rejection), so the replay is answered from the log rather than re-decided. Keys are retained for the life of the log; at team volume the index is trivial, and a TTL would silently reopen the duplicate window.
 - **Append-only is enforced, not asserted.** `BEFORE UPDATE`/`BEFORE DELETE` triggers on the envelope table raise. The DB stays inspectable with `sqlite3` — a virtue, and also a write path, hence the triggers.
 - **The chain covers a hash of the body, not the body.** Envelope and body are separate tables: the envelope carries `seq`, `author`, `kind`, `body_hash`, `prev_hash`, `sig`; the body blob lives beside it, keyed by `seq`. This is what makes erasure possible without touching the chain (see redaction below) — dropping a body leaves every hash and signature intact and still verifiable.
 - **What the chain proves.** It detects accidental corruption, casual tampering, and third-party edits to the file. It does *not* detect a compromised server, which assigns `prev_hash` and can re-chain freely; per-event signatures survive that, ordering does not.
@@ -197,7 +197,7 @@ Five humans and fifteen agents share a room, and agents post continuously while 
 
 The mechanism is a type distinction, not a UI preference. All of it is enforced in the shell — windows and budgets need a clock, and the core has none; same placement as rejection aggregation.
 
-- **Every event is `Ambient` or `Addressed(actor)`, and the deliberate address decides which** (ADR-0016 rule 1): a post that names a seat — a leading `@seat` token or `--to` — is addressed; everything else is ambient. A mid-prose `@seat` is a mention and never moves the lane. `question` and `handoff` still require a recipient. A reply — `--reply-to` onto an addressed event — is addressed to that event's counterpart (ADR-0016 rule 2, ADR-0021): a reply to a question reaches its asker, because a reply the asker never sees defeats the question; a put-down handoff reaches whoever handed the work over. Nothing an author writes *inside* an event changes its lane.
+- **Every event is `Ambient` or `Addressed(actor)`, and the deliberate address decides which** (ADR-0016 rule 1): a post that names a seat — a leading `@seat` token or `--to` — is addressed; everything else is ambient. A mid-prose `@seat` is a mention and never moves the lane. A reply — `--reply-to` onto an addressed event — is addressed to that event's counterpart (ADR-0016 rule 2, ADR-0021): a reply to a question reaches its asker, because a reply the asker never sees defeats the question; a put-down handoff reaches whoever handed the work over. Nothing an author writes *inside* an event changes its lane.
 - **A human is reached by addressing a seat, not by pricing a judgment.** Severity is an author-set field, so routing by it would hand the addressed lane to whichever agent claims p0 most often — the exact loophole per-kind classification exists to close. Instead, an agent that needs a specific person addresses them (`--to`/`@seat`): an ask or a handoff reaches a human because being seen is what addressing is for. The volume of that lane is bounded by the same rate limiter that bounds the ambient lane, and by a skill norm — address a seat only when a person must act — rather than by a per-agent budget. (ADR-0018 cut the priced `escalate` verb and its escalation budget; the ambient/addressed split it protected survives.)
 - **Rooms render addressed events inline and collapse ambient activity** into a single live line ("14 findings, 3 agents working"). Expanding is one click; the default is quiet.
 - **The posting budget covers the ambient lane** — every post that addresses nobody. It must never touch `task.*` or `offer.*`: those are state transitions a lease is counting on, bounded by the work itself, and batching a `task.done` behind a budget window lets the lease expire on completed work so someone redoes it. Backpressure on chatter is hygiene; backpressure on acknowledgements is a correctness bug. Within its lane the budget forces batching rather than dropping — a chatty agent produces one summarizing post with details in the body, not forty separate ones. Budget breaches are windowed like `command.rejected`, one aggregate event per window, so a breach cannot become its own flood.
@@ -206,7 +206,7 @@ The mechanism is a type distinction, not a UI preference. All of it is enforced 
 
 ## Bug bash mode
 
-A room flagged `bash` gets a seeded checklist (from a Linear label or a pasted list), claim/release with a 30-minute server-clock lease, `finding` events rendered as a live table, and auto-dedup (new finding → search → "similar to evt_… by claude-2"). Humans and agents pull from the same list.
+A room flagged `bash` gets a seeded checklist (from a Linear label or a pasted list), claim/release with a 30-minute server-clock lease, findings rendered as a live table, and auto-dedup (new finding → search → "similar to evt_… by claude-2"). Humans and agents pull from the same list.
 
 ## Where the server runs
 
@@ -233,8 +233,7 @@ The log is the sole record of both team coordination and the work queue, so losi
 
 ## Open questions
 
-- Embedding model (hosted vs local) — decide after measuring real write volume, which the attention budget now bounds.
-- Whether the ambient/addressed split needs a per-person override ("always surface findings in my repos") or whether per-kind classification plus addressing-by-seat is enough.
+- Whether the ambient/addressed split needs a per-person override ("always surface findings in my repos") or whether addressing-by-seat is enough.
 - `Offer` scheduling: FIFO is probably fine for ~5 people. The failure mode to watch is starvation, not throughput.
 - Retention: decide archive policy when the log passes ~1 GB. Snapshots make this operational rather than architectural — the question is what history is worth keeping searchable, not what the fold needs.
 - Whether approval can be delegated to a standing per-repo policy once the pattern is understood, or whether per-offer human approval stays permanent.

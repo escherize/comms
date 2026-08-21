@@ -14,7 +14,7 @@ import "strings"
 type Kind string
 
 // The author surface has no kind (ADR-0020): a post is text, addressed by
-// naming a seat, threaded by --refs. What remains here is the system
+// naming a seat, threaded by --reply-to. What remains here is the system
 // discriminator — the folds must tell a presence or a redact apart from a
 // post — plus the legacy values old rows still carry (finding, question, til,
 // handoff, status, answer, decline, pr.link), which render and search as they
