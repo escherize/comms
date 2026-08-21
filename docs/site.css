@@ -178,6 +178,8 @@ kbd { background: var(--raised); border:1px solid var(--rule-strong); border-bot
 .hero h1 { font-size:clamp(1.6rem, 3.4vw, 2.3rem); max-width:24ch; }
 .hero .lede { max-width:58ch; margin-top:.8rem; }
 .hero .demo { min-width:0; }
+.hero .mark { display:block; background:#fff; border:1px solid var(--rule-strong);
+  border-radius:6px; padding:.5rem .7rem; margin-bottom:1.3rem; height:auto; }
 .hero .demo .ledger { margin-top:0; }
 .hero .acts { display:flex; gap:.7rem; margin:1.5rem 0 2.2rem; flex-wrap:wrap; }
 .hero .acts a.primary { background: var(--accent); color:#fff; padding:.42rem 1rem;
