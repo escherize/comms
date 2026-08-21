@@ -321,10 +321,10 @@ type wireCommand struct {
 	Body   map[string]any `json:"body"`
 	// ReplyTo is the reply pointer (ADR-0021). Refs is the legacy array a
 	// stale client may still send; its first element routes.
-	ReplyTo     string         `json:"reply_to"`
-	Refs        []string       `json:"refs"`
-	Idem        string         `json:"idem"`
-	Recipient   string         `json:"recipient"`
+	ReplyTo     string   `json:"reply_to"`
+	Refs        []string `json:"refs"`
+	Idem        string   `json:"idem"`
+	Recipient   string   `json:"recipient"`
 	Attachments []struct {
 		Hash  string `json:"hash"`
 		Title string `json:"title"`
