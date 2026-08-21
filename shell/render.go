@@ -110,7 +110,12 @@ func railLinks(rooms []string, current string, heads map[string]int64) string {
 	return rail.String()
 }
 
-func renderRow(r store.Record) string {
+// renderRow renders one ledger entry. seenThrough maps a recipient seat to
+// its published addressed-lane watermark (store.DeliveryFor); an addressed
+// row whose recipient's watermark has passed it renders "seen". nil means the
+// caller has no watermarks (the live-append path) and the tick appears on the
+// next page render instead.
+func renderRow(r store.Record, seenThrough map[string]int64) string {
 	classes := []string{"row"}
 	if r.Lane == core.Addressed {
 		classes = append(classes, "addressed")
@@ -169,7 +174,14 @@ func renderRow(r store.Record) string {
 
 	tick := `<div class="tick">✓</div>`
 	if r.Lane == core.Addressed {
-		tick = ""
+		tick = `<div class="tick"></div>`
+		// The delivery watermark is the addressed lane's public read state:
+		// the one thing a sender is entitled to know is whether transferred
+		// responsibility was picked up.
+		if seenThrough != nil && seenThrough[string(r.Recipient)] >= r.Seq {
+			tick = `<div class="tick seen" data-tip="delivered to ` +
+				html.EscapeString(shortActor(r.Recipient)) + `">✓✓</div>`
+		}
 	}
 
 	// The left column is the human clock, not the folio: readers asked what
@@ -250,6 +262,12 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	seenThrough := map[string]int64{}
+	if dv, err := s.st.DeliveryFor(room); err == nil {
+		for _, d := range dv {
+			seenThrough[d.Actor] = d.Through
+		}
+	}
 	// The nav lists only the reader's own rooms, so it never advertises a room
 	// the seat cannot open.
 	allRooms, _ := s.st.Rooms()
@@ -275,7 +293,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 				`<span class="cf">carried forward — expand %d entries</span></button>`+
 				`<div class="carried-body" id="%s" hidden>`, id, run, id))
 		for _, h := range hidden {
-			rows.WriteString(renderRow(h))
+			rows.WriteString(renderRow(h, seenThrough))
 		}
 		rows.WriteString(`</div>`)
 		run = 0
@@ -292,11 +310,11 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 			pending = nil
 		} else {
 			for _, p := range pending {
-				rows.WriteString(renderRow(p))
+				rows.WriteString(renderRow(p, seenThrough))
 			}
 			pending, run = nil, 0
 		}
-		rows.WriteString(renderRow(rec))
+		rows.WriteString(renderRow(rec, seenThrough))
 	}
 	// The trailing run half-collapses: the newest rows stay visible — they are
 	// what the reader opened the room for, and folding all of them left the
@@ -308,13 +326,28 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		pending = pending[cut:]
 	}
 	for _, p := range pending {
-		rows.WriteString(renderRow(p))
+		rows.WriteString(renderRow(p, seenThrough))
 	}
 	if len(recs) == 0 {
 		rows.WriteString(`<div class="empty">no entries yet — the first post starts the record</div>`)
 	}
 
 	ambient, addressed, head := tally(recs)
+
+	// Online: seats whose newest post is inside the stall window — the same
+	// clock the progress foot already uses, derived from the log, no tracking.
+	online := 0
+	if actors, err := s.st.Actors(); err == nil {
+		for _, a := range actors {
+			if a.LastSeen == "" {
+				continue
+			}
+			if at, err := time.Parse(time.RFC3339Nano, a.LastSeen); err == nil &&
+				s.now().Sub(at) < stallWindow {
+				online++
+			}
+		}
+	}
 
 	heads, _ := s.st.RoomHeads()
 	page := strings.NewReplacer(
@@ -323,6 +356,7 @@ func (s *Server) roomPage(w http.ResponseWriter, r *http.Request) {
 		"{{ROWS}}", rows.String(),
 		"{{AMBIENT}}", fmt.Sprint(ambient),
 		"{{ADDRESSED}}", fmt.Sprint(addressed),
+		"{{ONLINE}}", fmt.Sprint(online),
 		"{{HEAD}}", fmt.Sprint(head),
 		"{{PROGRESS}}", s.renderProgress(room),
 		"{{SIGNING}}", fmt.Sprint(s.RequireSignature),

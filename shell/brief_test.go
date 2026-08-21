@@ -975,3 +975,37 @@ func TestMintingIsLoopbackOrCapability(t *testing.T) {
 		}
 	}
 }
+
+// The addressed lane's public read state renders in the room (ADR-0019
+// follow-on): a delivered handoff shows a seen tick, an undelivered one shows
+// none, and the foot counts seats active inside the stall window.
+func TestRoomShowsSeenTickAndOnlineCount(t *testing.T) {
+	srv, st := newServer(t)
+	seedActor(t, st, "agent:c1")
+	seedActor(t, st, "agent:c2")
+
+	code, out := post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
+		`"body":{"text":"yours"},"recipient":"agent:c1","idem":"st1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("setup: %v", out)
+	}
+	seq := int64(out["seq"].(float64))
+	post(t, srv, `{"room":"core","author":"agent:c2","kind":"chat",`+
+		`"body":{"text":"also yours"},"recipient":"agent:c1","idem":"st2"}`)
+
+	// c1 publishes that it drained through the first event only.
+	if err := st.MarkDelivered("agent:c1", "core", seq, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	page := getPage(t, srv.URL+"/?room=core")
+	if !strings.Contains(page, `tick seen`) {
+		t.Error("a delivered addressed row must show the seen tick")
+	}
+	if strings.Count(page, `tick seen`) != 1 {
+		t.Errorf("only the delivered row is seen; got %d ticks", strings.Count(page, `tick seen`))
+	}
+	if !strings.Contains(page, "seen in last 15m <b>") {
+		t.Error("the foot must count recently active seats")
+	}
+}

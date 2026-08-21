@@ -169,6 +169,7 @@ body.railed main.ledger { grid-row: 2; grid-column: 2; }
 .about { color: var(--ink-faint); font-size:.78rem; border:1px solid var(--rule);
   padding:0 .3rem; border-radius:2px; margin-right:.35rem; }
 .tick { color: var(--ok); text-align:center; opacity:.55; }
+.tick.seen { opacity:.9; letter-spacing:-.35em; padding-right:.35em; cursor:default; }
 .body { white-space:pre-wrap; word-break:break-word; }
 .body a { color: inherit; }
 
@@ -1126,6 +1127,7 @@ finish review, the verdict, and DESIGN.md.
     <span>room <b>{{ROOM}}</b></span>
     <span>ambient <b>{{AMBIENT}}</b></span>
     <span>addressed open <b>{{ADDRESSED}}</b></span>
+    <span>seen in last 15m <b>{{ONLINE}}</b></span>
     <span>index current <b>read-your-writes</b></span>
     <span>balance at folio <b>{{HEAD}}</b></span>
     {{PROGRESS}}

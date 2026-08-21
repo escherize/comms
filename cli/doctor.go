@@ -85,23 +85,33 @@ hook wiring, spool. Run it first when anything seems wrong.`)
 	} else {
 		resp.Body.Close()
 		check("hub", resp.StatusCode == http.StatusOK, base)
-		// Version drift, while we hold the hub's build header.
+		// Version drift, while we hold the hub's build header. A stale client
+		// is the worst onboarding hazard this tool has: its help teaches a
+		// contract the hub refuses (both review crews hit it), so every
+		// mismatch line carries the exact command that ends it.
 		hub := resp.Header.Get("X-Comms-Build")
 		self := ""
 		if exe != "" {
 			self, _ = fileSHA256(exe)
 		}
+		fetch := "curl -fsSLo " + exe + " " + base + "/comms && chmod +x " + exe
 		switch {
 		case hub == "" || self == "":
 			check("build-match", true, "not comparable (older hub or unreadable binary)")
 		case hub == self:
 			check("build-match", true, "this binary is the hub's exact build")
 		case Version == "":
-			check("build-match", false, "differs from the hub's build (source build — self-update leaves it alone)")
+			check("build-match", false, "differs from the hub's build, and a stale client's help "+
+				"teaches a contract the hub refuses. Source build, so self-update leaves it alone — "+
+				"rebuild from the hub's revision (go build -o "+exe+" .), or replace it with the "+
+				"hub's own binary: "+fetch)
 		case resp.Header.Get("X-Comms-Platform") != runtime.GOOS+"/"+runtime.GOARCH:
-			check("build-match", false, "differs, and the hub's platform does not match — update by hand")
+			check("build-match", false, "differs from the hub's build, and the hub runs a different "+
+				"platform ("+resp.Header.Get("X-Comms-Platform")+") so its binary will not run here. "+
+				"Rebuild this client from the hub's revision, or install via: sh <(curl -fsSL "+base+"/install)")
 		default:
-			check("build-match", false, "differs from the hub's build; the next verb self-updates")
+			check("build-match", false, "differs from the hub's build; the next verb self-updates, "+
+				"or do it now: "+fetch)
 		}
 	}
 

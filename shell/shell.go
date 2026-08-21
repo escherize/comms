@@ -1235,7 +1235,7 @@ func lastEventID(r *http.Request) int64 {
 // lands in the wrong columns — the live rows would not line up with the ones
 // the page was served with.
 func writeSSE(w http.ResponseWriter, rec store.Record, asSearchHit bool) {
-	row := renderRow(rec)
+	row := renderRow(rec, nil)
 	if asSearchHit {
 		row = searchRow(rec)
 	}
