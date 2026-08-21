@@ -162,7 +162,7 @@ func stricter(fromServer, local int) bool {
 var verdicts = map[string]string{
 	"body.text.required":        "a post needs text; pass it as the positional argument or --text, then post again",
 	"recipient.required":        "name a recipient with --to and post again",
-	"refs.exactly_one":          "name exactly one event in --refs",
+	"refs.exactly_one":          "name the one event to act on: redact <seq>",
 	"refs.unknown":              "that event does not exist; check the seq you read",
 	"refs.target_unknown":       "no such event in this room; check the seq and the room you read it from",
 	"redact.already_redacted":   "it is already redacted; ask a human to purge it if the body must be erased",
@@ -171,7 +171,7 @@ var verdicts = map[string]string{
 	"attachment.title.required": "give the attachment a --title",
 	"room.unknown":              "check the room name; list them with: comms room",
 	"kind.unknown":              "this client sent a kind the server does not know — kinds were removed (ADR-0020). Update the client (the hub serves a matching binary at /comms), then post plain text",
-	"idem.conflict":             "this key already carries an event — if you were racing teammates to one canonical post, you lost: thread onto the seq in detail with --refs. Otherwise, do not reuse keys",
+	"idem.conflict":             "this key already carries an event — if you were racing teammates to one canonical post, you lost: reply onto the seq in detail with --reply-to. Otherwise, do not reuse keys",
 	"signature.missing":         "stop. The client did not sign. A human must look at this",
 	"signature.invalid":         "stop. The bytes signed and the bytes sent differ; this is a bug in the client, not your key",
 	"key.unknown":               "stop. This seat has no key. A human must enrol it",

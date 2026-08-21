@@ -1669,7 +1669,9 @@ const composeScript = `
       if(!m) return {error:'usage: /ask @someone <question>'};
       // A bare @name is sent as typed; the server resolves it against the
       // roster, the same way the client's --to does, so one rule serves both.
-      return {kind:'chat', body:{text:m[2]}, recipient:m[1]};
+      // Trailing punctuation is prose, not part of the seat — same trim the
+      // server's leading-@ grammar applies.
+      return {kind:'chat', body:{text:m[2]}, recipient:m[1].replace(/[.,:;]+$/,'')};
     },
     answer: function(rest){
       // Sugar for a ref'd post: no recipient and no answer kind — the core
@@ -1682,7 +1684,7 @@ const composeScript = `
     handoff: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /handoff @someone <what they are taking over>'};
-      return {kind:'chat', body:{text:m[2]}, recipient:m[1]};
+      return {kind:'chat', body:{text:m[2]}, recipient:m[1].replace(/[.,:;]+$/,'')};
     }
   };
 

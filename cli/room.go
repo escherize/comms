@@ -211,6 +211,7 @@ reaches FTS5.
   comms search "migration 0031"
   comms search "#finding flaky" --limit 5
   comms search "auth suite" --all-rooms
+  comms search -- --reply-to        # a leading-dash term goes after --
 
 Zero hits is exit 0 and says so — but "no hits" means no full-text match, which
 is weaker evidence than it looks: a synonym or a rephrasing the poster used

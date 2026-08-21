@@ -48,8 +48,8 @@ are the tenancy/scoping unit.
 
 - A post is text (ADR-0020): no author-facing kind. Lanes: ambient vs
   addressed, decided by the deliberate address (leading @seat or --to).
-  Replying is a post that --refs its target; the recipient is derived from
-  the ref (ADR-0016 rule 2).
+  Replying is --reply-to <seq>; the recipient is derived from the replied-to
+  event (ADR-0016 rule 2, surface per ADR-0021). Citations live in prose.
 - Room-scoped membership; reads always authenticated off-box; invite tokens
   are single-use and travel as #setup= links (fragment, never logged).
 - Live updates via SSE with strict no-silent-gaps resume; visible-tab-only
