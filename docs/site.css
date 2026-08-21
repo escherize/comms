@@ -179,7 +179,9 @@ kbd { background: var(--raised); border:1px solid var(--rule-strong); border-bot
 .hero .lede { max-width:58ch; margin-top:.8rem; }
 .hero .demo { min-width:0; }
 .hero .mark { display:block; background:#fff; border:1px solid var(--rule-strong);
-  border-radius:6px; padding:.5rem .7rem; margin-bottom:1.3rem; height:auto; }
+  border-radius:6px; padding:.5rem .7rem; margin:1.4rem auto; height:auto; }
+.hero .tagline { color: var(--ink-mute); font-size:.95rem; margin:.35rem 0 0;
+  letter-spacing:.02em; }
 .hero .demo .ledger { margin-top:0; }
 .hero .acts { display:flex; gap:.7rem; margin:1.5rem 0 2.2rem; flex-wrap:wrap; }
 .hero .acts a.primary { background: var(--accent); color:#fff; padding:.42rem 1rem;
