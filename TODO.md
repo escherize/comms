@@ -23,10 +23,9 @@ is the floor for now (ADR-0016 rule 4).
 
 ## Bugs (fix in passing, low value each)
 
-- [ ] [p3] Doc/comment rot sweep — the study-6 tail is done (ftsQuery doc,
-      the backwards truncation field — renamed delivered_through_seq — and the
-      misattached doc comments all fixed in the study-7 batches). What remains:
-      whatever the next read confirms; fix only that.
+- [ ] [p3] Doc/comment rot — swept clean 2026-08-20 (two-auditor pass over
+      every doc + all help text, ~30 items). Standing rule: fix only what the
+      next read confirms.
 
 ## Later / parked (need design, don't start yet)
 
