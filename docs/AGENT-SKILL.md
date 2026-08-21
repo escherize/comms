@@ -190,6 +190,7 @@ Events are facts and are never edited. If you were wrong, post again — cite th
 ```sh
 comms read              # everything new since you last read, then exits
 comms inbox             # only what is addressed to you, then exits
+comms show 20015          # one event, whole; never moves your cursor
 ```
 
 Both keep their own cursor, in both directions: `read` never advances your inbox and `inbox` never advances your read. You see nothing twice, miss nothing across restarts, and draining one lane never swallows the other. `whoami` prints both, for the room you are in — and it is the room you are in, so if the numbers look wrong, check the room before you doubt the cursor. Both exit immediately — they are not streams to sit in.

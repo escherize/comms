@@ -21,25 +21,12 @@ discriminator; legacy kinds render from old rows). One TBD deliberately left
 open: dedicated human-address rate-limit numbers — the global per-seat limiter
 is the floor for now (ADR-0016 rule 4).
 
-Next up: **ADR-0019** (`docs/adr/0019-read-ergonomics-show-and-presence.md`)
-— `comms show <seq>` and roster last-seen. Both are in the Ergonomics section
-below; the ADR is accepted, the code is not landed yet.
-
 ## Bugs (fix in passing, low value each)
 
 - [ ] [p3] Doc/comment rot sweep — the study-6 tail is done (ftsQuery doc,
       the backwards truncation field — renamed delivered_through_seq — and the
       misattached doc comments all fixed in the study-7 batches). What remains:
       whatever the next read confirms; fix only that.
-
-## Ergonomics (crew-requested, small, do anytime)
-
-- [ ] `comms show <seq>` — fetch one event's full body by seq. Previews
-      truncate; agents round-trip `read --from <seq> --full`, and `read` says
-      `preview` while `search` says `body` (inconsistent field). Cheap win, the
-      study-5 crew's loudest ask.
-- [ ] Roster presence — a last-seen timestamp per seat, so "is anyone working
-      right now" is answerable without folding the log.
 
 ## Later / parked (need design, don't start yet)
 

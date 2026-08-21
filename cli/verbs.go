@@ -42,7 +42,7 @@ func (e *Env) getenv(k string) (string, bool) {
 }
 
 // Verbs the binary answers, in help order.
-var Verbs = []string{"serve", "invite", "join", "enrol", "post", "redact", "ask", "attach", "read", "inbox", "watch", "search", "room", "whoami", "doctor", "ref", "skill", "skills", "hook"}
+var Verbs = []string{"serve", "invite", "join", "enrol", "post", "redact", "ask", "attach", "read", "show", "inbox", "watch", "search", "room", "whoami", "doctor", "ref", "skill", "skills", "hook"}
 
 // Run dispatches one verb. It returns the process exit code and never calls
 // os.Exit, so a test can assert on it.
@@ -101,6 +101,8 @@ func Run(e *Env, args []string) int {
 		return runRedact(e, args[1:])
 	case "read":
 		return runRead(e, args[1:])
+	case "show":
+		return runShow(e, args[1:])
 	case "inbox":
 		return runInbox(e, args[1:])
 	case "ask":
@@ -222,6 +224,7 @@ a put-down handoff reaches whoever handed it over. Citations go in the prose.
 
 read the room
    read        everything new since you last read, then exit
+   show        one event's full body, by seq; never moves your cursor
    inbox       only what is addressed to you, then exit
    watch       hold the addressed lane open, pipe each event to a handler
    search      full-text (FTS5), over the room you are in
@@ -1039,6 +1042,64 @@ func runAttachGet(e *Env, hash, actor string) int {
 }
 
 // ---------------------------------------------------------------- read / inbox
+
+// runShow fetches one event whole (ADR-0019): the studies' loudest ergonomic
+// ask. Previews truncate, and the long form — read --from N --full --peek —
+// reads as "replay a range," not "show me this one." A thin alias over the
+// same drain: From == To, always peek, so showing never moves a cursor.
+func runShow(e *Env, args []string) int {
+	fs, sink := newFlags("show")
+	actor := fs.String("as", "", "the seat reading")
+	room := fs.String("room", "", "room the event is in")
+	fs.Usage = func() {
+		e.Out.HelpFS(fs, `comms show <seq> [--as <seat>]
+
+Prints one event's full body by its seq. Never advances your read cursor —
+showing is not reading.
+
+  comms show 20015`)
+	}
+	positional, code, done := parsePositional(e, fs, sink, args)
+	if done {
+		return code
+	}
+	if len(positional) != 1 {
+		return e.Out.Fail(ExitUsage, "usage", "seq.required",
+			"name the one event to show: comms show <seq>")
+	}
+	seq, err := strconv.ParseInt(positional[0], 10, 64)
+	if err != nil {
+		return e.Out.Fail(ExitUsage, "usage", "seq.invalid",
+			"a seq is a number, e.g. comms show 20015; got "+positional[0])
+	}
+	seat, code := resolveSeat(e, *actor)
+	if code != 0 {
+		return code
+	}
+	if code := CheckServer(e, seat); code != 0 {
+		return code
+	}
+	inRoom := resolveRoom(seat, *room)
+
+	o := readOpts{
+		Actor: seat, Room: inRoom, Lane: LaneAll,
+		From: seq, To: seq, Full: true, Peek: true,
+	}
+	events, meta, err := drain(e, o)
+	if err != nil {
+		var rr *readRefused
+		if errors.As(err, &rr) {
+			return e.Out.Fail(ExitUsage, "usage", "room.unknown", rr.Error())
+		}
+		return e.Out.Fail(ExitSpooled, "unreachable", "transport.failed", err.Error())
+	}
+	if len(events) == 0 {
+		return e.Out.Fail(ExitRejected, "rejected", "seq.unknown",
+			"no event at "+positional[0]+" in "+inRoom+
+				"; seqs are per-hub and gappy — check the number against the read or search that printed it")
+	}
+	return emit(e, o, events, meta)
+}
 
 func runRead(e *Env, args []string) int {
 	fs, sink := newFlags("read")

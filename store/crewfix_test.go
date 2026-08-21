@@ -1,7 +1,9 @@
 package store
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/escherize/comms/core"
 )
@@ -87,5 +89,38 @@ func TestRebuildRefillsArtifactRefs(t *testing.T) {
 	}
 	if rooms := s.ArtifactRooms(hash); len(rooms) != 1 || rooms[0] != "core" {
 		t.Errorf("rebuild must refill artifact_ref, got rooms %v", rooms)
+	}
+}
+
+// The roster carries a derived last-seen (ADR-0019): the seat's newest post's
+// server_ts, empty for a seat that never posted.
+func TestRosterCarriesDerivedLastSeen(t *testing.T) {
+	s := newStore(t)
+	if err := s.RegisterKey("agent:quiet", make([]byte, 32), t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:busy", Kind: core.KindChat,
+		Body: map[string]any{"text": "here"}}, "ls1", t0); err != nil {
+		t.Fatal(err)
+	}
+	later := t0.Add(2 * time.Hour)
+	if _, err := s.Append(core.Event{Room: "core", Author: "agent:busy", Kind: core.KindChat,
+		Body: map[string]any{"text": "still here"}}, "ls2", later); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.Actors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, r := range rows {
+		seen[r.Actor] = r.LastSeen
+	}
+	if seen["agent:quiet"] != "" {
+		t.Errorf("a never-posted seat must have empty last-seen, got %q", seen["agent:quiet"])
+	}
+	if !strings.HasPrefix(seen["agent:busy"], later.UTC().Format("2006-01-02T15")) {
+		t.Errorf("last-seen must be the NEWEST post's server_ts, got %q (want ~%s)",
+			seen["agent:busy"], later.UTC().Format(time.RFC3339))
 	}
 }

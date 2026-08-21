@@ -39,8 +39,10 @@ type readOpts struct {
 	UntilRefs string
 	// From replays from a seq instead of the cursor. Replay never moves the
 	// cursor: re-reading is not reading, and a lead reconstructing an hour of
-	// its crew's findings must not lose its place doing it.
+	// its crew's findings must not lose its place doing it. To clamps the
+	// replay's far end (show reads exactly one seq: From == To).
 	From  int64
+	To    int64
 	Since time.Duration
 }
 
@@ -176,6 +178,9 @@ func drain(e *Env, o readOpts) (events []frame, meta map[string]any, err error) 
 						return events, meta, nil
 					}
 				case "event":
+					if o.To > 0 && seq > o.To {
+						return events, meta, nil
+					}
 					f := frame{Event: event, Data: d, Seq: seq}
 					if !matchesLocal(f, o) {
 						continue

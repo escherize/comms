@@ -158,6 +158,8 @@ CREATE TABLE IF NOT EXISTS room (
 );
 
 CREATE INDEX IF NOT EXISTS envelope_room_seq ON envelope(room, seq);
+-- Backs the roster's derived last-seen (ADR-0019): MAX(server_ts) per author.
+CREATE INDEX IF NOT EXISTS envelope_author_ts ON envelope(author, server_ts);
 
 -- Derived projection: lexical search, updated in the append transaction so an
 -- event is findable the moment it is posted.

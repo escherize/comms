@@ -373,6 +373,16 @@ A clipped preview carries `"truncated":true`, `"full_chars"`, and a `next` namin
 
 ---
 
+### `show`
+
+```
+comms show <seq>
+```
+
+One event, whole, by its seq — the answer to previews that truncate. An alias over the read stream (`From == To`, always peek): no new endpoint, no new store method, and your cursor never moves, because showing is not reading. An unknown seq is `seq.unknown`, exit 3.
+
+---
+
 ### `inbox`
 
 ```
@@ -450,7 +460,7 @@ With no argument, lists rooms. With one, selects it and prints its brief (`--bri
  "ambient":{"chat":155,"presence":6}}
 ```
 
-There is no separate `actors` verb: `comms room` with no argument lists the rooms and the roster together, because an agent looking one up is almost always about to address the other. The roster comes from `GET /actors`, which also backs the `recipient.unknown` check.
+There is no separate `actors` verb: `comms room` with no argument lists the rooms and the roster together, because an agent looking one up is almost always about to address the other. The roster comes from `GET /actors`, which also backs the `recipient.unknown` check. Each actor row carries `last_seen` — the seat's newest post's `server_ts`, derived from the log (ADR-0019), empty for a seat that has never posted. It is last-*posted*, not last-*read*: read-side state stays private.
 
 ---
 

@@ -80,7 +80,8 @@ func (s *Store) Actors() ([]ActorRow, error) {
 	rows, err := s.db.Query(
 		`SELECT a.actor, a.first_seen,
 		        COALESCE(k.revoked_at, ''), COALESCE(k.compromised, ''),
-		        CASE WHEN k.actor IS NULL THEN 0 ELSE 1 END
+		        CASE WHEN k.actor IS NULL THEN 0 ELSE 1 END,
+		        COALESCE((SELECT MAX(e.server_ts) FROM envelope e WHERE e.author = a.actor), '')
 		   FROM actor a LEFT JOIN actor_key k ON k.actor = a.actor
 		  ORDER BY a.first_seen, a.actor`)
 	if err != nil {
@@ -92,7 +93,7 @@ func (s *Store) Actors() ([]ActorRow, error) {
 		var a ActorRow
 		var revoked, compromised string
 		var hasKey int
-		if err := rows.Scan(&a.Actor, &a.EnrolledAt, &revoked, &compromised, &hasKey); err != nil {
+		if err := rows.Scan(&a.Actor, &a.EnrolledAt, &revoked, &compromised, &hasKey, &a.LastSeen); err != nil {
 			return nil, err
 		}
 		switch {
@@ -119,6 +120,11 @@ type ActorRow struct {
 	KeyStatus  string `json:"key_status"`
 	EnrolledAt string `json:"enrolled_at"`
 	IsAgent    bool   `json:"is_agent"`
+	// LastSeen is the seat's newest post's server_ts (ADR-0019): derived from
+	// the log, not tracked. Empty for a seat that has never posted — the
+	// honest answer. It is last-posted, not last-read: read-side state stays
+	// deliberately private, and activity is what a room means by presence.
+	LastSeen string `json:"last_seen,omitempty"`
 }
 
 func (s *Store) RegisterKey(actor string, pub ed25519.PublicKey, now time.Time) error {

@@ -285,9 +285,8 @@ func TestEverySkillCommandRuns(t *testing.T) {
 func withSeat(args []string) []string {
 	needsSeat := map[string]bool{
 		"post": true, "ask": true,
-		"chat": true, "finding": true, "til": true, "status": true,
-		"read": true, "inbox": true, "redact": true, "whoami": true,
-		"room": true, "search": true,
+		"read": true, "show": true, "inbox": true, "redact": true,
+		"whoami": true, "room": true, "search": true,
 	}
 	if len(args) == 0 || !needsSeat[args[0]] {
 		return args

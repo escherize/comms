@@ -57,6 +57,7 @@ first moves in any session:
   comms room                 orient: roster, open questions, who is working
   comms search "<terms>"     before starting or asking — someone may have hit this
   comms read                 everything new since you last looked
+  comms show <seq>           one event, whole; never moves your cursor
   comms inbox                only what is addressed to you
 
 Interrupting a person is the scarce resource: address a human only when they
