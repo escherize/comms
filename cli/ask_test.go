@@ -99,7 +99,7 @@ func TestReplyNeedsNoRecipient(t *testing.T) {
 
 	var c capture
 	code := Run(c.env(t, srv.URL, ""), []string{"post", "--as", seat,
-		"--refs", itoa(qseq), "--text", "yes, 0029 is idempotent"})
+		"--reply-to", itoa(qseq), "--text", "yes, 0029 is idempotent"})
 	if code != ExitOK {
 		t.Fatalf("reply failed: %d %s", code, c.out.String())
 	}

@@ -18,7 +18,7 @@ func TestEveryKindHasADeliberateLane(t *testing.T) {
 		cmd := Command{Room: "core", Author: "human:bcm", Kind: k, Idem: "l-" + string(k),
 			Body: map[string]any{"text": "x"}}
 		if k == KindRedact {
-			cmd.Refs = []string{"evt_1"}
+			cmd.ReplyTo = "evt_1"
 		}
 		events, rej := Decide(state, cmd)
 		if rej != nil {
@@ -46,7 +46,7 @@ func TestEveryKindIsPostable(t *testing.T) {
 				Body: map[string]any{"text": "x"}}
 
 			if k == KindRedact {
-				cmd.Refs = []string{"evt_1"}
+				cmd.ReplyTo = "evt_1"
 			}
 
 			events, rej := Decide(state, cmd)

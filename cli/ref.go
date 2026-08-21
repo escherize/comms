@@ -39,12 +39,15 @@ addressing — talking TO someone, not about them:
   an @name buried mid-prose is a mention: it highlights and may ring, but
   interrupts nobody — cite people freely, address them deliberately
 
-replying and threading:
-  to reply to ANY post, post with --refs <seq> — that is the thread
-  a ref to an addressed event routes your reply to its counterpart: answering
-  a question reaches the asker, putting down a handoff reaches its sender
+replying and citing:
+  to reply to ANY post: comms post --reply-to <seq> "..." — a reply to an
+  addressed event routes to its counterpart (answering a question reaches
+  the asker, putting down a handoff reaches its sender)
+  citing is not replying: "see 20015" or a ticket id in the prose is
+  searchable and rings nobody
   racing teammates to one canonical post? agree a natural --idem key: the
-  first writer wins, later writers are refused with the winning seq — ref it
+  first writer wins, later writers are refused with the winning seq — reply
+  onto it
 
 exit codes — they decide whether you retry:
   0 in the log   1 bug here: stop    2 fix the flag, retry   3 rejected: correct once

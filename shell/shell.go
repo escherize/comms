@@ -315,10 +315,13 @@ func readLimited(rc io.Reader, max int) ([]byte, error) {
 // wireCommand is the untrusted shape. It becomes a core.Command exactly once,
 // here, via a total function returning an error rather than a boolean.
 type wireCommand struct {
-	Room        string         `json:"room"`
-	Author      string         `json:"author"`
-	Kind        string         `json:"kind"`
-	Body        map[string]any `json:"body"`
+	Room   string         `json:"room"`
+	Author string         `json:"author"`
+	Kind   string         `json:"kind"`
+	Body   map[string]any `json:"body"`
+	// ReplyTo is the reply pointer (ADR-0021). Refs is the legacy array a
+	// stale client may still send; its first element routes.
+	ReplyTo     string         `json:"reply_to"`
 	Refs        []string       `json:"refs"`
 	Idem        string         `json:"idem"`
 	Recipient   string         `json:"recipient"`
@@ -364,12 +367,18 @@ func parseCommand(raw []byte) (core.Command, bool, error) {
 		fromText = w.Recipient != ""
 	}
 
+	// A stale client's refs array degrades to its first element: the only
+	// meaning refs ever had to a machine was the reply pointer (ADR-0021).
+	if w.ReplyTo == "" && len(w.Refs) > 0 {
+		w.ReplyTo = w.Refs[0]
+	}
+
 	return core.Command{
 		Room:        w.Room,
 		Author:      core.Actor(w.Author),
 		Kind:        core.Kind(w.Kind),
 		Body:        w.Body,
-		Refs:        w.Refs,
+		ReplyTo:     w.ReplyTo,
 		Idem:        w.Idem,
 		Recipient:   core.Actor(w.Recipient),
 		Attachments: atts,

@@ -17,7 +17,7 @@ func TestOnlyTheAuthorMayRedact(t *testing.T) {
 	}
 
 	_, rej := Decide(state, Command{Room: "core", Author: "mallory", Kind: KindRedact,
-		Body: chat("nuking"), Refs: []string{"10000"}, Idem: "m1"})
+		Body: chat("nuking"), ReplyTo: "10000", Idem: "m1"})
 	if rej == nil || rej.Invariant != "redact.not_author" {
 		t.Fatalf("another actor must not redact: got %v", rej)
 	}
@@ -26,7 +26,7 @@ func TestOnlyTheAuthorMayRedact(t *testing.T) {
 	}
 
 	events, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindRedact,
-		Body: chat("my paste"), Refs: []string{"10000"}, Idem: "b1"})
+		Body: chat("my paste"), ReplyTo: "10000", Idem: "b1"})
 	if rej != nil {
 		t.Fatalf("the author must be able to redact their own event: %v", rej)
 	}
@@ -43,7 +43,7 @@ func TestRedactMustNameARealEvent(t *testing.T) {
 		EventAuthor: func(string) (Actor, bool) { return "", false },
 	}
 	_, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindRedact,
-		Body: chat("x"), Refs: []string{"999999"}, Idem: "g1"})
+		Body: chat("x"), ReplyTo: "999999", Idem: "g1"})
 	if rej == nil || rej.Invariant != "refs.target_unknown" {
 		t.Fatalf("a redact naming nothing must be refused, got %v", rej)
 	}
@@ -69,7 +69,7 @@ func TestRedactTargetMustBeInTheSameRoom(t *testing.T) {
 		EventRoom:   func(string) (string, bool) { return "other", true },
 	}
 	_, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindRedact,
-		Body: chat("x"), Refs: []string{"10000"}, Idem: "x1"})
+		Body: chat("x"), ReplyTo: "10000", Idem: "x1"})
 	if rej == nil || rej.Invariant != "refs.target_unknown" {
 		t.Fatalf("a cross-room target must be refused, got %v", rej)
 	}
@@ -88,7 +88,7 @@ func TestRedactRefusesAnAlreadyRedactedEvent(t *testing.T) {
 		IsRedacted:  func(string) bool { return true },
 	}
 	_, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindRedact,
-		Body: chat("again"), Refs: []string{"10000"}, Idem: "x2"})
+		Body: chat("again"), ReplyTo: "10000", Idem: "x2"})
 	if rej == nil || rej.Invariant != "redact.already_redacted" {
 		t.Fatalf("a second redact must be refused, got %v", rej)
 	}
@@ -112,7 +112,7 @@ func TestFutureSeqCannotBePreRedacted(t *testing.T) {
 	}
 	// 20000 is inside the next post-restart band, and is not yet assigned.
 	_, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindRedact,
-		Body: chat("pre-emptive"), Refs: []string{"20000"}, Idem: "x3"})
+		Body: chat("pre-emptive"), ReplyTo: "20000", Idem: "x3"})
 	if rej == nil || rej.Invariant != "refs.target_unknown" {
 		t.Fatalf("an unassigned seq must not be pre-redactable, got %v", rej)
 	}

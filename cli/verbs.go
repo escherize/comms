@@ -208,17 +208,17 @@ join a room
    doctor      check the whole chain: binary, seat, hub, drift, hook, spool
 
 say something
-   post        text. A leading @seat (or --to) addresses it; --refs threads
+   post        text. A leading @seat (or --to) addresses; --reply-to replies
    ask         a question, addressed to a person who can answer it
                (searches the room first and attaches what it finds)
    attach      store long content by hash; reference it from a post
    redact      suppress a body you posted (the record remains)
 
-Replying is a post that --refs what it replies to: the recipient is derived
-from the referenced event, so a reply to a question reaches whoever asked and
-a put-down handoff reaches whoever handed it over.
+Replying is a post that names what it replies to: the recipient is derived
+from the replied-to event, so a reply to a question reaches whoever asked and
+a put-down handoff reaches whoever handed it over. Citations go in the prose.
 
-   comms post --refs <seq> "yes — 0029 is idempotent"
+   comms post --reply-to <seq> "yes — 0029 is idempotent"
 
 read the room
    read        everything new since you last read, then exit
@@ -408,7 +408,7 @@ func runPost(e *Env, args []string) int {
 	text := fs.String("text", "", "the entry")
 	about := fs.String("about", "", "what this concerns: a ticket, a file, a ref")
 	to := fs.String("to", "", "address a seat; a leading @seat in the text does the same")
-	refs := fs.String("refs", "", "comma-separated refs")
+	replyTo := fs.String("reply-to", "", "the seq this post replies to; routes to that exchange's counterpart")
 	step := fs.Int("step", 0, "progress: which step you are on")
 	of := fs.Int("of", 0, "progress: how many steps in total")
 	textFile := fs.String("text-file", "", "read the entry from a file")
@@ -424,21 +424,21 @@ func runPost(e *Env, args []string) int {
 		e.Out.HelpFS(fs, `comms post [flags] "<text>"
 
 A post is text (ADR-0020: there is no kind to choose). Name a seat to address
-it; --refs to thread and reply; everything else is optional metadata.
+it; --reply-to <seq> to reply; cite anything else in the prose.
 
   comms post --as agent:bcm/claude-1 "auth.py:88 flakes under -race #finding p2"
   comms post "@human:sarah migration is Thursday — postpone, or batch it?"
-  comms post --refs 20015 "the runner, not us — pin the image"
+  comms post --reply-to 20015 "the runner, not us — pin the image"
 
 Addressing: a LEADING @seat in the text, or --to <seat>, puts the post in the
 addressed lane in front of that seat. An @seat mid-prose is a mention and
 interrupts nobody. Want something findable later? Put a marker in the text
 (#finding, p2, a ticket id) — search is full-text.
 
---refs threads. To reply to ANY post — agree, correct, build on it — post your
-own entry with --refs <seq>. If the referenced event was addressed, your reply
+--reply-to <seq> replies (ADR-0021). If that event was addressed, your reply
 routes to its counterpart: answering a question reaches the asker, putting
-down a handoff reaches its sender.
+down a handoff reaches its sender. Citing is different from replying: "see
+20015" or a ticket id in the prose is searchable and rings nobody.
 
 --about names what the entry concerns (a ticket, a file, a ref). It is
 indexed, so "every entry about ticket 24" is a search rather than a hope.
@@ -465,7 +465,7 @@ comms attach printed, and --attach-title names them in the same order.`)
 		return usageOK(e)
 	}
 	// The entry can just be a positional argument — comms post "shipped the
-	// fix" --refs 42 — because --text on every post is ceremony agents pay
+	// fix" --reply-to 42 — because --text on every post is ceremony agents pay
 	// hundreds of times a day. stdlib flag stops at the first non-flag, so
 	// parse in rounds: flags, prose, more flags, in any order.
 	var positional []string
@@ -591,11 +591,11 @@ comms attach printed, and --attach-title names them in the same order.`)
 	if *to != "" {
 		cmd["recipient"] = *to
 	}
-	if *refs != "" {
-		cmd["refs"] = strings.Split(*refs, ",")
+	if *replyTo != "" {
+		cmd["reply_to"] = *replyTo
 	}
 	// After every distinguishing field is on the command: deriving the key
-	// before refs/recipient made two posts differing only in thread collide.
+	// before reply_to/recipient made two posts differing only in thread collide.
 	applyIdem(e, cmd, *idem)
 
 	c := NewClient(e.Server, seat, priv)
@@ -733,8 +733,8 @@ corrections are new entries.
 
   comms redact 20014 --as agent:bcm/claude-1 --why "pasted a token"
 
-The seq is positional, not a --refs string, so the refs value you are carrying
-through a piece of work cannot land here by habit. You can only redact your own
+The seq is positional, not a flag, so a reply-to seq you are carrying through
+a piece of work cannot land here by habit. You can only redact your own
 event; someone else's is an operator action.`)
 	}
 
@@ -779,8 +779,8 @@ event; someone else's is an operator action.`)
 	c := NewClient(e.Server, seat, priv)
 	cmd := map[string]any{
 		"room": inRoom, "author": seat, "kind": "redact",
-		"body": map[string]any{"text": *why},
-		"refs": []string{seqArg},
+		"body":     map[string]any{"text": *why},
+		"reply_to": seqArg,
 	}
 	applyIdem(e, cmd, *idem)
 	sent, err := c.Post(cmd)
@@ -814,7 +814,7 @@ event; someone else's is an operator action.`)
 func runAsk(e *Env, args []string) int {
 	fs, sink := newFlags("ask")
 	idem := fs.String("idem", "", "reuse a natural key you already have")
-	extraRefs := fs.String("refs", "", "comma-separated refs to carry, alongside what search attaches")
+
 	actor := fs.String("as", "", "the seat asking")
 	room := fs.String("room", "", "room to ask in")
 	to := fs.String("to", "", "who to ask")
@@ -866,27 +866,25 @@ question can tell in a glance whether it is new.`)
 		return e.Out.Fail(ExitUsage, "usage", "seat.not_enrolled", err.Error())
 	}
 
-	var refs []string
-	// Refs the caller carries through a piece of work come first: search adds
-	// context, it does not replace the thread the agent is already in.
-	for _, r := range strings.Split(*extraRefs, ",") {
-		if r = strings.TrimSpace(r); r != "" {
-			refs = append(refs, r)
-		}
-	}
+	// Prior hits ride in the prose (ADR-0021): visible to the person answering
+	// and findable by search, where a refs array was neither.
 	if !*noSearch {
 		terms := distinctiveTerms(question)
 		if len(terms) > 0 {
+			var prior []string
 			for _, h := range searchFor(e, inRoom, strings.Join(terms, " "), 3) {
-				refs = append(refs, fmt.Sprint(h.Seq))
+				prior = append(prior, fmt.Sprint(h.Seq))
 				preview, _ := h.Body["text"].(string)
 				e.Out.Line(map[string]any{
 					"type": "attached", "seq": h.Seq, "kind": h.Kind,
 					"preview": first(truncateText(preview, 100)),
-					"why":     "the room already contains this; it is attached to your question",
+					"why":     "the room already contains this; it is cited in your question",
 				})
 			}
-			e.Out.Note("searched %q, attached %d prior event(s)", strings.Join(terms, " "), len(refs))
+			if len(prior) > 0 {
+				question += " (room already has: " + strings.Join(prior, ", ") + ")"
+			}
+			e.Out.Note("searched %q, cited %d prior event(s)", strings.Join(terms, " "), len(prior))
 		}
 	}
 
@@ -894,9 +892,6 @@ question can tell in a glance whether it is new.`)
 		"room": inRoom, "author": seat, "kind": "chat",
 		"body":      map[string]any{"text": question},
 		"recipient": *to,
-	}
-	if len(refs) > 0 {
-		cmd["refs"] = refs
 	}
 	applyIdem(e, cmd, *idem)
 	return send(e, NewClient(e.Server, seat, priv), cmd, "question", nil)
@@ -1056,7 +1051,7 @@ func runRead(e *Env, args []string) int {
 	from := fs.Int64("from", 0, "replay from this seq, inclusive; does not move the cursor")
 	since := fs.Duration("since", 0, "replay the last <duration>; does not move the cursor")
 	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
-	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
+	untilReply := fs.String("reply-to", "", "with --wait, stop when a reply to this seq arrives")
 	fs.Usage = func() {
 		e.Out.HelpFS(fs, `comms read --as <seat> [--room core]
 
@@ -1113,7 +1108,7 @@ read and inbox keep separate cursors, so draining one never hides the other.`)
 		Actor: seat, Room: inRoom, Lane: LaneAll,
 		Author: *author, Full: *full,
 		From: *from, Since: *since,
-		Wait: *wait, UntilRefs: *untilRefs,
+		Wait: *wait, UntilRefs: *untilReply,
 		// A filter means the read did not see everything, so it must not claim
 		// the cursor did. A replay is not a read at all.
 		Peek: *peek || *author != "" || *from > 0 || *since > 0,
@@ -1140,9 +1135,9 @@ func runInbox(e *Env, args []string) int {
 	peek := fs.Bool("peek", false, "do not advance the cursor")
 	from := fs.Int64("from", 0, "replay from this seq, inclusive; does not move the cursor")
 	wait := fs.Duration("wait", 0, "block until something arrives, or this elapses (max 30m)")
-	untilRefs := fs.String("refs", "", "with --wait, stop when an event references this seq")
+	untilReply := fs.String("reply-to", "", "with --wait, stop when a reply to this seq arrives")
 	fs.Usage = func() {
-		e.Out.HelpFS(fs, `comms inbox --as <seat> [--wait 15m --refs <seq>]
+		e.Out.HelpFS(fs, `comms inbox --as <seat> [--wait 15m --reply-to <seq>]
 
 Prints only what is addressed to you, in full, then exits. A handoff is not
 ambient chatter: the one message you must act on is the one you must not have
@@ -1151,7 +1146,7 @@ to reconstruct. Use --compact for one line per event.
   comms inbox --as agent:bcm/claude-1
   comms inbox --as agent:bcm/claude-1 --compact
   comms inbox --as agent:bcm/claude-1 --from 50027       # re-read an assignment
-  comms inbox --as agent:bcm/claude-1 --wait 15m --refs 20014   # wait for a reply
+  comms inbox --as agent:bcm/claude-1 --wait 15m --reply-to 20014   # wait for a reply
 
 --wait blocks against a deadline and exits 0 either way. Waiting out the clock
 is the flag doing its job, not a failure — you get a handoff suggestion.`)
@@ -1180,7 +1175,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 		Actor: seat, Room: inRoom, Lane: LaneAddressed,
 		Recipient: seat, Full: !*compactOut, Peek: *peek || *from > 0,
 		From: *from,
-		Wait: *wait, UntilRefs: *untilRefs,
+		Wait: *wait, UntilRefs: *untilReply,
 	}
 	events, meta, err := drain(e, o)
 	if err != nil {
@@ -1200,7 +1195,7 @@ is the flag doing its job, not a failure — you get a handoff suggestion.`)
 			"ok": true, "outcome": "waited", "count": 0, "room": inRoom,
 			"waited": wait.String(),
 			"next": "nobody answered; hand off with: comms post --to <human> " +
-				"--text \"blocked on " + orDefault(*untilRefs, "an unanswered question") + "\"",
+				"--text \"blocked on " + orDefault(*untilReply, "an unanswered question") + "\"",
 		})
 		e.Out.Note("waited %s, nothing arrived", *wait)
 		return ExitOK

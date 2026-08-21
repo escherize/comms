@@ -462,8 +462,8 @@ func TestTheSkillTeachesReplyingBeforeItRecoversFromIt(t *testing.T) {
 	if idx := strings.Index(section, "\n## "); idx != -1 {
 		section = section[:idx]
 	}
-	if !strings.Contains(section, "--refs") {
-		t.Error("the teaching section must show --refs replying")
+	if !strings.Contains(section, "--reply-to") {
+		t.Error("the teaching section must show --reply-to replying")
 	}
 }
 
@@ -615,7 +615,7 @@ func TestRefCoversTheCard(t *testing.T) {
 		t.Fatalf("ref exited %d", code)
 	}
 	out := c.out.String()
-	for _, want := range []string{"comms post", "--refs", "@seat", "--to",
+	for _, want := range []string{"comms post", "--reply-to", "@seat", "--to",
 		"exit codes", "comms search", "--attach-hash", "retry_after_ms"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ref is missing %q", want)

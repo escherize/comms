@@ -526,8 +526,8 @@ func TestComposerAnswerCarriesRefsAndNoRecipient(t *testing.T) {
 	// The verb block, from its name to the next verb.
 	block := page[strings.Index(page, "answer: function(rest)"):]
 	block = block[:strings.Index(block, "handoff:")]
-	if !strings.Contains(block, "refs:") {
-		t.Error("/answer must send refs so the core can find the question")
+	if !strings.Contains(block, "reply_to:") {
+		t.Error("/answer must send reply_to so the core can route the reply")
 	}
 	var code string
 	for _, line := range strings.Split(block, "\n") {
@@ -538,8 +538,8 @@ func TestComposerAnswerCarriesRefsAndNoRecipient(t *testing.T) {
 	if strings.Contains(code, "recipient") {
 		t.Error("the composer must not infer a recipient; the core derives it from the question")
 	}
-	if !strings.Contains(page, "cmdObj.refs=refs") {
-		t.Error("parsed refs must reach the command, not stay in the body")
+	if !strings.Contains(page, "cmdObj.reply_to=replyTo") {
+		t.Error("the parsed reply pointer must reach the command, not stay in the body")
 	}
 }
 

@@ -231,7 +231,7 @@ func TestWaitingOutTheClockIsSuccessWithAHandoff(t *testing.T) {
 	var c capture
 	start := time.Now()
 	code := Run(c.env(t, srv.URL, ""),
-		[]string{"inbox", "--as", seat, "--wait", "2s", "--refs", "20014"})
+		[]string{"inbox", "--as", seat, "--wait", "2s", "--reply-to", "20014"})
 	if code != ExitOK {
 		t.Fatalf("waiting out the clock must be exit 0, got %d: %s", code, c.out.String())
 	}

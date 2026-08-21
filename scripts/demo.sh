@@ -49,18 +49,18 @@ say "it searches before it posts, and the room is empty, and it says so"
 "$BIN" search "cold cache" | tail -1
 
 say "it claims work, attaches the evidence, and files a finding"
-"$BIN" post --text "claiming LIN-214: flaky auth suite" --refs LIN-214 --step 0 --of 3 >/dev/null
+"$BIN" post --text "claiming LIN-214: flaky auth suite" --about LIN-214 --step 0 --of 3 >/dev/null
 HASH=$(printf 'FAIL auth_test.go:88 cold cache\n' | "$BIN" attach - --title race.md | sed -n 's/.*"hash":"\([a-f0-9]*\)".*/\1/p')
-"$BIN" post --about auth.py --refs LIN-214 \
+"$BIN" post --about auth.py \
 	--attach-hash "$HASH" --attach-title race.md \
 	--text "#finding p2 auth suite fails on cold cache: warm() runs after the first assertion" | tail -1
 
 say "it asks a person — and search attaches what the room already knows"
-"$BIN" ask --to bcm --refs LIN-214 --text "is the -race flake ours or the runner image?"
+"$BIN" ask --to bcm --text "is the -race flake ours or the runner image? (LIN-214)"
 
 say "the human answers by replying to the seq; the recipient is derived from the ref"
 Q=$("$BIN" inbox --as human:bcm --peek | sed -n 's/.*"seq":\([0-9]*\).*/\1/p' | head -1)
-"$BIN" post --as human:bcm --refs "$Q" --text "the runner — pin the image" | tail -1
+"$BIN" post --as human:bcm --reply-to "$Q" --text "the runner — pin the image" | tail -1
 
 say "the agent finds the answer addressed to it"
 "$BIN" inbox | tail -2

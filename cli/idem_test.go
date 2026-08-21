@@ -62,7 +62,7 @@ func TestADifferentCommandIsANewEvent(t *testing.T) {
 	for _, changed := range [][]string{
 		{"post", "--as", seat, "--text", "the second"},
 		{"post", "--as", seat, "--text", "the first", "--about", "run-2"},
-		{"post", "--as", seat, "--text", "the first", "--refs", "42"},
+		{"post", "--as", seat, "--text", "the first", "--reply-to", "42"},
 	} {
 		var c capture
 		if code := Run(c.env(t, srv.URL, ""), changed); code != ExitOK {

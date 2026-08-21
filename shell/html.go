@@ -1677,7 +1677,7 @@ const composeScript = `
       // and the CLI share one rule instead of each inferring their own.
       var m=rest.match(/^#?(\d+)\s+([\s\S]+)$/);
       if(!m) return {error:'usage: /answer <seq> <your answer>'};
-      return {kind:'chat', body:{text:m[2]}, refs:[m[1]]};
+      return {kind:'chat', body:{text:m[2]}, reply_to:m[1]};
     },
     handoff: function(rest){
       var m=rest.match(/^@(\S+)\s+([\s\S]+)$/);
@@ -1744,17 +1744,17 @@ const composeScript = `
       if(parsed.error){ fail(text, parsed.error); return; }
       k=parsed.kind; body=parsed.body;
       if(parsed.recipient) body.__recipient=parsed.recipient;
-      if(parsed.refs) body.__refs=parsed.refs;
+      if(parsed.reply_to) body.__reply_to=parsed.reply_to;
     } else {
       body.text=raw;
     }
     var recipient=body.__recipient||''; delete body.__recipient;
-    var refs=body.__refs||null; delete body.__refs;
+    var replyTo=body.__reply_to||''; delete body.__reply_to;
     var cmdObj={room:document.body.getAttribute('data-room'),
       author:actor, kind:k, body:body,
       idem:(crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()))};
     if(recipient) cmdObj.recipient=recipient;
-    if(refs) cmdObj.refs=refs;
+    if(replyTo) cmdObj.reply_to=replyTo;
     if(pending.length) cmdObj.attachments=pending.map(function(p){
       return {hash:p.hash, title:p.title}; });
     var payload=JSON.stringify(cmdObj);

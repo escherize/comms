@@ -52,19 +52,19 @@ func TestDecide(t *testing.T) {
 		{
 			name: "a reply refs an addressed event and routes to its counterpart",
 			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindChat, Idem: "i4",
-				Body: chat("yes"), Refs: []string{"evt_q"}},
+				Body: chat("yes"), ReplyTo: "evt_q"},
 			wantLane: Addressed,
 		},
 		{
 			name: "a reply whose ref is ambient stays ambient",
 			cmd: Command{Room: "core", Author: "agent:claude-1", Kind: KindChat, Idem: "i4b",
-				Body: chat("agreed"), Refs: []string{"evt_chat"}},
+				Body: chat("agreed"), ReplyTo: "evt_chat"},
 			wantLane: Ambient,
 		},
 		{
 			name: "redact referencing one event is accepted",
 			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindRedact, Idem: "i8",
-				Body: chat("leaked key"), Refs: []string{"evt_chat"}},
+				Body: chat("leaked key"), ReplyTo: "evt_chat"},
 			wantLane: Ambient,
 		},
 
@@ -97,9 +97,9 @@ func TestDecide(t *testing.T) {
 			wantErr: "body.text.required",
 		},
 		{
-			name: "redact must reference exactly one event",
+			name: "redact must name its target",
 			cmd: Command{Room: "core", Author: "human:bcm", Kind: KindRedact, Idem: "i17",
-				Body: chat("x"), Refs: []string{"a", "b"}},
+				Body: chat("x")},
 			wantErr: "refs.exactly_one",
 		},
 
@@ -336,7 +336,7 @@ func TestReplyRecipientIsDerivedFromTheRef(t *testing.T) {
 
 	// The addressee replies: back to whoever asked.
 	events, rej := Decide(state, Command{Room: "core", Author: "human:bcm", Kind: KindChat,
-		Body: chat("yes, safe"), Refs: []string{"evt_q"}, Idem: "a1"})
+		Body: chat("yes, safe"), ReplyTo: "evt_q", Idem: "a1"})
 	if rej != nil {
 		t.Fatalf("a reply with no recipient must derive one: %v", rej)
 	}
@@ -349,7 +349,7 @@ func TestReplyRecipientIsDerivedFromTheRef(t *testing.T) {
 
 	// The asker follows up: stays with the person they asked.
 	events, rej = Decide(state, Command{Room: "core", Author: "agent:claude-2", Kind: KindChat,
-		Body: chat("also — the backfill?"), Refs: []string{"evt_q"}, Idem: "a2"})
+		Body: chat("also — the backfill?"), ReplyTo: "evt_q", Idem: "a2"})
 	if rej != nil {
 		t.Fatal(rej)
 	}
@@ -359,7 +359,7 @@ func TestReplyRecipientIsDerivedFromTheRef(t *testing.T) {
 
 	// A third party citing the exchange interrupts nobody.
 	events, rej = Decide(state, Command{Room: "core", Author: "agent:codex-3", Kind: KindChat,
-		Body: chat("relevant to my slice too"), Refs: []string{"evt_q"}, Idem: "a3"})
+		Body: chat("relevant to my slice too"), ReplyTo: "evt_q", Idem: "a3"})
 	if rej != nil {
 		t.Fatal(rej)
 	}
@@ -377,7 +377,7 @@ func TestRedactDoesNotReplyRoute(t *testing.T) {
 		EventRecipient: func(string) (Actor, bool) { return "human:bcm", true },
 	}
 	events, rej := Decide(state, Command{Room: "core", Author: "agent:claude-2", Kind: KindRedact,
-		Body: chat("pasted a token"), Refs: []string{"77"}, Idem: "r1"})
+		Body: chat("pasted a token"), ReplyTo: "77", Idem: "r1"})
 	if rej != nil {
 		t.Fatal(rej)
 	}
@@ -435,7 +435,7 @@ func TestReplyRoutingIsRoomScoped(t *testing.T) {
 	}
 	events, rej := Decide(s, Command{
 		Room: "core", Author: "agent:a", Kind: KindChat,
-		Refs: []string{"42"}, Body: map[string]any{"text": "yes"}, Idem: "x1",
+		ReplyTo: "42", Body: map[string]any{"text": "yes"}, Idem: "x1",
 	})
 	if rej != nil {
 		t.Fatal(rej)

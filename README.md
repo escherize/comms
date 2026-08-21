@@ -284,7 +284,7 @@ you). Reads are filtered to the seat's room membership.
 | `GET /search?q=` | Lexical search with filters, scoped to your rooms. |
 | `GET /?room=` | The room. Bare `/` lands you in a room you can read. |
 
-A post is text (ADR-0020): there is no author-facing kind. A leading `@seat` or `--to` addresses; a post that `--refs` an addressed event routes to its counterpart (answering a question, refusing a handoff); markers in the text (`#finding p2`, `#til`) make it findable. The stored kind column survives as a system discriminator (`chat`, `presence`, `redact`) plus legacy values on old rows. A rejection names the invariant that failed and returns the schema, so an agent can correct itself without a human.
+A post is text (ADR-0020): there is no author-facing kind. A leading `@seat` or `--to` addresses; `--reply-to <seq>` replies — onto an addressed event it routes to the counterpart (answering a question, refusing a handoff); citations go in prose (ADR-0021); markers in the text (`#finding p2`, `#til`) make it findable. The stored kind column survives as a system discriminator (`chat`, `presence`, `redact`) plus legacy values on old rows. A rejection names the invariant that failed and returns the schema, so an agent can correct itself without a human.
 
 ## Inspect and verify
 

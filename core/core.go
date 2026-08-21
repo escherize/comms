@@ -59,14 +59,16 @@ type Attachment struct {
 }
 
 // Command is a request that may be refused. Commands never appear in the log.
+// ReplyTo is the single reply pointer (ADR-0021): the seq this post replies
+// to, or the target of a redact. Citations live in the body text, not here.
 type Command struct {
 	Room        string
 	Author      Actor
 	Kind        Kind
 	Body        map[string]any
-	Refs        []string
+	ReplyTo     string
 	Idem        string
-	Recipient   Actor // required when LaneOf(Kind) == Addressed
+	Recipient   Actor
 	Attachments []Attachment
 }
 
@@ -175,14 +177,16 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, r
 	}
 
-	// Reply-routing (ADR-0016 rule 2): a post that refs an addressed event in
-	// this room inherits its counterpart as recipient — reply to a question,
-	// the asker gets it; put down a handoff addressed to you, whoever handed
-	// it over is told. The relationship is carried by the ref alone; there is
-	// no answer/decline kind to double-encode it. A ref to an ambient event
-	// threads without addressing anyone, and a third party citing someone
-	// else's exchange interrupts nobody. A redact's ref names its target, not
-	// a conversation — suppressing your own question must not ring anyone.
+	// Reply-routing (ADR-0016 rule 2, surface per ADR-0021): a post whose
+	// --reply-to names an addressed event in this room inherits its
+	// counterpart as recipient — reply to a question, the asker gets it; put
+	// down a handoff addressed to you, whoever handed it over is told. The
+	// relationship is carried by the reply pointer alone; there is no
+	// answer/decline kind to double-encode it, and a citation in prose never
+	// routes. A reply to an ambient event threads without addressing anyone,
+	// and a third party replying onto someone else's exchange interrupts
+	// nobody. A redact's pointer names its target, not a conversation —
+	// suppressing your own question must not ring anyone.
 	if c.Recipient == "" && c.Kind != KindRedact {
 		if to, ok := replyRecipient(s, c); ok {
 			c.Recipient = to
@@ -215,12 +219,18 @@ func Decide(s State, c Command) ([]Event, *Rejection) {
 		return nil, r
 	}
 
+	// Storage keeps the refs array (legacy events carry several); a new reply
+	// stores exactly one.
+	var refs []string
+	if c.ReplyTo != "" {
+		refs = []string{c.ReplyTo}
+	}
 	return []Event{{
 		Room:        c.Room,
 		Author:      c.Author,
 		Kind:        c.Kind,
 		Body:        c.Body,
-		Refs:        c.Refs,
+		Refs:        refs,
 		Recipient:   c.Recipient,
 		Lane:        lane,
 		Attachments: c.Attachments,
@@ -263,13 +273,13 @@ func checkRedaction(s State, c Command) *Rejection {
 	if s.EventAuthor == nil {
 		return nil
 	}
-	author, ok := s.EventAuthor(c.Refs[0])
+	author, ok := s.EventAuthor(c.ReplyTo)
 	if !ok {
 		// A redact naming nothing must not report success. Silently accepting
 		// it tells an agent the secret is gone when it is still readable. A seq
 		// not yet assigned lands here too, so nothing can be pre-redacted.
 		return &Rejection{"refs.target_unknown",
-			"no event at " + c.Refs[0] + "; a redact that names nothing would report success and do nothing"}
+			"no event at " + c.ReplyTo + "; a redact that names nothing would report success and do nothing"}
 	}
 
 	// The target must live in the room the redact is posted to, so the record
@@ -278,17 +288,17 @@ func checkRedaction(s State, c Command) *Rejection {
 	// routing applies; naming the other room here let any member of this room
 	// map a guessed seq to the room that holds it.
 	if s.EventRoom != nil {
-		if room, ok := s.EventRoom(c.Refs[0]); ok && room != c.Room {
+		if room, ok := s.EventRoom(c.ReplyTo); ok && room != c.Room {
 			return &Rejection{"refs.target_unknown",
-				"no event at " + c.Refs[0] + " in this room; a redact that names nothing would report success and do nothing"}
+				"no event at " + c.ReplyTo + " in this room; a redact that names nothing would report success and do nothing"}
 		}
 	}
 
 	// Re-redacting is refused rather than absorbed: silently accepting it would
 	// report success for an act that changed nothing.
-	if s.IsRedacted != nil && s.IsRedacted(c.Refs[0]) {
+	if s.IsRedacted != nil && s.IsRedacted(c.ReplyTo) {
 		return &Rejection{"redact.already_redacted",
-			"event " + c.Refs[0] + " is already redacted and nothing changed; erasing the " +
+			"event " + c.ReplyTo + " is already redacted and nothing changed; erasing the " +
 				"body permanently is an operator action on the hub (--purge), not a command"}
 	}
 	if author != c.Author {
@@ -337,43 +347,42 @@ func checkBody(c Command) *Rejection {
 				"nothing was posted: a post needs text — pass it as the positional argument or --text"}
 		}
 	case KindRedact:
-		if len(c.Refs) != 1 {
+		if c.ReplyTo == "" {
 			return &Rejection{"refs.exactly_one",
-				"redact must reference exactly one event"}
+				"redact must name exactly one event to suppress"}
 		}
 	}
 	return nil
 }
 
-// replyRecipient derives who a reply routes to, from its refs alone. A
-// referenced event that was addressed carries the exchange's two seats; the
+// replyRecipient derives who a reply routes to, from its reply pointer alone.
+// A replied-to event that was addressed carries the exchange's two seats; the
 // counterpart of whoever is posting now is the one waiting on the reply. The
-// ref must live in this room — deriving cross-room addressed seats that never
-// spoke here, the same existence-hiding rule redaction applies.
+// pointer must name an event in this room — deriving cross-room addressed
+// seats that never spoke here, the same existence-hiding rule redaction
+// applies.
 func replyRecipient(s State, c Command) (Actor, bool) {
-	if s.EventAuthor == nil || s.EventRecipient == nil {
+	if c.ReplyTo == "" || s.EventAuthor == nil || s.EventRecipient == nil {
 		return "", false
 	}
-	for _, ref := range c.Refs {
-		if s.EventRoom != nil {
-			if room, ok := s.EventRoom(ref); ok && room != c.Room {
-				continue
-			}
+	if s.EventRoom != nil {
+		if room, ok := s.EventRoom(c.ReplyTo); ok && room != c.Room {
+			return "", false
 		}
-		to, ok := s.EventRecipient(ref)
-		if !ok || to == "" {
-			continue // ambient ref: it threads, it never addresses
-		}
-		author, ok := s.EventAuthor(ref)
-		if !ok || author == "" {
-			continue
-		}
-		switch c.Author {
-		case to:
-			return author, true // addressed to you → back to whoever sent it
-		case author:
-			return to, true // your own ask → the follow-up stays with them
-		}
+	}
+	to, ok := s.EventRecipient(c.ReplyTo)
+	if !ok || to == "" {
+		return "", false // an ambient target: it threads, it never addresses
+	}
+	author, ok := s.EventAuthor(c.ReplyTo)
+	if !ok || author == "" {
+		return "", false
+	}
+	switch c.Author {
+	case to:
+		return author, true // addressed to you → back to whoever sent it
+	case author:
+		return to, true // your own ask → the follow-up stays with them
 	}
 	return "", false
 }
