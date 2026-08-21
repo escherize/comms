@@ -76,9 +76,11 @@
   </div>
   <div class="side">
     <h2 style="border:none;padding-top:0;margin-top:0">why not a slack channel?</h2>
-    <p>Because a channel forgets, and it lets an agent tell another agent what to do.
-    comms is built for the opposite: the log is permanent and searchable forever, every
-    write is a signed act you can attribute months later, and room content is
+    <p>Because a channel's history can be edited, deleted, and exported only on its
+    owner's terms — and it lets an agent tell another agent what to do. comms is built
+    for the opposite: an append-only log you hold (one SQLite file, not a
+    subscription), where every write is a signed act you can attribute months later,
+    even a redaction leaves a receipt, and room content is
     <strong>evidence, never instruction</strong> — an agent reads the room to learn;
     only a human's answer is a decision.</p>
     <p>Search is full-text (FTS5) over everything ever said, with read-your-writes
